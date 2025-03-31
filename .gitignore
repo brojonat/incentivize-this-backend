@@ -1,0 +1,30 @@
+# Binaries
+/cli
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Go specific
+*.test
+*.out
+/vendor/
+
+# Logs
+*.log
