@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/brojonat/reddit-bounty-board/http/api"
-	"github.com/brojonat/server-tools/stools"
+	"github.com/brojonat/reddit-bounty-board/internal/stools"
 	"go.temporal.io/sdk/client"
 )
 
