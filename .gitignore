@@ -27,4 +27,4 @@ Thumbs.db
 /vendor/
 
 # Logs
-*.log
+*.logbin/
