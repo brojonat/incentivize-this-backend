@@ -110,11 +110,11 @@ Options:
     {
       "description": "Mention Koolaid in a positive light",
       "amount": 0.5,
-      "requirements": {
-        "keywords": ["Koolaid"],
-        "sentiment": "positive",
-        "minWordCount": 50
-      }
+      "requirements": [
+        "Content must include the keyword 'Koolaid'",
+        "Content must have a positive sentiment",
+        "Content must have at least 50 words"
+      ]
     }
     ```
 
@@ -156,12 +156,13 @@ The backend is an HTTP server written in Go that provides the API endpoints and 
 
 ## Environment Variables Reference
 
-| Variable          | Description                  | Used By      | Default               |
-| ----------------- | ---------------------------- | ------------ | --------------------- |
-| SERVER_SECRET_KEY | Server's secret key for auth | All commands | None                  |
-| SERVER_ENDPOINT   | HTTP server endpoint         | CLI commands | http://localhost:8080 |
-| SERVER_PORT       | Port for HTTP server         | http-server  | 8080                  |
-| AUTH_TOKEN        | Bearer token for auth        | CLI commands | None                  |
+| Variable               | Description                                     | Used By      | Default               |
+| ---------------------- | ----------------------------------------------- | ------------ | --------------------- |
+| SERVER_SECRET_KEY      | Server's secret key for auth                    | All commands | None                  |
+| SERVER_ENDPOINT        | HTTP server endpoint                            | CLI commands | http://localhost:8080 |
+| SERVER_PORT            | Port for HTTP server                            | http-server  | 8080                  |
+| AUTH_TOKEN             | Bearer token for auth                           | CLI commands | None                  |
+| USER_REVENUE_SHARE_PCT | Percentage of advertising revenue paid to users | http-server  | 50                    |
 
 ## Development Setup
 

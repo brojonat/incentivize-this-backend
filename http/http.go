@@ -5,12 +5,37 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/brojonat/reddit-bounty-board/http/api"
 	"github.com/brojonat/reddit-bounty-board/internal/stools"
 	"go.temporal.io/sdk/client"
 )
+
+// PayoutCalculator is a function that calculates the available payout amount
+// given the total bounty amount specified by an advertiser
+type PayoutCalculator func(totalAmount float64) float64
+
+// DefaultPayoutCalculator creates a calculator that applies a percentage-based revenue share
+func DefaultPayoutCalculator() PayoutCalculator {
+	// Parse user revenue share percentage from environment variable (default to 50%)
+	userRevSharePct := 50.0
+	if pctStr := os.Getenv("USER_REVENUE_SHARE_PCT"); pctStr != "" {
+		if pct, err := strconv.ParseFloat(pctStr, 64); err == nil {
+			// Ensure the percentage is within bounds
+			if pct >= 0 && pct <= 100 {
+				userRevSharePct = pct
+			}
+		}
+	}
+
+	// Return a calculator function that applies the percentage
+	return func(totalAmount float64) float64 {
+		return totalAmount * (userRevSharePct / 100.0)
+	}
+}
 
 func writeOK(w http.ResponseWriter) {
 	resp := api.DefaultJSONResponse{Message: "ok"}
@@ -70,7 +95,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		atLeastOneAuth(basicAuthorizerCtxSetEmail(getSecretKey)),
 	))
 
-	// Add bounty routes
+	// Add bounty routes with explicit dependencies
 	mux.HandleFunc("POST /bounties/pay", stools.AdaptHandler(
 		handlePayBounty(logger, tc),
 		withLogging(logger),
@@ -84,7 +109,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	))
 
 	mux.HandleFunc("POST /bounties", stools.AdaptHandler(
-		handleCreateBounty(logger, tc),
+		handleCreateBounty(logger, tc, DefaultPayoutCalculator()),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
 	))

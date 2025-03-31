@@ -139,7 +139,7 @@ func handleReturnBountyToOwner(l *slog.Logger, tc client.Client) http.HandlerFun
 }
 
 // handleCreateBounty handles the creation of a new bounty and starts a workflow
-func handleCreateBounty(l *slog.Logger, tc client.Client) http.HandlerFunc {
+func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator PayoutCalculator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req CreateBountyRequest
 		if err := stools.DecodeJSONBody(r, &req); err != nil {
@@ -173,13 +173,26 @@ func handleCreateBounty(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			return
 		}
 
+		// Apply revenue sharing using the calculator function
+		userBountyPerPost := payoutCalculator(req.BountyPerPost)
+		userTotalBounty := payoutCalculator(req.TotalBounty)
+
+		// Log the revenue sharing calculation
+		logger.Info("Applied revenue sharing to bounty",
+			"original_bounty_per_post", req.BountyPerPost,
+			"original_total_bounty", req.TotalBounty,
+			"user_bounty_per_post", userBountyPerPost,
+			"user_total_bounty", userTotalBounty,
+			"platform_fee_per_post", req.BountyPerPost-userBountyPerPost,
+			"platform_fee_total", req.TotalBounty-userTotalBounty)
+
 		// Convert amounts to USDCAmount
-		bountyPerPost, err := solana.NewUSDCAmount(req.BountyPerPost)
+		bountyPerPost, err := solana.NewUSDCAmount(userBountyPerPost)
 		if err != nil {
 			writeBadRequestError(w, fmt.Errorf("invalid bounty_per_post amount: %w", err))
 			return
 		}
-		totalBounty, err := solana.NewUSDCAmount(req.TotalBounty)
+		totalBounty, err := solana.NewUSDCAmount(userTotalBounty)
 		if err != nil {
 			writeBadRequestError(w, fmt.Errorf("invalid total_bounty amount: %w", err))
 			return
@@ -206,7 +219,7 @@ func handleCreateBounty(l *slog.Logger, tc client.Client) http.HandlerFunc {
 
 		we, err := tc.ExecuteWorkflow(r.Context(), workflowOptions, rbb.BountyAssessmentWorkflow, input)
 		if err != nil {
-			writeInternalError(l, w, fmt.Errorf("failed to start workflow: %w", err))
+			writeInternalError(logger, w, fmt.Errorf("failed to start workflow: %w", err))
 			return
 		}
 
