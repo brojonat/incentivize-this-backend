@@ -7,14 +7,28 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
+	"encoding/base64"
+
 	"github.com/brojonat/reddit-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
-	"github.com/jmespath/go-jmespath"
 	"go.temporal.io/sdk/activity"
+)
+
+// PlatformType represents the type of platform
+type PlatformType string
+
+const (
+	// PlatformReddit represents the Reddit platform
+	PlatformReddit PlatformType = "reddit"
+	// PlatformYouTube represents the YouTube platform
+	PlatformYouTube PlatformType = "youtube"
+	// PlatformYelp represents the Yelp platform
+	PlatformYelp PlatformType = "yelp"
+	// PlatformGoogle represents the Google platform
+	PlatformGoogle PlatformType = "google"
 )
 
 // Activities holds all activity implementations and their dependencies
@@ -24,64 +38,66 @@ type Activities struct {
 	serverURL    string
 	authToken    string
 	redditDeps   RedditDependencies
+	youtubeDeps  YouTubeDependencies
+	yelpDeps     YelpDependencies
+	googleDeps   GoogleDependencies
 	llmDeps      LLMDependencies
 }
 
 // NewActivities creates a new Activities instance
-func NewActivities(config solana.SolanaConfig, serverURL, authToken string, redditDeps RedditDependencies, llmDeps LLMDependencies) *Activities {
+func NewActivities(config solana.SolanaConfig, serverURL, authToken string,
+	redditDeps RedditDependencies,
+	youtubeDeps YouTubeDependencies,
+	yelpDeps YelpDependencies,
+	googleDeps GoogleDependencies,
+	llmDeps LLMDependencies) *Activities {
 	return &Activities{
 		solanaConfig: config,
 		httpClient:   &http.Client{Timeout: 10 * time.Second},
 		serverURL:    serverURL,
 		authToken:    authToken,
 		redditDeps:   redditDeps,
+		youtubeDeps:  youtubeDeps,
+		yelpDeps:     yelpDeps,
+		googleDeps:   googleDeps,
 		llmDeps:      llmDeps,
 	}
 }
 
 // PullRedditContent pulls content from Reddit
-func (a *Activities) PullRedditContent(ctx context.Context, contentID string) (string, error) {
-	logger := activity.GetLogger(ctx)
-	logger.Info("Pulling Reddit content", "content_id", contentID)
+func (a *Activities) PullRedditContent(contentID string) (string, error) {
+	// Create HTTP client for this activity
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
 
-	// Set HTTP client
-	a.redditDeps.Client = a.httpClient
+	// Get auth token if needed
+	if a.redditDeps.RedditAuthToken == "" || time.Now().After(a.redditDeps.RedditAuthTokenExp) {
+		token, err := getRedditToken(client, a.redditDeps)
+		if err != nil {
+			return "", fmt.Errorf("failed to get Reddit token: %w", err)
+		}
+		a.redditDeps.RedditAuthToken = token
+		a.redditDeps.RedditAuthTokenExp = time.Now().Add(1 * time.Hour)
+	}
 
-	isComment := strings.HasPrefix(contentID, "t1_")
-
-	// Build URL based on content type
-	url := fmt.Sprintf("https://oauth.reddit.com/api/info?id=%s", contentID)
-
-	// Create request to Reddit's API
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	// Create request to Reddit API
+	url := fmt.Sprintf("https://oauth.reddit.com/api/info.json?id=%s", contentID)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set required headers
+	// Set headers
 	req.Header.Set("User-Agent", a.redditDeps.UserAgent)
+	req.Header.Set("Authorization", "Bearer "+a.redditDeps.RedditAuthToken)
 
-	// Add authentication if credentials are provided
-	if a.redditDeps.Username != "" && a.redditDeps.Password != "" && a.redditDeps.ClientID != "" && a.redditDeps.ClientSecret != "" {
-		// Ensure we have a valid token with at least 5 minutes remaining
-		if err := a.redditDeps.ensureValidRedditToken(5 * time.Minute); err != nil {
-			return "", fmt.Errorf("failed to ensure valid Reddit token: %w", err)
-		}
-		req.Header.Set("Authorization", "bearer "+a.redditDeps.RedditAuthToken)
-	}
-
-	// Send request
-	resp, err := a.redditDeps.Client.Do(req)
+	// Make request
+	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to fetch content: %w", err)
+		return "", fmt.Errorf("failed to make request: %w", err)
 	}
 	defer resp.Body.Close()
-
-	// Check response status
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("reddit API returned status %d: %s", resp.StatusCode, string(body))
-	}
 
 	// Read response body
 	body, err := io.ReadAll(resp.Body)
@@ -89,45 +105,50 @@ func (a *Activities) PullRedditContent(ctx context.Context, contentID string) (s
 		return "", fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	// Parse JSON
-	var data interface{}
-	if err := json.Unmarshal(body, &data); err != nil {
-		return "", fmt.Errorf("failed to parse JSON response: %w", err)
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Reddit API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Extract content using JMESPath
-	var content string
+	// Parse response
+	var result struct {
+		Data struct {
+			Children []struct {
+				Data struct {
+					Title     string `json:"title"`
+					Selftext  string `json:"selftext"`
+					URL       string `json:"url"`
+					Body      string `json:"body"`      // For comments
+					Author    string `json:"author"`    // For both posts and comments
+					Subreddit string `json:"subreddit"` // For both posts and comments
+				} `json:"data"`
+			} `json:"children"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w (body: %s)", err, string(body))
+	}
+
+	if len(result.Data.Children) == 0 {
+		return "", fmt.Errorf("no content found for ID %s", contentID)
+	}
+
+	content := result.Data.Children[0].Data
+	isComment := strings.HasPrefix(contentID, "t1_")
+
 	if isComment {
-		// For comments, extract the body field
-		expr := "data.children[0].data.body"
-		result, err := jmespath.Search(expr, data)
-		if err != nil {
-			return "", fmt.Errorf("failed to extract comment body: %w", err)
-		}
-		content, ok := result.(string)
-		if !ok {
-			return "", fmt.Errorf("comment body is not a string")
-		}
-		if content == "" {
-			return "", fmt.Errorf("empty comment body")
-		}
-		return content, nil
+		return fmt.Sprintf("Comment by u/%s in r/%s:\n%s", content.Author, content.Subreddit, content.Body), nil
 	}
 
-	// For posts, extract the selftext field
-	expr := "data.children[0].data.selftext"
-	result, err := jmespath.Search(expr, data)
-	if err != nil {
-		return "", fmt.Errorf("failed to extract post text: %w", err)
+	// For posts
+	if content.Selftext != "" {
+		return fmt.Sprintf("Post by u/%s in r/%s:\nTitle: %s\n\n%s",
+			content.Author, content.Subreddit, content.Title, content.Selftext), nil
 	}
-	content, ok := result.(string)
-	if !ok {
-		return "", fmt.Errorf("post text is not a string")
-	}
-	if content == "" {
-		return "", fmt.Errorf("empty post text")
-	}
-	return content, nil
+
+	return fmt.Sprintf("Post by u/%s in r/%s:\nTitle: %s\nURL: %s",
+		content.Author, content.Subreddit, content.Title, content.URL), nil
 }
 
 // CheckContentRequirements checks if the content satisfies the requirements
@@ -363,7 +384,6 @@ func (a *Activities) ReturnBountyToOwner(ctx context.Context, ownerID string, am
 
 // RedditDependencies holds the dependencies for Reddit-related activities
 type RedditDependencies struct {
-	Client             *http.Client
 	UserAgent          string    // Reddit requires a user agent string
 	Username           string    // Reddit username for authentication
 	Password           string    // Reddit password for authentication
@@ -373,51 +393,143 @@ type RedditDependencies struct {
 	RedditAuthTokenExp time.Time // When the auth token expires
 }
 
-// ensureValidRedditToken ensures we have a valid Reddit token that won't expire within minDur
-func (deps *RedditDependencies) ensureValidRedditToken(minDur time.Duration) error {
-	// short circuit early if the token doesn't need to be refreshed
-	if time.Until(deps.RedditAuthTokenExp) > minDur {
-		return nil
+// ensureValidRedditToken ensures the Reddit auth token is valid for at least the specified duration
+func (deps *RedditDependencies) ensureValidRedditToken(minRemaining time.Duration) error {
+	if deps.RedditAuthToken == "" || time.Now().Add(minRemaining).After(deps.RedditAuthTokenExp) {
+		client := &http.Client{
+			Timeout: 10 * time.Second,
+		}
+		token, err := getRedditToken(client, *deps)
+		if err != nil {
+			return fmt.Errorf("failed to get Reddit token: %w", err)
+		}
+		deps.RedditAuthToken = token
+		deps.RedditAuthTokenExp = time.Now().Add(1 * time.Hour)
+	}
+	return nil
+}
+
+// YouTubeDependencies holds the dependencies for YouTube-related activities
+type YouTubeDependencies struct {
+	Client          *http.Client
+	APIKey          string
+	ApplicationName string
+	MaxResults      int64
+}
+
+// Type returns the platform type for YouTubeDependencies
+func (deps YouTubeDependencies) Type() PlatformType {
+	return PlatformYouTube
+}
+
+// PullYouTubeContent pulls content from YouTube
+func (a *Activities) PullYouTubeContent(ctx context.Context, contentID string) (string, error) {
+	logger := activity.GetLogger(ctx)
+	logger.Info("Pulling YouTube content", "content_id", contentID)
+
+	// Set HTTP client
+	a.youtubeDeps.Client = a.httpClient
+
+	// TODO: implement YouTube content fetching
+	// This would involve using the YouTube API to fetch video descriptions, comments, etc.
+	// Example implementation would authenticate with the YouTube API and fetch content
+
+	return "", fmt.Errorf("YouTube content fetching not yet implemented")
+}
+
+// YelpDependencies holds the dependencies for Yelp-related activities
+type YelpDependencies struct {
+	Client   *http.Client
+	APIKey   string
+	ClientID string
+}
+
+// Type returns the platform type for YelpDependencies
+func (deps YelpDependencies) Type() PlatformType {
+	return PlatformYelp
+}
+
+// PullYelpContent pulls content from Yelp
+func (a *Activities) PullYelpContent(ctx context.Context, contentID string) (string, error) {
+	logger := activity.GetLogger(ctx)
+	logger.Info("Pulling Yelp content", "content_id", contentID)
+
+	// Set HTTP client
+	a.yelpDeps.Client = a.httpClient
+
+	// TODO: implement Yelp content fetching
+	// This would involve using the Yelp Fusion API to fetch business reviews, etc.
+	// Example implementation would authenticate with the Yelp API and fetch content
+
+	return "", fmt.Errorf("Yelp content fetching not yet implemented")
+}
+
+// GoogleDependencies holds the dependencies for Google-related activities
+type GoogleDependencies struct {
+	Client         *http.Client
+	APIKey         string
+	SearchEngineID string
+}
+
+// Type returns the platform type for GoogleDependencies
+func (deps GoogleDependencies) Type() PlatformType {
+	return PlatformGoogle
+}
+
+// PullGoogleContent pulls content from Google
+func (a *Activities) PullGoogleContent(ctx context.Context, contentID string) (string, error) {
+	logger := activity.GetLogger(ctx)
+	logger.Info("Pulling Google content", "content_id", contentID)
+
+	// Set HTTP client
+	a.googleDeps.Client = a.httpClient
+
+	// TODO: implement Google content fetching
+	// This would involve using the Google Custom Search API or other Google APIs
+	// Example implementation would authenticate with the Google API and fetch content
+
+	return "", fmt.Errorf("Google content fetching not yet implemented")
+}
+
+// getRedditToken obtains an authentication token from Reddit
+func getRedditToken(client *http.Client, deps RedditDependencies) (string, error) {
+	// Create request to Reddit's token endpoint
+	req, err := http.NewRequest("POST", "https://www.reddit.com/api/v1/access_token", strings.NewReader("grant_type=password"))
+	if err != nil {
+		return "", fmt.Errorf("failed to create token request: %w", err)
 	}
 
-	// otherwise hit the reddit API for a new token
-	formData := url.Values{
-		"grant_type": {"password"},
-		"username":   {deps.Username},
-		"password":   {deps.Password},
+	// Set headers
+	req.Header.Set("User-Agent", deps.UserAgent)
+	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(deps.ClientID+":"+deps.ClientSecret)))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	// Add username and password to request body
+	req.PostForm = map[string][]string{
+		"username": {deps.Username},
+		"password": {deps.Password},
 	}
-	r, err := http.NewRequest(http.MethodPost, "https://www.reddit.com/api/v1/access_token", strings.NewReader(formData.Encode()))
+
+	// Make request
+	resp, err := client.Do(req)
 	if err != nil {
-		return err
-	}
-	r.SetBasicAuth(deps.ClientID, deps.ClientSecret)
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	r.Header.Set("User-Agent", deps.UserAgent)
-	resp, err := deps.Client.Do(r)
-	if err != nil {
-		return err
+		return "", fmt.Errorf("failed to make token request: %w", err)
 	}
 	defer resp.Body.Close()
-	var body struct {
-		AccessToken string `json:"access_token"`
-		ExpiresIn   int    `json:"expires_in"`
-		Scope       string `json:"scope"`
-		TokenType   string `json:"token_type"`
-	}
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("bad response %d code for getting reddit auth token: %s", resp.StatusCode, string(b))
-	}
-	err = json.Unmarshal(b, &body)
-	if err != nil {
-		return err
+
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Reddit token API returned status %d", resp.StatusCode)
 	}
 
-	deps.RedditAuthToken = body.AccessToken
-	dur := time.Duration(body.ExpiresIn * int(time.Second))
-	deps.RedditAuthTokenExp = time.Now().Add(dur)
-	return nil
+	// Parse response
+	var result struct {
+		AccessToken string `json:"access_token"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode token response: %w", err)
+	}
+
+	return result.AccessToken, nil
 }

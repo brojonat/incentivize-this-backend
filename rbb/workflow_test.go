@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/workflow"
 )
 
 // mockLLMProvider implements the LLMProvider interface for testing
@@ -42,11 +43,28 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	env.RegisterActivity(activities.PayBounty)
 	env.RegisterActivity(activities.ReturnBountyToOwner)
 
+	// Mock the child workflow for pulling content
+	env.OnWorkflow(PullContentWorkflow, mock.Anything, mock.MatchedBy(func(input PullContentWorkflowInput) bool {
+		return input.ContentID == "test-content-1"
+	})).Return("test-content-1", nil).Once()
+
+	env.OnWorkflow(PullContentWorkflow, mock.Anything, mock.MatchedBy(func(input PullContentWorkflowInput) bool {
+		return input.ContentID == "test-content-2"
+	})).Return("test-content-2", nil).Once()
+
 	// Create test input
 	bountyPerPost, err := solana.NewUSDCAmount(10)
 	require.NoError(t, err)
 	totalBounty, err := solana.NewUSDCAmount(20)
 	require.NoError(t, err)
+
+	// Create Reddit dependencies for testing
+	redditDeps := RedditDependencies{
+		UserAgent: "test-agent",
+		Username:  "test-user",
+		Password:  "test-pass",
+		ClientID:  "test-client",
+	}
 
 	input := BountyAssessmentWorkflowInput{
 		RequirementsDescription: "Test requirements",
@@ -57,6 +75,8 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 		USDCAccount:             "test-usdc",
 		ServerURL:               "http://test-server",
 		AuthToken:               "test-token",
+		PlatformType:            PlatformReddit,
+		PlatformDependencies:    redditDeps,
 		Timeout:                 5 * time.Minute,
 	}
 
@@ -83,15 +103,17 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	env.RegisterDelayedCallback(func() {
 		// Send signals in sequence
 		env.SignalWorkflow("assessment", BountyAssessmentSignal{
-			RedditContentID: "test-content-1",
-			UserID:          "test-user-1",
+			ContentID: "test-content-1",
+			UserID:    "test-user-1",
+			Platform:  PlatformReddit,
 		})
 	}, 0)
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow("assessment", BountyAssessmentSignal{
-			RedditContentID: "test-content-2",
-			UserID:          "test-user-2",
+			ContentID: "test-content-2",
+			UserID:    "test-user-2",
+			Platform:  PlatformReddit,
 		})
 	}, time.Second)
 
@@ -133,6 +155,14 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	totalBounty, err := solana.NewUSDCAmount(20)
 	require.NoError(t, err)
 
+	// Create Reddit dependencies for testing
+	redditDeps := RedditDependencies{
+		UserAgent: "test-agent",
+		Username:  "test-user",
+		Password:  "test-pass",
+		ClientID:  "test-client",
+	}
+
 	input := BountyAssessmentWorkflowInput{
 		RequirementsDescription: "Test requirements",
 		BountyPerPost:           bountyPerPost,
@@ -142,6 +172,8 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 		USDCAccount:             "test-usdc",
 		ServerURL:               "http://test-server",
 		AuthToken:               "test-token",
+		PlatformType:            PlatformReddit,
+		PlatformDependencies:    redditDeps,
 		Timeout:                 1 * time.Second, // Very short timeout for testing
 	}
 
@@ -160,42 +192,82 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	env.AssertExpectations(t)
 }
 
-func TestPullRedditContentWorkflow(t *testing.T) {
-	testSuite := &testsuite.WorkflowTestSuite{}
-	env := testSuite.NewTestWorkflowEnvironment()
+func TestPlatformActivities(t *testing.T) {
+	// Test Reddit content pulling
+	t.Run("PullRedditContent", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
 
-	// Create activities instance
-	activities := &Activities{}
+		// Create activities instance
+		activities := &Activities{}
 
-	// Register activity
-	env.RegisterActivity(activities.PullRedditContent)
+		// Register activity
+		env.RegisterActivity(activities.PullRedditContent)
 
-	// Mock activity
-	env.OnActivity(activities.PullRedditContent, mock.Anything, "test-content-id").
-		Return("Test content", nil)
+		// Mock activity
+		env.OnActivity(activities.PullRedditContent, "reddit-content-id").
+			Return("Reddit content", nil)
 
-	// Create test dependencies
-	deps := RedditDependencies{
-		UserAgent: "test-agent",
-		Username:  "test-user",
-		Password:  "test-pass",
-		ClientID:  "test-client",
-	}
+		// Execute activity
+		env.ExecuteWorkflow(func(ctx workflow.Context) (string, error) {
+			ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: time.Minute,
+			})
+			var result string
+			err := workflow.ExecuteActivity(ctx, activities.PullRedditContent, "reddit-content-id").Get(ctx, &result)
+			return result, err
+		})
 
-	// Execute workflow
-	env.ExecuteWorkflow(PullRedditContentWorkflow, deps, "test-content-id")
+		// Verify workflow completed successfully
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
 
-	// Verify workflow completed successfully
-	require.True(t, env.IsWorkflowCompleted())
-	require.NoError(t, env.GetWorkflowError())
+		// Get workflow result
+		var result string
+		require.NoError(t, env.GetWorkflowResult(&result))
+		assert.Equal(t, "Reddit content", result)
 
-	// Get workflow result
-	var result string
-	require.NoError(t, env.GetWorkflowResult(&result))
-	assert.Equal(t, "Test content", result)
+		// Verify activity calls
+		env.AssertExpectations(t)
+	})
 
-	// Verify activity calls
-	env.AssertExpectations(t)
+	// Test YouTube content pulling
+	t.Run("PullYouTubeContent", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		// Create activities instance
+		activities := &Activities{}
+
+		// Register activity
+		env.RegisterActivity(activities.PullYouTubeContent)
+
+		// Mock activity
+		env.OnActivity(activities.PullYouTubeContent, mock.Anything, "youtube-content-id").
+			Return("YouTube content", nil)
+
+		// Execute activity
+		env.ExecuteWorkflow(func(ctx workflow.Context) (string, error) {
+			ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: time.Minute,
+			})
+			var result string
+			err := workflow.ExecuteActivity(ctx, activities.PullYouTubeContent, "youtube-content-id").Get(ctx, &result)
+			return result, err
+		})
+
+		// Verify workflow completed successfully
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+
+		// Get workflow result
+		var result string
+		require.NoError(t, env.GetWorkflowResult(&result))
+		assert.Equal(t, "YouTube content", result)
+
+		// Verify activity calls
+		env.AssertExpectations(t)
+	})
 }
 
 func TestCheckContentRequirementsWorkflow(t *testing.T) {

@@ -17,10 +17,11 @@ import (
 // TaskQueueName is the name of the task queue for all workflows
 const TaskQueueName = "reddit-bounty-board"
 
-// BountyAssessmentSignal represents the signal that will be sent to assess a Reddit post
+// BountyAssessmentSignal represents the signal that will be sent to assess content from a platform
 type BountyAssessmentSignal struct {
-	RedditContentID string
-	UserID          string
+	ContentID string       // ID of the content on the platform
+	UserID    string       // User ID who submitted the content
+	Platform  PlatformType // Platform the content is from
 }
 
 // CancelBountySignal represents the signal to cancel the bounty and return remaining funds
@@ -38,6 +39,8 @@ type BountyAssessmentWorkflowInput struct {
 	USDCAccount             string
 	ServerURL               string
 	AuthToken               string
+	PlatformType            PlatformType  // The platform type (Reddit, YouTube, etc.)
+	PlatformDependencies    interface{}   // Platform-specific dependencies
 	Timeout                 time.Duration // How long the bounty should remain active
 }
 
@@ -83,9 +86,23 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 			return
 		}
 
+		// Pull content from the appropriate platform
+		contentInput := PullContentWorkflowInput{
+			PlatformType: assessmentSignal.Platform,
+			ContentID:    assessmentSignal.ContentID,
+			Dependencies: input.PlatformDependencies,
+		}
+
+		var content string
+		err := workflow.ExecuteChildWorkflow(ctx, PullContentWorkflow, contentInput).Get(ctx, &content)
+		if err != nil {
+			workflow.GetLogger(ctx).Error("Failed to pull content", "error", err)
+			return
+		}
+
 		// Check content requirements
 		var result CheckContentRequirementsResult
-		err := workflow.ExecuteActivity(ctx, activities.CheckContentRequirements, assessmentSignal.RedditContentID, input.RequirementsDescription).Get(ctx, &result)
+		err = workflow.ExecuteActivity(ctx, activities.CheckContentRequirements, content, input.RequirementsDescription).Get(ctx, &result)
 		if err != nil {
 			workflow.GetLogger(ctx).Error("Failed to check content requirements", "error", err)
 			return
@@ -172,8 +189,32 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	return nil
 }
 
-// PullRedditContentWorkflow represents the workflow that pulls content from Reddit
-func PullRedditContentWorkflow(ctx workflow.Context, deps RedditDependencies, contentID string) (string, error) {
+// PlatformDependencies is an interface for platform-specific dependencies
+type PlatformDependencies interface {
+	// Type returns the platform type
+	Type() PlatformType
+}
+
+// ContentProvider is an interface for retrieving content from a platform
+type ContentProvider interface {
+	// PullContent pulls content from a platform given a content ID
+	PullContent(ctx context.Context, contentID string) (string, error)
+}
+
+// RedditDependencies implements PlatformDependencies for Reddit
+func (deps RedditDependencies) Type() PlatformType {
+	return PlatformReddit
+}
+
+// PullContentWorkflowInput represents the input parameters for the workflow
+type PullContentWorkflowInput struct {
+	PlatformType PlatformType
+	ContentID    string
+	Dependencies interface{} // Platform-specific dependencies (will be cast to the appropriate type)
+}
+
+// PullContentWorkflow represents the workflow that pulls content from a platform
+func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) (string, error) {
 	options := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
@@ -186,16 +227,78 @@ func PullRedditContentWorkflow(ctx workflow.Context, deps RedditDependencies, co
 
 	ctx = workflow.WithActivityOptions(ctx, options)
 
-	// Create activities instance
-	activities := &Activities{
-		redditDeps: deps,
+	// Create activities instance with empty dependencies for unused platforms
+	activities := NewActivities(
+		solana.SolanaConfig{}, // Empty Solana config for testing
+		"",                    // Empty server URL for testing
+		"",                    // Empty auth token for testing
+		RedditDependencies{},  // Will be set based on platform
+		YouTubeDependencies{}, // Will be set based on platform
+		YelpDependencies{},    // Will be set based on platform
+		GoogleDependencies{},  // Will be set based on platform
+		LLMDependencies{},     // Empty LLM deps for testing
+	)
+
+	// Select the appropriate activity based on platform type
+	var result string
+	var err error
+
+	switch input.PlatformType {
+	case PlatformReddit:
+		var deps RedditDependencies
+		if mapDeps, ok := input.Dependencies.(map[string]interface{}); ok {
+			// Convert map to RedditDependencies
+			if userAgent, ok := mapDeps["UserAgent"].(string); ok {
+				deps.UserAgent = userAgent
+			}
+			if username, ok := mapDeps["Username"].(string); ok {
+				deps.Username = username
+			}
+			if password, ok := mapDeps["Password"].(string); ok {
+				deps.Password = password
+			}
+			if clientID, ok := mapDeps["ClientID"].(string); ok {
+				deps.ClientID = clientID
+			}
+			if clientSecret, ok := mapDeps["ClientSecret"].(string); ok {
+				deps.ClientSecret = clientSecret
+			}
+		} else if typedDeps, ok := input.Dependencies.(RedditDependencies); ok {
+			deps = typedDeps
+		} else {
+			return "", fmt.Errorf("invalid dependencies for Reddit platform: got %T, expected map[string]interface{} or RedditDependencies", input.Dependencies)
+		}
+		activities.redditDeps = deps
+		err = workflow.ExecuteActivity(ctx, activities.PullRedditContent, input.ContentID).Get(ctx, &result)
+	case PlatformYouTube:
+		deps, ok := input.Dependencies.(YouTubeDependencies)
+		if !ok {
+			return "", fmt.Errorf("invalid dependencies for YouTube platform: got %T, expected YouTubeDependencies", input.Dependencies)
+		}
+		activities.youtubeDeps = deps
+		err = workflow.ExecuteActivity(ctx, activities.PullYouTubeContent, input.ContentID).Get(ctx, &result)
+	case PlatformYelp:
+		deps, ok := input.Dependencies.(YelpDependencies)
+		if !ok {
+			return "", fmt.Errorf("invalid dependencies for Yelp platform: got %T, expected YelpDependencies", input.Dependencies)
+		}
+		activities.yelpDeps = deps
+		err = workflow.ExecuteActivity(ctx, activities.PullYelpContent, input.ContentID).Get(ctx, &result)
+	case PlatformGoogle:
+		deps, ok := input.Dependencies.(GoogleDependencies)
+		if !ok {
+			return "", fmt.Errorf("invalid dependencies for Google platform: got %T, expected GoogleDependencies", input.Dependencies)
+		}
+		activities.googleDeps = deps
+		err = workflow.ExecuteActivity(ctx, activities.PullGoogleContent, input.ContentID).Get(ctx, &result)
+	default:
+		return "", fmt.Errorf("unsupported platform type: %s", input.PlatformType)
 	}
 
-	var result string
-	err := workflow.ExecuteActivity(ctx, activities.PullRedditContent, contentID).Get(ctx, &result)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("activity execution failed: %w", err)
 	}
+
 	return result, nil
 }
 

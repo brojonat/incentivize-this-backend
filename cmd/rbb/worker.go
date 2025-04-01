@@ -27,6 +27,12 @@ func workerCommands() []*cli.Command {
 					EnvVars: []string{"TEMPORAL_NAMESPACE"},
 					Value:   "default",
 				},
+				&cli.BoolFlag{
+					Name:    "local-mode",
+					Aliases: []string{"l"},
+					Usage:   "Run in local mode without Solana functionality",
+					Value:   false,
+				},
 			},
 			Action: run_worker,
 		},
@@ -34,6 +40,17 @@ func workerCommands() []*cli.Command {
 }
 
 func run_worker(c *cli.Context) error {
+	localMode := c.Bool("local-mode")
+
+	if localMode {
+		return worker.RunWorkerLocal(
+			c.Context,
+			getDefaultLogger(slog.LevelInfo),
+			c.String("temporal-address"),
+			c.String("temporal-namespace"),
+		)
+	}
+
 	return worker.RunWorker(
 		c.Context,
 		getDefaultLogger(slog.LevelInfo),

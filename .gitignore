@@ -10,6 +10,7 @@
 .env
 .env.*
 !.env.example
+keypair.json
 
 # IDE specific files
 .idea/
@@ -25,6 +26,7 @@ Thumbs.db
 *.test
 *.out
 /vendor/
+bin/*
 
 # Logs
 *.logbin/

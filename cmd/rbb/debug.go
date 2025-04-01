@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -72,13 +71,19 @@ func debugCommands() []*cli.Command {
 			Action: checkHealth,
 		},
 		{
-			Name:  "pull-reddit",
-			Usage: "Test PullRedditContent activity",
+			Name:  "pull-content",
+			Usage: "Test PullContent workflow for various platforms",
 			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:     "platform",
+					Required: true,
+					Usage:    "Platform type (reddit, youtube, yelp, google)",
+					Value:    "reddit",
+				},
 				&cli.StringFlag{
 					Name:     "content-id",
 					Required: true,
-					Usage:    "Reddit content ID (e.g., t3_abc123 for post, t1_abc123 for comment)",
+					Usage:    "Content ID for the specified platform",
 				},
 				&cli.StringFlag{
 					Name:    "temporal-address",
@@ -94,6 +99,7 @@ func debugCommands() []*cli.Command {
 					EnvVars: []string{"TEMPORAL_NAMESPACE"},
 					Value:   "default",
 				},
+				// Reddit-specific flags
 				&cli.StringFlag{
 					Name:    "reddit-user-agent",
 					Aliases: []string{"ua"},
@@ -121,8 +127,41 @@ func debugCommands() []*cli.Command {
 					Usage:   "Reddit client secret for authentication",
 					EnvVars: []string{"REDDIT_CLIENT_SECRET"},
 				},
+				// YouTube-specific flags
+				&cli.StringFlag{
+					Name:    "youtube-api-key",
+					Usage:   "YouTube API key",
+					EnvVars: []string{"YOUTUBE_API_KEY"},
+				},
+				&cli.StringFlag{
+					Name:    "youtube-app-name",
+					Usage:   "YouTube application name",
+					EnvVars: []string{"YOUTUBE_APP_NAME"},
+				},
+				// Yelp-specific flags
+				&cli.StringFlag{
+					Name:    "yelp-api-key",
+					Usage:   "Yelp API key",
+					EnvVars: []string{"YELP_API_KEY"},
+				},
+				&cli.StringFlag{
+					Name:    "yelp-client-id",
+					Usage:   "Yelp client ID",
+					EnvVars: []string{"YELP_CLIENT_ID"},
+				},
+				// Google-specific flags
+				&cli.StringFlag{
+					Name:    "google-api-key",
+					Usage:   "Google API key",
+					EnvVars: []string{"GOOGLE_API_KEY"},
+				},
+				&cli.StringFlag{
+					Name:    "google-search-engine-id",
+					Usage:   "Google custom search engine ID",
+					EnvVars: []string{"GOOGLE_SEARCH_ENGINE_ID"},
+				},
 			},
-			Action: testPullRedditContent,
+			Action: testPullContent,
 		},
 		{
 			Name:  "check-requirements",
@@ -277,55 +316,106 @@ func checkHealth(c *cli.Context) error {
 	return nil
 }
 
-func testPullRedditContent(c *cli.Context) error {
+func testPullContent(c *cli.Context) error {
+	// Get content ID and platform from flags
 	contentID := c.String("content-id")
-	temporalAddr := c.String("temporal-address")
-	temporalNS := c.String("temporal-namespace")
+	if contentID == "" {
+		return fmt.Errorf("--content-id flag is required")
+	}
 
-	// Create Temporal client
+	platformStr := c.String("platform")
+	if platformStr == "" {
+		return fmt.Errorf("--platform flag is required")
+	}
+
+	var platformType rbb.PlatformType
+	switch strings.ToLower(platformStr) {
+	case "reddit":
+		platformType = rbb.PlatformReddit
+	case "youtube":
+		platformType = rbb.PlatformYouTube
+	case "yelp":
+		platformType = rbb.PlatformYelp
+	case "google":
+		platformType = rbb.PlatformGoogle
+	default:
+		return fmt.Errorf("unsupported platform: %s. Supported platforms: reddit, youtube, yelp, google", platformStr)
+	}
+
+	// Create Temporal client with debug logging
 	tc, err := client.Dial(client.Options{
-		Logger:    getDefaultLogger(slog.LevelInfo),
-		HostPort:  temporalAddr,
-		Namespace: temporalNS,
+		Logger:    getDefaultLogger(slog.LevelDebug),
+		HostPort:  c.String("temporal-address"),
+		Namespace: c.String("temporal-namespace"),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create Temporal client: %w", err)
+		return fmt.Errorf("couldn't initialize temporal client: %w", err)
 	}
 	defer tc.Close()
 
-	// Create dependencies
-	deps := rbb.RedditDependencies{
-		UserAgent:    c.String("reddit-user-agent"),
-		Username:     c.String("reddit-username"),
-		Password:     c.String("reddit-password"),
-		ClientID:     c.String("reddit-client-id"),
-		ClientSecret: c.String("reddit-client-secret"),
+	// Create platform-specific dependencies
+	var input rbb.PullContentWorkflowInput
+	input.PlatformType = platformType
+	input.ContentID = contentID
+
+	switch platformType {
+	case rbb.PlatformReddit:
+		input.Dependencies = rbb.RedditDependencies{
+			UserAgent:    c.String("reddit-user-agent"),
+			Username:     c.String("reddit-username"),
+			Password:     c.String("reddit-password"),
+			ClientID:     c.String("reddit-client-id"),
+			ClientSecret: c.String("reddit-client-secret"),
+		}
+	case rbb.PlatformYouTube:
+		input.Dependencies = rbb.YouTubeDependencies{
+			APIKey:          c.String("youtube-api-key"),
+			ApplicationName: c.String("youtube-app-name"),
+		}
+	case rbb.PlatformYelp:
+		input.Dependencies = rbb.YelpDependencies{
+			APIKey:   c.String("yelp-api-key"),
+			ClientID: c.String("yelp-client-id"),
+		}
+	case rbb.PlatformGoogle:
+		input.Dependencies = rbb.GoogleDependencies{
+			APIKey:         c.String("google-api-key"),
+			SearchEngineID: c.String("google-search-engine-id"),
+		}
+	default:
+		return fmt.Errorf("unsupported platform type: %s", platformType)
 	}
 
-	// Execute the workflow
-	workflowID := fmt.Sprintf("test-pull-reddit-%s", contentID)
+	// Skip validating Solana configuration for content testing
+	workflowID := fmt.Sprintf("test-pull-content-%s-%s", platformStr, contentID)
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
 		TaskQueue: rbb.TaskQueueName,
+		// Add workflow task timeout to avoid waiting indefinitely
+		WorkflowTaskTimeout: 30 * time.Second,
 	}
 
 	// Execute the workflow using the registered workflow function
-	run, err := tc.ExecuteWorkflow(context.Background(), workflowOptions, rbb.PullRedditContentWorkflow, deps, contentID)
+	run, err := tc.ExecuteWorkflow(c.Context, workflowOptions, rbb.PullContentWorkflow, input)
 	if err != nil {
 		return fmt.Errorf("failed to start workflow: %w", err)
 	}
 
 	// Wait for workflow completion
 	var content string
-	if err := run.Get(context.Background(), &content); err != nil {
+	if err := run.Get(c.Context, &content); err != nil {
 		return fmt.Errorf("workflow execution failed: %w", err)
 	}
 
 	// Output clean JSON that can be piped to other commands
 	output := struct {
-		Content string `json:"content"`
+		Platform  rbb.PlatformType `json:"platform"`
+		ContentID string           `json:"content_id"`
+		Content   string           `json:"content"`
 	}{
-		Content: content,
+		Platform:  platformType,
+		ContentID: contentID,
+		Content:   content,
 	}
 
 	encoder := json.NewEncoder(os.Stdout)
