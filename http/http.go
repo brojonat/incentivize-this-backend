@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/brojonat/reddit-bounty-board/http/api"
-	"github.com/brojonat/reddit-bounty-board/internal/stools"
+	"github.com/brojonat/affiliate-bounty-board/http/api"
+	"github.com/brojonat/affiliate-bounty-board/internal/stools"
 	"go.temporal.io/sdk/client"
 )
 

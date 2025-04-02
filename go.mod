@@ -1,4 +1,4 @@
-module github.com/brojonat/reddit-bounty-board
+module github.com/brojonat/affiliate-bounty-board
 
 go 1.24
 

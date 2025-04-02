@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brojonat/reddit-bounty-board/rbb"
+	"github.com/brojonat/affiliate-bounty-board/rbb"
 	"github.com/google/uuid"
 	"github.com/urfave/cli/v2"
 	"go.temporal.io/sdk/client"

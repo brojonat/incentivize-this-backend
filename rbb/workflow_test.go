@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brojonat/reddit-bounty-board/solana"
+	"github.com/brojonat/affiliate-bounty-board/solana"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"

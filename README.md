@@ -1,12 +1,205 @@
-# reddit-bounty-board
+# affiliate-bounty-board
 
 I was watching this new show on Apple with Seth Rogan where he has to make a cinematic Koolaid movie. This got me thinking about advertising on Reddit. Advertisers would pay for favorable mentions of their product. We can facilitate that. This is a collection of Temporal workflows and activities that provide a sort of "bounty" board for making posts on Reddit. Here's the flow:
 
-1. Advertiser specifies condition of post, a rate per post, and provides a total bounty to our escrow. (e.g., mention Koolaid in a positive light, $0.50/post, $500).
-2. A user scrolling our board sees the bounty and makes the post.
-3. The user sends us the post_id.
-4. We analyze the post with an LLM to determine if the post satisfies the requirements. If so, we pay out the bounty.
-5. Reddit can try an get mad at us, but it drives engagement with their platform, and we're not writing anything ourselves. Plus, we don't need to make that many queries ourselves; we only need to verify users posts. In other words, we don't have to discover them because the users do the work for us.
+1. Advertiser creates a bounty with a reward amount
+2. Content creator accepts the bounty
+3. Content creator makes a post on Reddit
+4. Advertiser assesses the content
+5. If approved, content creator gets paid
+
+## Development
+
+### Prerequisites
+
+- Go 1.24 or later
+- Docker
+- Kubernetes cluster
+- kubectl configured to access your cluster
+- Temporal server running (can be local or remote)
+- Make
+
+### Environment Setup
+
+1. Copy the example environment files:
+
+   ```bash
+   cp worker/.env.example worker/.env.prod
+   cp server/.env.server.example server/.env.server.prod
+   ```
+
+2. Update the environment files with your configuration:
+   - Set up your database credentials
+   - Configure Temporal connection details
+   - Set up any other required environment variables
+
+### Local Development
+
+1. Start Temporal server locally:
+
+   ```bash
+   make temporal
+   ```
+
+2. Run the worker locally:
+
+   ```bash
+   make run-worker
+   ```
+
+3. Run the server locally:
+   ```bash
+   make run-server
+   ```
+
+## Deployment
+
+### Prerequisites
+
+- Kubernetes cluster with:
+  - nginx-ingress controller
+  - cert-manager for SSL certificates
+  - A default StorageClass for persistent volumes
+- Docker registry access
+- kubectl configured to access your cluster
+
+### Environment Setup
+
+1. Set up your environment files:
+
+   ```bash
+   cp worker/.env.example worker/.env.prod
+   cp server/.env.server.example server/.env.server.prod
+   ```
+
+2. Update the environment files with production values:
+   - Database credentials
+   - Temporal connection details
+   - API keys and secrets
+   - Other environment-specific configurations
+
+### Building and Pushing Images
+
+1. Build and push the CLI image:
+   ```bash
+   make build-push-cli
+   ```
+
+### Deploying to Kubernetes
+
+1. Deploy both server and worker:
+
+   ```bash
+   make deploy-all
+   ```
+
+2. Or deploy components individually:
+
+   ```bash
+   # Deploy server only
+   make deploy-server
+
+   # Deploy worker only
+   make deploy-worker
+   ```
+
+3. Verify the deployment:
+   ```bash
+   make status
+   ```
+
+### Managing Deployments
+
+1. View logs:
+
+   ```bash
+   # Server logs
+   make logs-server
+
+   # Worker logs
+   make logs-worker
+   ```
+
+2. Update secrets without redeploying:
+
+   ```bash
+   # Update server secrets
+   make update-secrets-server
+
+   # Update worker secrets
+   make update-secrets-worker
+   ```
+
+3. Restart deployments:
+
+   ```bash
+   # Restart server
+   make restart-server
+
+   # Restart worker
+   make restart-worker
+   ```
+
+4. Debug deployments:
+
+   ```bash
+   # View detailed server information
+   make describe-server
+
+   # View detailed worker information
+   make describe-worker
+   ```
+
+5. Port forwarding for local access:
+   ```bash
+   make port-forward-server
+   ```
+
+### Cleanup
+
+To remove all deployed resources:
+
+```bash
+make delete-all
+```
+
+Or remove components individually:
+
+```bash
+# Remove server only
+make delete-server
+
+# Remove worker only
+make delete-worker
+```
+
+## Architecture
+
+The application consists of two main components:
+
+1. **Server**: HTTP API server that handles:
+
+   - User authentication
+   - Bounty creation and management
+   - Content assessment
+   - Payment processing
+
+2. **Worker**: Temporal worker that:
+   - Processes bounty workflows
+   - Handles content creation
+   - Manages payment distribution
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a new Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Environment Setup
 

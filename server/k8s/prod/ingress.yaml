@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: affiliate-bounty-board-backend-ingress
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - api.abb.brojonat.com
+    secretName: affiliate-bounty-board-backend-tls
+  rules:
+  - host: "api.abb.brojonat.com"
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/"
+        backend:
+          service:
+            name: affiliate-bounty-board-backend
+            port:
+              number: 80

@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: affiliate-bounty-board
+    component: workers
+  name: affiliate-bounty-board-workers
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: affiliate-bounty-board
+      component: workers
+  template:
+    metadata:
+      labels:
+        app: affiliate-bounty-board
+        component: workers
+    spec:
+      containers:
+      - image: "{{DOCKER_REPO}}{{CLI_IMG_TAG}}"
+        imagePullPolicy: Always
+        name: affiliate-bounty-board-worker
+        envFrom:
+        - secretRef:
+            name: affiliate-bounty-board-secret-worker-envs
+        command: ["./cli"]
+        args: ["run", "worker"]
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        readinessProbe:
+          exec:
+            command:
+            - ./cli
+            - run
+            - worker
+            - --health-check
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          exec:
+            command:
+            - ./cli
+            - run
+            - worker
+            - --health-check
+          initialDelaySeconds: 15
+          periodSeconds: 20
+      restartPolicy: Always
+      imagePullSecrets:
+      - name: regcred

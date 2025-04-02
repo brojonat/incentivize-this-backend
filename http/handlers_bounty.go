@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/brojonat/reddit-bounty-board/internal/stools"
-	"github.com/brojonat/reddit-bounty-board/rbb"
-	"github.com/brojonat/reddit-bounty-board/solana"
+	"github.com/brojonat/affiliate-bounty-board/internal/stools"
+	"github.com/brojonat/affiliate-bounty-board/rbb"
+	"github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/client"

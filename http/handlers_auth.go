@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/brojonat/reddit-bounty-board/http/api"
+	"github.com/brojonat/affiliate-bounty-board/http/api"
 	"github.com/golang-jwt/jwt"
 )
 

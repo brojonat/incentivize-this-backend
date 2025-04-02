@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/brojonat/reddit-bounty-board/http"
+	"github.com/brojonat/affiliate-bounty-board/http"
 	"github.com/urfave/cli/v2"
 	"go.temporal.io/sdk/client"
 )

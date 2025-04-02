@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/brojonat/reddit-bounty-board/http/api"
+	"github.com/brojonat/affiliate-bounty-board/http/api"
 	"github.com/urfave/cli/v2"
 )
 

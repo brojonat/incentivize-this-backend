@@ -3,7 +3,7 @@ package main
 import (
 	"log/slog"
 
-	"github.com/brojonat/reddit-bounty-board/worker"
+	"github.com/brojonat/affiliate-bounty-board/worker"
 	"github.com/urfave/cli/v2"
 )
 

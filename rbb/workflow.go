@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/brojonat/reddit-bounty-board/solana"
+	"github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/client"
@@ -15,7 +15,7 @@ import (
 )
 
 // TaskQueueName is the name of the task queue for all workflows
-const TaskQueueName = "reddit-bounty-board"
+const TaskQueueName = "affiliate-bounty-board"
 
 // BountyAssessmentSignal represents the signal that will be sent to assess content from a platform
 type BountyAssessmentSignal struct {

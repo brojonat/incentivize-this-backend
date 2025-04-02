@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/brojonat/reddit-bounty-board/rbb"
-	"github.com/brojonat/reddit-bounty-board/solana"
+	"github.com/brojonat/affiliate-bounty-board/rbb"
+	"github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"

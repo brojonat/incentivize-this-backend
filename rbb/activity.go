@@ -12,7 +12,7 @@ import (
 
 	"encoding/base64"
 
-	"github.com/brojonat/reddit-bounty-board/solana"
+	"github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
 	"go.temporal.io/sdk/activity"
 )
