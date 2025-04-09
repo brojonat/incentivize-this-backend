@@ -371,6 +371,7 @@ func testPullContent(c *cli.Context) error {
 		input.Dependencies = abb.YouTubeDependencies{
 			APIKey:          c.String("youtube-api-key"),
 			ApplicationName: c.String("youtube-app-name"),
+			MaxResults:      100, // Default value
 		}
 	case abb.PlatformYelp:
 		input.Dependencies = abb.YelpDependencies{

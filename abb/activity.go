@@ -552,9 +552,9 @@ type YouTubeContent struct {
 	ChannelID            string           `json:"channel_id"`
 	ChannelTitle         string           `json:"channel_title"`
 	PublishedAt          time.Time        `json:"published_at"`
-	ViewCount            int64            `json:"view_count"`
-	LikeCount            int64            `json:"like_count"`
-	CommentCount         int64            `json:"comment_count"`
+	ViewCount            string           `json:"view_count"`
+	LikeCount            string           `json:"like_count"`
+	CommentCount         string           `json:"comment_count"`
 	Duration             string           `json:"duration"`
 	ThumbnailURL         string           `json:"thumbnail_url"`
 	Tags                 []string         `json:"tags"`
@@ -758,13 +758,63 @@ type YouTubeVideoData struct {
 		LiveBroadcastContent string   `json:"liveBroadcastContent"`
 	} `json:"snippet"`
 	Statistics struct {
-		ViewCount    int64 `json:"viewCount"`
-		LikeCount    int64 `json:"likeCount"`
-		CommentCount int64 `json:"commentCount"`
+		ViewCount    string `json:"viewCount"`
+		LikeCount    string `json:"likeCount"`
+		CommentCount string `json:"commentCount"`
 	} `json:"statistics"`
 	ContentDetails struct {
 		Duration string `json:"duration"`
 	} `json:"contentDetails"`
+}
+
+// UnmarshalJSON implements custom unmarshaling for YouTubeVideoData
+func (v *YouTubeVideoData) UnmarshalJSON(data []byte) error {
+	// First unmarshal into a map to handle the statistics fields flexibly
+	var rawData map[string]interface{}
+	if err := json.Unmarshal(data, &rawData); err != nil {
+		return err
+	}
+
+	// Create an auxiliary struct for the rest of the fields
+	type Aux struct {
+		ID      string `json:"id"`
+		Snippet struct {
+			PublishedAt time.Time `json:"publishedAt"`
+			ChannelID   string    `json:"channelId"`
+			Title       string    `json:"title"`
+			Description string    `json:"description"`
+			Thumbnails  struct {
+				Default struct {
+					URL string `json:"url"`
+				} `json:"default"`
+			} `json:"thumbnails"`
+			ChannelTitle         string   `json:"channelTitle"`
+			Tags                 []string `json:"tags"`
+			CategoryID           string   `json:"categoryId"`
+			LiveBroadcastContent string   `json:"liveBroadcastContent"`
+		} `json:"snippet"`
+		Statistics struct {
+			ViewCount    string `json:"viewCount"`
+			LikeCount    string `json:"likeCount"`
+			CommentCount string `json:"commentCount"`
+		} `json:"statistics"`
+		ContentDetails struct {
+			Duration string `json:"duration"`
+		} `json:"contentDetails"`
+	}
+
+	var aux Aux
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Copy all fields from aux to v
+	v.ID = aux.ID
+	v.Snippet = aux.Snippet
+	v.Statistics = aux.Statistics
+	v.ContentDetails = aux.ContentDetails
+
+	return nil
 }
 
 // fetchYouTubeVideoMetadata fetches video metadata from the YouTube Data API
@@ -779,6 +829,12 @@ func (a *Activities) fetchYouTubeVideoMetadata(ctx context.Context, videoID stri
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set application name in the request headers
+	if a.youtubeDeps.ApplicationName != "" {
+		req.Header.Set("X-Goog-Api-Key", a.youtubeDeps.APIKey)
+		req.Header.Set("X-Goog-Api-Client", a.youtubeDeps.ApplicationName)
 	}
 
 	// Make request

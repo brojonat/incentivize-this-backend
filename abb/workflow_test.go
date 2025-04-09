@@ -270,9 +270,9 @@ func TestPlatformActivities(t *testing.T) {
 				Description:  "Test video description",
 				ChannelTitle: "Test Channel",
 				PublishedAt:  time.Now(),
-				ViewCount:    1000,
-				LikeCount:    100,
-				CommentCount: 50,
+				ViewCount:    "1000",
+				LikeCount:    "100",
+				CommentCount: "50",
 				Captions: []YouTubeCaption{
 					{
 						ID:              "caption1",
@@ -315,14 +315,43 @@ func TestPlatformActivities(t *testing.T) {
 		// Get workflow result
 		var result string
 		require.NoError(t, env.GetWorkflowResult(&result))
-		assert.Contains(t, result, "Video: Test Video")
-		assert.Contains(t, result, "Channel: Test Channel")
-		assert.Contains(t, result, "Description:\nTest video description")
-		assert.Contains(t, result, "Available Captions:")
-		assert.Contains(t, result, "- English (en)")
-		assert.Contains(t, result, "- Spanish (es)")
-		assert.Contains(t, result, "This is a test caption")
-		assert.Contains(t, result, "Este es un subtítulo de prueba")
+
+		// Parse the JSON result
+		var parsed map[string]interface{}
+		err := json.Unmarshal([]byte(result), &parsed)
+		require.NoError(t, err)
+
+		// Verify the JSON fields
+		assert.Equal(t, "youtube-content-id", parsed["id"])
+		assert.Equal(t, "Test Video", parsed["title"])
+		assert.Equal(t, "Test video description", parsed["description"])
+		assert.Equal(t, "Test Channel", parsed["channel_title"])
+		assert.Equal(t, "1000", parsed["view_count"])
+		assert.Equal(t, "100", parsed["like_count"])
+		assert.Equal(t, "50", parsed["comment_count"])
+
+		// Verify captions
+		captions, ok := parsed["captions"].([]interface{})
+		require.True(t, ok)
+		require.Len(t, captions, 2)
+
+		// Verify first caption
+		caption1 := captions[0].(map[string]interface{})
+		assert.Equal(t, "caption1", caption1["id"])
+		assert.Equal(t, "en", caption1["language"])
+		assert.Equal(t, "English", caption1["name"])
+		assert.Equal(t, "standard", caption1["track_kind"])
+		assert.Equal(t, false, caption1["is_auto_generated"])
+		assert.Contains(t, caption1["content"], "This is a test caption")
+
+		// Verify second caption
+		caption2 := captions[1].(map[string]interface{})
+		assert.Equal(t, "caption2", caption2["id"])
+		assert.Equal(t, "es", caption2["language"])
+		assert.Equal(t, "Spanish", caption2["name"])
+		assert.Equal(t, "standard", caption2["track_kind"])
+		assert.Equal(t, false, caption2["is_auto_generated"])
+		assert.Contains(t, caption2["content"], "Este es un subtítulo de prueba")
 
 		// Verify activity calls
 		env.AssertExpectations(t)

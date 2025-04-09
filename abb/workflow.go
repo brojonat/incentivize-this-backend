@@ -286,9 +286,22 @@ func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) (
 		}
 		result = FormatRedditContent(redditContent)
 	case PlatformYouTube:
-		deps, ok := input.Dependencies.(YouTubeDependencies)
-		if !ok {
-			return "", fmt.Errorf("invalid dependencies for YouTube platform: got %T, expected YouTubeDependencies", input.Dependencies)
+		var deps YouTubeDependencies
+		if mapDeps, ok := input.Dependencies.(map[string]interface{}); ok {
+			// Convert map to YouTubeDependencies
+			if apiKey, ok := mapDeps["APIKey"].(string); ok {
+				deps.APIKey = apiKey
+			}
+			if appName, ok := mapDeps["ApplicationName"].(string); ok {
+				deps.ApplicationName = appName
+			}
+			if maxResults, ok := mapDeps["MaxResults"].(int64); ok {
+				deps.MaxResults = maxResults
+			}
+		} else if typedDeps, ok := input.Dependencies.(YouTubeDependencies); ok {
+			deps = typedDeps
+		} else {
+			return "", fmt.Errorf("invalid dependencies for YouTube platform: got %T, expected map[string]interface{} or YouTubeDependencies", input.Dependencies)
 		}
 		activities.youtubeDeps = deps
 		var youtubeContent *YouTubeContent
