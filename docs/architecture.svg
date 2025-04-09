@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+    <!-- Background -->
+    <rect width="800" height="600" fill="#f8f9fa"/>
+
+    <!-- Title -->
+    <text x="400" y="40" font-family="Arial" font-size="24" text-anchor="middle" fill="#333">Affiliate Bounty Board Architecture</text>
+
+    <!-- Components -->
+    <!-- Advertiser -->
+    <rect x="50" y="100" width="200" height="100" rx="10" ry="10" fill="#e3f2fd" stroke="#2196f3" stroke-width="2"/>
+    <text x="150" y="150" font-family="Arial" font-size="16" text-anchor="middle" fill="#333">Advertiser</text>
+
+    <!-- Server -->
+    <rect x="300" y="100" width="200" height="250" rx="10" ry="10" fill="#e8f5e9" stroke="#4caf50" stroke-width="2"/>
+    <text x="400" y="120" font-family="Arial" font-size="16" text-anchor="middle" fill="#333">HTTP Server</text>
+
+    <!-- Escrow Wallet -->
+    <rect x="325" y="200" width="150" height="100" rx="10" ry="10" fill="#fff8e1" stroke="#ffc107" stroke-width="2"/>
+    <text x="400" y="250" font-family="Arial" font-size="16" text-anchor="middle" fill="#333">Escrow Wallet</text>
+
+    <!-- Temporal -->
+    <rect x="550" y="100" width="200" height="100" rx="10" ry="10" fill="#fff3e0" stroke="#ff9800" stroke-width="2"/>
+    <text x="650" y="150" font-family="Arial" font-size="16" text-anchor="middle" fill="#333">Temporal Server</text>
+
+    <!-- Worker -->
+    <rect x="550" y="250" width="200" height="100" rx="10" ry="10" fill="#f3e5f5" stroke="#9c27b0" stroke-width="2"/>
+    <text x="650" y="300" font-family="Arial" font-size="16" text-anchor="middle" fill="#333">Worker</text>
+
+    <!-- Content Creator -->
+    <rect x="50" y="400" width="200" height="100" rx="10" ry="10" fill="#e0f7fa" stroke="#00bcd4" stroke-width="2"/>
+    <text x="150" y="450" font-family="Arial" font-size="16" text-anchor="middle" fill="#333">Content Creator</text>
+
+    <!-- External Platforms -->
+    <rect x="550" y="400" width="200" height="100" rx="10" ry="10" fill="#ffebee" stroke="#f44336" stroke-width="2"/>
+    <text x="650" y="450" font-family="Arial" font-size="16" text-anchor="middle" fill="#333">External Platforms</text>
+
+    <!-- Arrows -->
+    <!-- Advertiser to Server -->
+    <path d="M250,150 L300,150" stroke="#2196f3" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+
+    <!-- Advertiser to Escrow -->
+    <path d="M150,200 L325,250" stroke="#2196f3" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+
+    <!-- Server to Temporal -->
+    <path d="M500,150 L550,150" stroke="#4caf50" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+
+    <!-- Temporal to Worker -->
+    <path d="M650,200 L650,250" stroke="#ff9800" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+
+    <!-- Worker to External Platforms -->
+    <path d="M650,350 L650,400" stroke="#9c27b0" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+
+    <!-- Content Creator to External Platforms -->
+    <path d="M250,450 L550,450" stroke="#00bcd4" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+
+    <!-- Content Creator to Server -->
+    <path d="M250,450 L300,150" stroke="#00bcd4" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+
+    <!-- Escrow to Content Creator -->
+    <path d="M325,300 L250,450" stroke="#ffc107" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+
+    <!-- Worker to Server -->
+    <path d="M550,300 L500,150" stroke="#9c27b0" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+
+    <!-- Arrowhead definition -->
+    <defs>
+        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#333"/>
+        </marker>
+    </defs>
+
+    <!-- Flow labels -->
+    <text x="275" y="140" font-family="Arial" font-size="12" fill="#333">1) Create Bounty</text>
+    <text x="165" y="240" font-family="Arial" font-size="12" fill="#333">2) Fund Bounty</text>
+    <text x="425" y="140" font-family="Arial" font-size="12" fill="#333">3) Start Workflow</text>
+    <text x="660" y="225" font-family="Arial" font-size="12" fill="#333">4) Execute</text>
+    <text x="400" y="470" font-family="Arial" font-size="12" fill="#333">5) Submit Post</text>
+    <text x="155" y="325" font-family="Arial" font-size="12" fill="#333">6) Validate Content ID</text>
+    <text x="660" y="375" font-family="Arial" font-size="12" fill="#333">7) Pull Content</text>
+    <text x="300" y="375" font-family="Arial" font-size="12" fill="#333">8) Payment</text>
+    <text x="530" y="225" font-family="Arial" font-size="12" fill="#333">9) Validated Bounty</text>
+</svg>

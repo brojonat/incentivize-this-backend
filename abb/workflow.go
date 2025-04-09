@@ -1,4 +1,4 @@
-package rbb
+package abb
 
 import (
 	"context"
@@ -83,6 +83,15 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 		// Check if we have enough remaining bounty
 		if remainingBounty.Cmp(input.BountyPerPost) < 0 {
 			workflow.GetLogger(ctx).Error("Insufficient remaining bounty")
+			return
+		}
+
+		// Validate platform type
+		switch assessmentSignal.Platform {
+		case PlatformReddit, PlatformYouTube:
+			// Valid platform type
+		default:
+			workflow.GetLogger(ctx).Error("Invalid platform_type", "platform_type", assessmentSignal.Platform)
 			return
 		}
 
@@ -236,6 +245,7 @@ func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) (
 		YouTubeDependencies{}, // Will be set based on platform
 		YelpDependencies{},    // Will be set based on platform
 		GoogleDependencies{},  // Will be set based on platform
+		AmazonDependencies{},  // Will be set based on platform
 		LLMDependencies{},     // Empty LLM deps for testing
 	)
 
@@ -269,14 +279,24 @@ func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) (
 			return "", fmt.Errorf("invalid dependencies for Reddit platform: got %T, expected map[string]interface{} or RedditDependencies", input.Dependencies)
 		}
 		activities.redditDeps = deps
-		err = workflow.ExecuteActivity(ctx, activities.PullRedditContent, input.ContentID).Get(ctx, &result)
+		var redditContent *RedditContent
+		err = workflow.ExecuteActivity(ctx, activities.PullRedditContent, input.ContentID).Get(ctx, &redditContent)
+		if err != nil {
+			return "", err
+		}
+		result = FormatRedditContent(redditContent)
 	case PlatformYouTube:
 		deps, ok := input.Dependencies.(YouTubeDependencies)
 		if !ok {
 			return "", fmt.Errorf("invalid dependencies for YouTube platform: got %T, expected YouTubeDependencies", input.Dependencies)
 		}
 		activities.youtubeDeps = deps
-		err = workflow.ExecuteActivity(ctx, activities.PullYouTubeContent, input.ContentID).Get(ctx, &result)
+		var youtubeContent *YouTubeContent
+		err = workflow.ExecuteActivity(ctx, activities.PullYouTubeContent, input.ContentID).Get(ctx, &youtubeContent)
+		if err != nil {
+			return "", err
+		}
+		result = FormatYouTubeContent(youtubeContent)
 	case PlatformYelp:
 		deps, ok := input.Dependencies.(YelpDependencies)
 		if !ok {
@@ -291,6 +311,13 @@ func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) (
 		}
 		activities.googleDeps = deps
 		err = workflow.ExecuteActivity(ctx, activities.PullGoogleContent, input.ContentID).Get(ctx, &result)
+	case PlatformAmazon:
+		deps, ok := input.Dependencies.(AmazonDependencies)
+		if !ok {
+			return "", fmt.Errorf("invalid dependencies for Amazon platform: got %T, expected AmazonDependencies", input.Dependencies)
+		}
+		activities.amazonDeps = deps
+		err = workflow.ExecuteActivity(ctx, activities.PullAmazonContent, input.ContentID).Get(ctx, &result)
 	default:
 		return "", fmt.Errorf("unsupported platform type: %s", input.PlatformType)
 	}

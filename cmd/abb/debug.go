@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brojonat/affiliate-bounty-board/rbb"
+	"github.com/brojonat/affiliate-bounty-board/abb"
 	"github.com/google/uuid"
 	"github.com/urfave/cli/v2"
 	"go.temporal.io/sdk/client"
@@ -185,7 +185,7 @@ func debugCommands() []*cli.Command {
 				&cli.StringFlag{
 					Name:    "openai-model",
 					Usage:   "OpenAI model to use",
-					Value:   "gpt-4",
+					Value:   "gpt-4o",
 					EnvVars: []string{"OPENAI_MODEL"},
 				},
 				&cli.IntFlag{
@@ -328,16 +328,16 @@ func testPullContent(c *cli.Context) error {
 		return fmt.Errorf("--platform flag is required")
 	}
 
-	var platformType rbb.PlatformType
+	var platformType abb.PlatformType
 	switch strings.ToLower(platformStr) {
 	case "reddit":
-		platformType = rbb.PlatformReddit
+		platformType = abb.PlatformReddit
 	case "youtube":
-		platformType = rbb.PlatformYouTube
+		platformType = abb.PlatformYouTube
 	case "yelp":
-		platformType = rbb.PlatformYelp
+		platformType = abb.PlatformYelp
 	case "google":
-		platformType = rbb.PlatformGoogle
+		platformType = abb.PlatformGoogle
 	default:
 		return fmt.Errorf("unsupported platform: %s. Supported platforms: reddit, youtube, yelp, google", platformStr)
 	}
@@ -354,31 +354,31 @@ func testPullContent(c *cli.Context) error {
 	defer tc.Close()
 
 	// Create platform-specific dependencies
-	var input rbb.PullContentWorkflowInput
+	var input abb.PullContentWorkflowInput
 	input.PlatformType = platformType
 	input.ContentID = contentID
 
 	switch platformType {
-	case rbb.PlatformReddit:
-		input.Dependencies = rbb.RedditDependencies{
+	case abb.PlatformReddit:
+		input.Dependencies = abb.RedditDependencies{
 			UserAgent:    c.String("reddit-user-agent"),
 			Username:     c.String("reddit-username"),
 			Password:     c.String("reddit-password"),
 			ClientID:     c.String("reddit-client-id"),
 			ClientSecret: c.String("reddit-client-secret"),
 		}
-	case rbb.PlatformYouTube:
-		input.Dependencies = rbb.YouTubeDependencies{
+	case abb.PlatformYouTube:
+		input.Dependencies = abb.YouTubeDependencies{
 			APIKey:          c.String("youtube-api-key"),
 			ApplicationName: c.String("youtube-app-name"),
 		}
-	case rbb.PlatformYelp:
-		input.Dependencies = rbb.YelpDependencies{
+	case abb.PlatformYelp:
+		input.Dependencies = abb.YelpDependencies{
 			APIKey:   c.String("yelp-api-key"),
 			ClientID: c.String("yelp-client-id"),
 		}
-	case rbb.PlatformGoogle:
-		input.Dependencies = rbb.GoogleDependencies{
+	case abb.PlatformGoogle:
+		input.Dependencies = abb.GoogleDependencies{
 			APIKey:         c.String("google-api-key"),
 			SearchEngineID: c.String("google-search-engine-id"),
 		}
@@ -390,13 +390,13 @@ func testPullContent(c *cli.Context) error {
 	workflowID := fmt.Sprintf("test-pull-content-%s-%s", platformStr, contentID)
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: rbb.TaskQueueName,
+		TaskQueue: abb.TaskQueueName,
 		// Add workflow task timeout to avoid waiting indefinitely
 		WorkflowTaskTimeout: 30 * time.Second,
 	}
 
 	// Execute the workflow using the registered workflow function
-	run, err := tc.ExecuteWorkflow(c.Context, workflowOptions, rbb.PullContentWorkflow, input)
+	run, err := tc.ExecuteWorkflow(c.Context, workflowOptions, abb.PullContentWorkflow, input)
 	if err != nil {
 		return fmt.Errorf("failed to start workflow: %w", err)
 	}
@@ -409,7 +409,7 @@ func testPullContent(c *cli.Context) error {
 
 	// Output clean JSON that can be piped to other commands
 	output := struct {
-		Platform  rbb.PlatformType `json:"platform"`
+		Platform  abb.PlatformType `json:"platform"`
 		ContentID string           `json:"content_id"`
 		Content   string           `json:"content"`
 	}{
@@ -463,17 +463,17 @@ func testCheckContentRequirements(c *cli.Context) error {
 	workflowID := fmt.Sprintf("check-requirements-%s", uuid.New().String())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: rbb.TaskQueueName,
+		TaskQueue: abb.TaskQueueName,
 	}
 
 	// Execute the workflow using the registered workflow function
-	we, err := tc.ExecuteWorkflow(c.Context, workflowOptions, rbb.CheckContentRequirementsWorkflow, content, requirementsStr)
+	we, err := tc.ExecuteWorkflow(c.Context, workflowOptions, abb.CheckContentRequirementsWorkflow, content, requirementsStr)
 	if err != nil {
 		return fmt.Errorf("failed to start workflow: %w", err)
 	}
 
 	// Wait for workflow completion
-	var result rbb.CheckContentRequirementsResult
+	var result abb.CheckContentRequirementsResult
 	err = we.Get(c.Context, &result)
 	if err != nil {
 		return fmt.Errorf("workflow failed: %w", err)

@@ -58,7 +58,7 @@ for content_id in "${test_cases[@]}"; do
     echo "----------------------------------------"
 
     # Run the command and capture both output and exit code
-    output=$(./bin/rbb debug pull-content \
+    output=$(./bin/abb debug pull-content \
         --platform reddit \
         --content-id "$content_id" \
         --reddit-user-agent "$REDDIT_USER_AGENT" \

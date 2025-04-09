@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/brojonat/affiliate-bounty-board/abb"
 	"github.com/brojonat/affiliate-bounty-board/internal/stools"
-	"github.com/brojonat/affiliate-bounty-board/rbb"
 	"github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
@@ -33,12 +33,13 @@ type ReturnBountyToOwnerRequest struct {
 
 // CreateBountyRequest represents the request body for creating a new bounty
 type CreateBountyRequest struct {
-	RequirementsDescription string  `json:"requirements_description"`
-	BountyPerPost           float64 `json:"bounty_per_post"`
-	TotalBounty             float64 `json:"total_bounty"`
-	OwnerID                 string  `json:"owner_id"`
-	SolanaWallet            string  `json:"solana_wallet"`
-	USDCAccount             string  `json:"usdc_account"`
+	RequirementsDescription string           `json:"requirements_description"`
+	BountyPerPost           float64          `json:"bounty_per_post"`
+	TotalBounty             float64          `json:"total_bounty"`
+	OwnerID                 string           `json:"owner_id"`
+	SolanaWallet            string           `json:"solana_wallet"`
+	USDCAccount             string           `json:"usdc_account"`
+	PlatformType            abb.PlatformType `json:"platform_type"`
 }
 
 // handlePayBounty handles the payment of a bounty to a user
@@ -72,8 +73,8 @@ func handlePayBounty(l *slog.Logger, tc client.Client) http.HandlerFunc {
 		}
 
 		// Execute workflow
-		workflow := rbb.NewWorkflow(tc)
-		err = workflow.PayBounty(r.Context(), rbb.PayBountyWorkflowInput{
+		workflow := abb.NewWorkflow(tc)
+		err = workflow.PayBounty(r.Context(), abb.PayBountyWorkflowInput{
 			FromAccount:  req.USDCAccount,
 			ToAccount:    req.SolanaWallet,
 			Amount:       amount,
@@ -121,8 +122,8 @@ func handleReturnBountyToOwner(l *slog.Logger, tc client.Client) http.HandlerFun
 		}
 
 		// Execute workflow
-		workflow := rbb.NewWorkflow(tc)
-		err = workflow.ReturnBountyToOwner(r.Context(), rbb.ReturnBountyToOwnerWorkflowInput{
+		workflow := abb.NewWorkflow(tc)
+		err = workflow.ReturnBountyToOwner(r.Context(), abb.ReturnBountyToOwnerWorkflowInput{
 			ToAccount:    req.SolanaWallet,
 			Amount:       amount,
 			SolanaConfig: solanaConfig,
@@ -173,6 +174,15 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 			return
 		}
 
+		// Validate platform type
+		switch req.PlatformType {
+		case abb.PlatformReddit, abb.PlatformYouTube:
+			// Valid platform type
+		default:
+			writeBadRequestError(w, fmt.Errorf("invalid platform_type: must be one of reddit or youtube"))
+			return
+		}
+
 		// Apply revenue sharing using the calculator function
 		userBountyPerPost := payoutCalculator(req.BountyPerPost)
 		userTotalBounty := payoutCalculator(req.TotalBounty)
@@ -199,7 +209,7 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 		}
 
 		// Create workflow input
-		input := rbb.BountyAssessmentWorkflowInput{
+		input := abb.BountyAssessmentWorkflowInput{
 			RequirementsDescription: req.RequirementsDescription,
 			BountyPerPost:           bountyPerPost,
 			TotalBounty:             totalBounty,
@@ -208,16 +218,17 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 			USDCAccount:             req.USDCAccount,
 			ServerURL:               os.Getenv("SERVER_URL"),
 			AuthToken:               os.Getenv("AUTH_TOKEN"),
+			PlatformType:            req.PlatformType,
 		}
 
 		// Start workflow
 		workflowID := fmt.Sprintf("bounty-%s-%s", req.OwnerID, uuid.New().String())
 		workflowOptions := client.StartWorkflowOptions{
 			ID:        workflowID,
-			TaskQueue: rbb.TaskQueueName,
+			TaskQueue: abb.TaskQueueName,
 		}
 
-		we, err := tc.ExecuteWorkflow(r.Context(), workflowOptions, rbb.BountyAssessmentWorkflow, input)
+		we, err := tc.ExecuteWorkflow(r.Context(), workflowOptions, abb.BountyAssessmentWorkflow, input)
 		if err != nil {
 			writeInternalError(logger, w, fmt.Errorf("failed to start workflow: %w", err))
 			return

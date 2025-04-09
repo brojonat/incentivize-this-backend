@@ -1,4 +1,4 @@
-# rbb
+# abb
 
 This package implements the Temporal workflows and activities that power the Reddit Bounty Board application.
 
@@ -47,7 +47,7 @@ The system supports multiple content platforms with a flexible architecture that
 
 ```go
 // For Reddit
-redditDeps := rbb.RedditDependencies{
+redditDeps := abb.RedditDependencies{
     UserAgent:    "MyApp/1.0",
     Username:     "myUsername",
     Password:     "myPassword",
@@ -55,7 +55,7 @@ redditDeps := rbb.RedditDependencies{
     ClientSecret: "myClientSecret",
 }
 
-redditBountyInput := rbb.BountyAssessmentWorkflowInput{
+redditBountyInput := abb.BountyAssessmentWorkflowInput{
     RequirementsDescription: "Content must be at least 500 words and discuss AI technology",
     BountyPerPost:           solana.NewUSDCAmount(5),
     TotalBounty:             solana.NewUSDCAmount(100),
@@ -64,7 +64,7 @@ redditBountyInput := rbb.BountyAssessmentWorkflowInput{
     USDCAccount:             "owner_usdc_account",
     ServerURL:               "https://api.example.com",
     AuthToken:               "auth_token",
-    PlatformType:            rbb.PlatformReddit,
+    PlatformType:            abb.PlatformReddit,
     PlatformDependencies:    redditDeps,
     Timeout:                 24 * time.Hour,
 }
@@ -73,8 +73,8 @@ redditBountyInput := rbb.BountyAssessmentWorkflowInput{
 redditWorkflowID := "reddit-bounty-" + uuid.New().String()
 _, err = client.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
     ID:        redditWorkflowID,
-    TaskQueue: rbb.TaskQueueName,
-}, rbb.BountyAssessmentWorkflow, redditBountyInput)
+    TaskQueue: abb.TaskQueueName,
+}, abb.BountyAssessmentWorkflow, redditBountyInput)
 ```
 
 ### Content Pulling
@@ -90,12 +90,37 @@ Example of Reddit content pulling:
 
 ```go
 // Pull a Reddit post
-content, err := activities.PullRedditContent("t3_abcdef")
-// Returns: "Post by u/username in r/subreddit:\nTitle: Post Title\n\nPost content"
+redditContent, err := activities.PullRedditContent("t3_abcdef")
+if err != nil {
+    // Handle error
+}
+// Access structured data
+fmt.Printf("Post by u/%s in r/%s:\nTitle: %s\n\n%s",
+    redditContent.Author, redditContent.Subreddit, redditContent.Title, redditContent.Selftext)
+// Or use the formatter
+content := FormatRedditContent(redditContent)
 
 // Pull a Reddit comment
-content, err := activities.PullRedditContent("t1_abcdef")
-// Returns: "Comment by u/username in r/subreddit:\nComment content"
+redditContent, err := activities.PullRedditContent("t1_abcdef")
+if err != nil {
+    // Handle error
+}
+// Access structured data
+fmt.Printf("Comment by u/%s in r/%s:\n%s",
+    redditContent.Author, redditContent.Subreddit, redditContent.Body)
+// Or use the formatter
+content := FormatRedditContent(redditContent)
+
+// Pull a YouTube video
+youtubeContent, err := activities.PullYouTubeContent(ctx, "yt_dQw4w9WgXcQ")
+if err != nil {
+    // Handle error
+}
+// Access structured data
+fmt.Printf("Video: %s\nChannel: %s\nViews: %d\nDescription: %s\n",
+    youtubeContent.Title, youtubeContent.ChannelTitle, youtubeContent.ViewCount, youtubeContent.Description)
+// Or use the formatter
+content := FormatYouTubeContent(youtubeContent)
 ```
 
 ### Implementing a New Platform
@@ -158,7 +183,7 @@ The workflow tests use Temporal's test framework to verify the correct behavior 
 Run the tests with:
 
 ```bash
-make test-rbb
+make test-abb
 ```
 
 For workflow-specific tests:
@@ -170,5 +195,5 @@ make test-workflow
 For testing content pulling directly:
 
 ```bash
-./bin/rbb debug pull-content --platform reddit --content-id t3_abcdef --reddit-user-agent "MyApp/1.0" --reddit-username "username" --reddit-password "password" --reddit-client-id "client_id" --reddit-client-secret "client_secret"
+./bin/abb debug pull-content --platform reddit --content-id t3_abcdef --reddit-user-agent "MyApp/1.0" --reddit-username "username" --reddit-password "password" --reddit-client-id "client_id" --reddit-client-secret "client_secret"
 ```

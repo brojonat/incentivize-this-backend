@@ -14,6 +14,9 @@ test-workflow:
 test-solana:
 	go test -v ./solana/...
 
+test-abb:
+	go test -v ./abb/...
+
 test-rbb:
 	go test -v ./rbb/...
 
@@ -30,18 +33,18 @@ test-ci:
 	go tool cover -func=coverage.out
 
 build-cli:
-	go build -o ./bin/rbb cmd/rbb/*.go
+	go build -o ./bin/abb cmd/abb/*.go
 
 build-push-cli:
 	$(call setup_env, .env.server.prod)
-	CGO_ENABLED=0 GOOS=linux go build -o ./bin/rbb cmd/rbb/*.go
+	CGO_ENABLED=0 GOOS=linux go build -o ./bin/abb cmd/abb/*.go
 	docker build -f Dockerfile -t ${CLI_IMG_TAG} .
 	docker push ${CLI_IMG_TAG}
 
 refresh-token:
 	$(call setup_env, .env.server.debug)
 	@$(MAKE) build-cli
-	./bin/rbb admin auth get-token --email ${ADMIN_EMAIL} --env-file .env.server.debug
+	./bin/abb admin auth get-token --email ${ADMIN_EMAIL} --env-file .env.server.debug
 
 run-http-server-local:
 	$(call setup_env, .env.server.debug)
@@ -50,7 +53,7 @@ run-http-server-local:
 		sleep 2; \
 	fi
 	@$(MAKE) build-cli
-	./bin/rbb run http-server --temporal-address localhost:7233 --temporal-namespace default
+	./bin/abb run http-server --temporal-address localhost:7233 --temporal-namespace default
 
 run-worker-local:
 	$(call setup_env, .env.worker.debug)
@@ -59,7 +62,7 @@ run-worker-local:
 		sleep 2; \
 	fi
 	@$(MAKE) build-cli
-	./bin/rbb run worker --temporal-address localhost:7233 --temporal-namespace default
+	./bin/abb run worker --temporal-address localhost:7233 --temporal-namespace default
 
 # Deployment targets
 .PHONY: deploy-server deploy-worker deploy-all delete-server delete-worker delete-all

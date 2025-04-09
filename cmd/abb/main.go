@@ -69,7 +69,7 @@ func main() {
 	logger := getDefaultLogger(slog.LevelInfo)
 
 	app := &cli.App{
-		Name:  "rbb",
+		Name:  "abb",
 		Usage: "Reddit Bounty Board CLI",
 		Commands: []*cli.Command{
 			{

@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/brojonat/affiliate-bounty-board/rbb"
+	"github.com/brojonat/affiliate-bounty-board/abb"
 	"github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
 	"go.temporal.io/sdk/client"
@@ -119,20 +119,20 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 	}
 
 	// Create LLM provider
-	llmConfig := rbb.LLMConfig{
+	llmConfig := abb.LLMConfig{
 		Provider:    "openai",
 		APIKey:      os.Getenv("OPENAI_API_KEY"),
 		Model:       os.Getenv("OPENAI_MODEL"),
 		MaxTokens:   1000,
 		Temperature: 0.7,
 	}
-	llmProvider, err := rbb.NewLLMProvider(llmConfig)
+	llmProvider, err := abb.NewLLMProvider(llmConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create LLM provider: %w", err)
 	}
 
 	// Create dependencies for each platform
-	redditDeps := rbb.RedditDependencies{
+	redditDeps := abb.RedditDependencies{
 		UserAgent:    os.Getenv("REDDIT_USER_AGENT"),
 		Username:     os.Getenv("REDDIT_USERNAME"),
 		Password:     os.Getenv("REDDIT_PASSWORD"),
@@ -140,28 +140,35 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 		ClientSecret: os.Getenv("REDDIT_CLIENT_SECRET"),
 	}
 
-	youtubeDeps := rbb.YouTubeDependencies{
+	youtubeDeps := abb.YouTubeDependencies{
 		APIKey:          os.Getenv("YOUTUBE_API_KEY"),
 		ApplicationName: os.Getenv("YOUTUBE_APP_NAME"),
 		MaxResults:      100, // Default value, can be adjusted
 	}
 
-	yelpDeps := rbb.YelpDependencies{
+	yelpDeps := abb.YelpDependencies{
 		APIKey:   os.Getenv("YELP_API_KEY"),
 		ClientID: os.Getenv("YELP_CLIENT_ID"),
 	}
 
-	googleDeps := rbb.GoogleDependencies{
+	googleDeps := abb.GoogleDependencies{
 		APIKey:         os.Getenv("GOOGLE_API_KEY"),
 		SearchEngineID: os.Getenv("GOOGLE_SEARCH_ENGINE_ID"),
 	}
 
-	llmDeps := rbb.LLMDependencies{
+	amazonDeps := abb.AmazonDependencies{
+		APIKey:        os.Getenv("AMAZON_API_KEY"),
+		APISecret:     os.Getenv("AMAZON_API_SECRET"),
+		AssociateTag:  os.Getenv("AMAZON_ASSOCIATE_TAG"),
+		MarketplaceID: os.Getenv("AMAZON_MARKETPLACE_ID"),
+	}
+
+	llmDeps := abb.LLMDependencies{
 		Provider: llmProvider,
 	}
 
 	// Create activities
-	activities := rbb.NewActivities(
+	activities := abb.NewActivities(
 		solanaConfig,
 		os.Getenv("SERVER_URL"),
 		os.Getenv("AUTH_TOKEN"),
@@ -169,24 +176,26 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 		youtubeDeps,
 		yelpDeps,
 		googleDeps,
+		amazonDeps,
 		llmDeps,
 	)
 
 	// create worker
-	w := worker.New(c, rbb.TaskQueueName, worker.Options{})
+	w := worker.New(c, abb.TaskQueueName, worker.Options{})
 
 	// register workflows and activities
-	w.RegisterWorkflow(rbb.BountyAssessmentWorkflow)
-	w.RegisterWorkflow(rbb.PullContentWorkflow)
-	w.RegisterWorkflow(rbb.CheckContentRequirementsWorkflow)
-	w.RegisterWorkflow(rbb.PayBountyWorkflow)
-	w.RegisterWorkflow(rbb.ReturnBountyToOwnerWorkflow)
+	w.RegisterWorkflow(abb.BountyAssessmentWorkflow)
+	w.RegisterWorkflow(abb.PullContentWorkflow)
+	w.RegisterWorkflow(abb.CheckContentRequirementsWorkflow)
+	w.RegisterWorkflow(abb.PayBountyWorkflow)
+	w.RegisterWorkflow(abb.ReturnBountyToOwnerWorkflow)
 
 	// register activities
 	w.RegisterActivity(activities.PullRedditContent)
 	w.RegisterActivity(activities.PullYouTubeContent)
 	w.RegisterActivity(activities.PullYelpContent)
 	w.RegisterActivity(activities.PullGoogleContent)
+	w.RegisterActivity(activities.PullAmazonContent)
 	w.RegisterActivity(activities.CheckContentRequirements)
 
 	// Only register Solana-related activities if not in local mode
