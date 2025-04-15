@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,6 +14,30 @@ import (
 	"github.com/brojonat/affiliate-bounty-board/internal/stools"
 	"go.temporal.io/sdk/client"
 )
+
+type corsConfigKey struct{}
+
+// GetCORSConfig retrieves CORS configuration from the context
+func GetCORSConfig(ctx context.Context) (headers, methods, origins []string) {
+	if v := ctx.Value(corsConfigKey{}); v != nil {
+		config := v.(struct {
+			headers []string
+			methods []string
+			origins []string
+		})
+		return config.headers, config.methods, config.origins
+	}
+	return nil, nil, nil
+}
+
+// WithCORSConfig adds CORS configuration to the context
+func WithCORSConfig(ctx context.Context, headers, methods, origins []string) context.Context {
+	return context.WithValue(ctx, corsConfigKey{}, struct {
+		headers []string
+		methods []string
+		origins []string
+	}{headers, methods, origins})
+}
 
 // PayoutCalculator is a function that calculates the available payout amount
 // given the total bounty amount specified by an advertiser
@@ -82,17 +107,28 @@ func writeJSONResponse(w http.ResponseWriter, resp interface{}, code int) {
 func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port string) error {
 	mux := http.NewServeMux()
 
+	// max body size
+	maxBytes := int64(1048576)
+
+	// Get CORS config from context
+	headers, methods, origins := GetCORSConfig(ctx)
+	if headers == nil || methods == nil || origins == nil {
+		return fmt.Errorf("CORS configuration missing from context")
+	}
+
 	// Add routes
 	mux.HandleFunc("GET /ping", stools.AdaptHandler(
 		handlePing(),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
 	mux.HandleFunc("GET /token", stools.AdaptHandler(
 		handleIssueSudoToken(logger),
 		withLogging(logger),
 		atLeastOneAuth(basicAuthorizerCtxSetEmail(getSecretKey)),
+		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
 	// Add bounty routes with explicit dependencies
@@ -100,18 +136,28 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		handlePayBounty(logger, tc),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
 	mux.HandleFunc("POST /bounties/return", stools.AdaptHandler(
 		handleReturnBountyToOwner(logger, tc),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
 	mux.HandleFunc("POST /bounties", stools.AdaptHandler(
 		handleCreateBounty(logger, tc, DefaultPayoutCalculator()),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		apiMode(logger, maxBytes, headers, methods, origins),
+	))
+
+	mux.HandleFunc("GET /bounties", stools.AdaptHandler(
+		handleListBounties(logger, tc),
+		withLogging(logger),
+		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
 	server := &http.Server{

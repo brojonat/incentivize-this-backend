@@ -1,17 +1,20 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/abb"
 	"github.com/brojonat/affiliate-bounty-board/internal/stools"
 	"github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
+	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 )
 
@@ -40,6 +43,23 @@ type CreateBountyRequest struct {
 	SolanaWallet            string           `json:"solana_wallet"`
 	USDCAccount             string           `json:"usdc_account"`
 	PlatformType            abb.PlatformType `json:"platform_type"`
+}
+
+// BountyListItem represents a single bounty in the list response
+type BountyListItem struct {
+	WorkflowID              string           `json:"workflow_id"`
+	Status                  string           `json:"status"`
+	RequirementsDescription string           `json:"requirements_description"`
+	BountyPerPost           float64          `json:"bounty_per_post"`
+	TotalBounty             float64          `json:"total_bounty"`
+	OwnerID                 string           `json:"owner_id"`
+	PlatformType            abb.PlatformType `json:"platform_type"`
+	CreatedAt               time.Time        `json:"created_at"`
+}
+
+// BountyLister defines the interface for listing bounties
+type BountyLister interface {
+	ListBounties(ctx context.Context) ([]BountyListItem, error)
 }
 
 // handlePayBounty handles the payment of a bounty to a user
@@ -237,5 +257,50 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 		writeJSONResponse(w, DefaultJSONResponse{
 			Message: fmt.Sprintf("Successfully started bounty assessment workflow with ID %s", we.GetID()),
 		}, http.StatusOK)
+	}
+}
+
+// handleListBounties handles listing all bounties
+func handleListBounties(l *slog.Logger, tc client.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowedError(w)
+			return
+		}
+
+		// List workflows of type BountyAssessmentWorkflow
+		query := fmt.Sprintf(`WorkflowType = '%s'`, "BountyAssessmentWorkflow")
+		executions, err := tc.ListWorkflow(r.Context(), &workflowservice.ListWorkflowExecutionsRequest{
+			Query: query,
+		})
+		if err != nil {
+			writeInternalError(l, w, fmt.Errorf("failed to list bounties: %w", err))
+			return
+		}
+
+		// Convert workflows to bounty list items
+		bounties := make([]BountyListItem, 0)
+		for _, execution := range executions.Executions {
+			// Get workflow input
+			var input abb.BountyAssessmentWorkflowInput
+			err = tc.GetWorkflow(r.Context(), execution.Execution.WorkflowId, execution.Execution.RunId).Get(r.Context(), &input)
+			if err != nil {
+				l.Error("failed to get workflow input", "error", err, "workflow_id", execution.Execution.WorkflowId)
+				continue
+			}
+
+			bounties = append(bounties, BountyListItem{
+				WorkflowID:              execution.Execution.WorkflowId,
+				Status:                  execution.Status.String(),
+				RequirementsDescription: input.RequirementsDescription,
+				BountyPerPost:           input.BountyPerPost.ToUSDC(),
+				TotalBounty:             input.TotalBounty.ToUSDC(),
+				OwnerID:                 input.OwnerID,
+				PlatformType:            input.PlatformType,
+				CreatedAt:               execution.StartTime.AsTime(),
+			})
+		}
+
+		writeJSONResponse(w, bounties, http.StatusOK)
 	}
 }

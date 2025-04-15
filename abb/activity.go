@@ -38,6 +38,7 @@ const (
 // Activities holds all activity implementations and their dependencies
 type Activities struct {
 	solanaConfig solana.SolanaConfig
+	solanaClient solana.SolanaClient
 	httpClient   *http.Client
 	serverURL    string
 	authToken    string
@@ -56,9 +57,17 @@ func NewActivities(config solana.SolanaConfig, serverURL, authToken string,
 	yelpDeps YelpDependencies,
 	googleDeps GoogleDependencies,
 	amazonDeps AmazonDependencies,
-	llmDeps LLMDependencies) *Activities {
+	llmDeps LLMDependencies) (*Activities, error) {
+
+	// Create Solana client
+	solanaClient, err := solana.NewSolanaClient(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Solana client: %w", err)
+	}
+
 	return &Activities{
 		solanaConfig: config,
+		solanaClient: solanaClient,
 		httpClient:   &http.Client{Timeout: 10 * time.Second},
 		serverURL:    serverURL,
 		authToken:    authToken,
@@ -68,7 +77,7 @@ func NewActivities(config solana.SolanaConfig, serverURL, authToken string,
 		googleDeps:   googleDeps,
 		amazonDeps:   amazonDeps,
 		llmDeps:      llmDeps,
-	}
+	}, nil
 }
 
 // RedditContent represents the extracted content from Reddit
@@ -335,14 +344,8 @@ func (a *Activities) TransferUSDC(ctx context.Context, from, to solanago.PublicK
 	logger := activity.GetLogger(ctx)
 	logger.Info("Transferring USDC", "from", from.String(), "to", to.String(), "amount", amount.ToUSDC())
 
-	// Create Solana client
-	client, err := solana.NewSolanaClient(a.solanaConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create Solana client: %w", err)
-	}
-
 	// Execute transfer
-	err = client.TransferUSDC(ctx, from, to, amount)
+	err := a.solanaClient.TransferUSDC(ctx, from, to, amount)
 	if err != nil {
 		return fmt.Errorf("failed to transfer USDC: %w", err)
 	}
@@ -355,14 +358,8 @@ func (a *Activities) ReleaseEscrow(ctx context.Context, to solanago.PublicKey, a
 	logger := activity.GetLogger(ctx)
 	logger.Info("Releasing escrow", "to", to.String(), "amount", amount.ToUSDC())
 
-	// Create Solana client
-	client, err := solana.NewSolanaClient(a.solanaConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create Solana client: %w", err)
-	}
-
 	// Execute release
-	err = client.ReleaseEscrow(ctx, to, amount)
+	err := a.solanaClient.ReleaseEscrow(ctx, to, amount)
 	if err != nil {
 		return fmt.Errorf("failed to release escrow: %w", err)
 	}
@@ -516,6 +513,59 @@ func (deps *RedditDependencies) ensureValidRedditToken(minRemaining time.Duratio
 		deps.RedditAuthToken = token
 		deps.RedditAuthTokenExp = time.Now().Add(1 * time.Hour)
 	}
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler for RedditDependencies
+func (deps RedditDependencies) MarshalJSON() ([]byte, error) {
+	type Aux struct {
+		UserAgent          string    `json:"user_agent"`
+		Username           string    `json:"username"`
+		Password           string    `json:"password"`
+		ClientID           string    `json:"client_id"`
+		ClientSecret       string    `json:"client_secret"`
+		RedditAuthToken    string    `json:"reddit_auth_token"`
+		RedditAuthTokenExp time.Time `json:"reddit_auth_token_exp"`
+	}
+
+	aux := Aux{
+		UserAgent:          deps.UserAgent,
+		Username:           deps.Username,
+		Password:           deps.Password,
+		ClientID:           deps.ClientID,
+		ClientSecret:       deps.ClientSecret,
+		RedditAuthToken:    deps.RedditAuthToken,
+		RedditAuthTokenExp: deps.RedditAuthTokenExp,
+	}
+
+	return json.Marshal(aux)
+}
+
+// UnmarshalJSON implements json.Unmarshaler for RedditDependencies
+func (deps *RedditDependencies) UnmarshalJSON(data []byte) error {
+	type Aux struct {
+		UserAgent          string    `json:"user_agent"`
+		Username           string    `json:"username"`
+		Password           string    `json:"password"`
+		ClientID           string    `json:"client_id"`
+		ClientSecret       string    `json:"client_secret"`
+		RedditAuthToken    string    `json:"reddit_auth_token"`
+		RedditAuthTokenExp time.Time `json:"reddit_auth_token_exp"`
+	}
+
+	var aux Aux
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	deps.UserAgent = aux.UserAgent
+	deps.Username = aux.Username
+	deps.Password = aux.Password
+	deps.ClientID = aux.ClientID
+	deps.ClientSecret = aux.ClientSecret
+	deps.RedditAuthToken = aux.RedditAuthToken
+	deps.RedditAuthTokenExp = aux.RedditAuthTokenExp
+
 	return nil
 }
 
@@ -898,6 +948,39 @@ func (deps YelpDependencies) Type() PlatformType {
 	return PlatformYelp
 }
 
+// MarshalJSON implements json.Marshaler for YelpDependencies
+func (deps YelpDependencies) MarshalJSON() ([]byte, error) {
+	type Aux struct {
+		APIKey   string `json:"api_key"`
+		ClientID string `json:"client_id"`
+	}
+
+	aux := Aux{
+		APIKey:   deps.APIKey,
+		ClientID: deps.ClientID,
+	}
+
+	return json.Marshal(aux)
+}
+
+// UnmarshalJSON implements json.Unmarshaler for YelpDependencies
+func (deps *YelpDependencies) UnmarshalJSON(data []byte) error {
+	type Aux struct {
+		APIKey   string `json:"api_key"`
+		ClientID string `json:"client_id"`
+	}
+
+	var aux Aux
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	deps.APIKey = aux.APIKey
+	deps.ClientID = aux.ClientID
+
+	return nil
+}
+
 // PullYelpContent pulls content from Yelp
 func (a *Activities) PullYelpContent(ctx context.Context, contentID string) (string, error) {
 	logger := activity.GetLogger(ctx)
@@ -925,6 +1008,39 @@ func (deps GoogleDependencies) Type() PlatformType {
 	return PlatformGoogle
 }
 
+// MarshalJSON implements json.Marshaler for GoogleDependencies
+func (deps GoogleDependencies) MarshalJSON() ([]byte, error) {
+	type Aux struct {
+		APIKey         string `json:"api_key"`
+		SearchEngineID string `json:"search_engine_id"`
+	}
+
+	aux := Aux{
+		APIKey:         deps.APIKey,
+		SearchEngineID: deps.SearchEngineID,
+	}
+
+	return json.Marshal(aux)
+}
+
+// UnmarshalJSON implements json.Unmarshaler for GoogleDependencies
+func (deps *GoogleDependencies) UnmarshalJSON(data []byte) error {
+	type Aux struct {
+		APIKey         string `json:"api_key"`
+		SearchEngineID string `json:"search_engine_id"`
+	}
+
+	var aux Aux
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	deps.APIKey = aux.APIKey
+	deps.SearchEngineID = aux.SearchEngineID
+
+	return nil
+}
+
 // PullGoogleContent pulls content from Google
 func (a *Activities) PullGoogleContent(ctx context.Context, contentID string) (string, error) {
 	logger := activity.GetLogger(ctx)
@@ -938,6 +1054,167 @@ func (a *Activities) PullGoogleContent(ctx context.Context, contentID string) (s
 	// Example implementation would authenticate with the Google API and fetch content
 
 	return "", fmt.Errorf("Google content fetching not yet implemented")
+}
+
+// AmazonDependencies holds the dependencies for Amazon-related activities
+type AmazonDependencies struct {
+	Client        *http.Client
+	APIKey        string
+	APISecret     string
+	AssociateTag  string
+	MarketplaceID string
+}
+
+// Type returns the platform type for AmazonDependencies
+func (deps AmazonDependencies) Type() PlatformType {
+	return PlatformAmazon
+}
+
+// MarshalJSON implements json.Marshaler for AmazonDependencies
+func (deps AmazonDependencies) MarshalJSON() ([]byte, error) {
+	type Aux struct {
+		APIKey        string `json:"api_key"`
+		APISecret     string `json:"api_secret"`
+		AssociateTag  string `json:"associate_tag"`
+		MarketplaceID string `json:"marketplace_id"`
+	}
+
+	aux := Aux{
+		APIKey:        deps.APIKey,
+		APISecret:     deps.APISecret,
+		AssociateTag:  deps.AssociateTag,
+		MarketplaceID: deps.MarketplaceID,
+	}
+
+	return json.Marshal(aux)
+}
+
+// UnmarshalJSON implements json.Unmarshaler for AmazonDependencies
+func (deps *AmazonDependencies) UnmarshalJSON(data []byte) error {
+	type Aux struct {
+		APIKey        string `json:"api_key"`
+		APISecret     string `json:"api_secret"`
+		AssociateTag  string `json:"associate_tag"`
+		MarketplaceID string `json:"marketplace_id"`
+	}
+
+	var aux Aux
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	deps.APIKey = aux.APIKey
+	deps.APISecret = aux.APISecret
+	deps.AssociateTag = aux.AssociateTag
+	deps.MarketplaceID = aux.MarketplaceID
+
+	return nil
+}
+
+// PullAmazonContent pulls content from Amazon
+func (a *Activities) PullAmazonContent(ctx context.Context, contentID string) (string, error) {
+	logger := activity.GetLogger(ctx)
+	logger.Info("Pulling Amazon content", "content_id", contentID)
+
+	// Set HTTP client
+	a.amazonDeps.Client = a.httpClient
+
+	// TODO: implement Amazon content fetching
+	// This would involve using the Amazon Product Advertising API to fetch product reviews, etc.
+	// Example implementation would authenticate with the Amazon API and fetch content
+
+	return "", fmt.Errorf("Amazon content fetching not yet implemented")
+}
+
+// VerifyPaymentResult represents the result of verifying a payment
+type VerifyPaymentResult struct {
+	Verified bool
+	Amount   *solana.USDCAmount
+	Error    string
+}
+
+// VerifyPayment verifies that payment has been received in the escrow account
+func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey, expectedAmount *solana.USDCAmount, timeout time.Duration) (*VerifyPaymentResult, error) {
+	logger := activity.GetLogger(ctx)
+	logger.Info("Verifying payment", "from", from.String(), "expected_amount", expectedAmount.ToUSDC(), "timeout", timeout)
+
+	// Create a ticker to check balance periodically
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	// Create a timeout context
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	for {
+		select {
+		case <-timeoutCtx.Done():
+			return &VerifyPaymentResult{
+				Verified: false,
+				Error:    "payment verification timed out",
+			}, nil
+		case <-ticker.C:
+			// Get escrow account balance
+			balance, err := a.solanaClient.GetUSDCBalance(ctx, a.solanaConfig.EscrowTokenAccount)
+			if err != nil {
+				logger.Error("Failed to get escrow balance", "error", err)
+				continue
+			}
+
+			// Check if we have received the expected amount
+			if balance.Cmp(expectedAmount) >= 0 {
+				return &VerifyPaymentResult{
+					Verified: true,
+					Amount:   balance,
+				}, nil
+			}
+
+			logger.Info("Waiting for payment",
+				"expected", expectedAmount.ToUSDC(),
+				"current", balance.ToUSDC())
+		}
+	}
+}
+
+// MarshalJSON implements json.Marshaler for YouTubeDependencies
+func (deps YouTubeDependencies) MarshalJSON() ([]byte, error) {
+	type Aux struct {
+		APIKey          string `json:"api_key"`
+		OAuthToken      string `json:"oauth_token"`
+		ApplicationName string `json:"application_name"`
+		MaxResults      int64  `json:"max_results"`
+	}
+
+	aux := Aux{
+		APIKey:          deps.APIKey,
+		OAuthToken:      deps.OAuthToken,
+		ApplicationName: deps.ApplicationName,
+		MaxResults:      deps.MaxResults,
+	}
+
+	return json.Marshal(aux)
+}
+
+// UnmarshalJSON implements json.Unmarshaler for YouTubeDependencies
+func (deps *YouTubeDependencies) UnmarshalJSON(data []byte) error {
+	type Aux struct {
+		APIKey          string `json:"api_key"`
+		OAuthToken      string `json:"oauth_token"`
+		ApplicationName string `json:"application_name"`
+		MaxResults      int64  `json:"max_results"`
+	}
+
+	var aux Aux
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	deps.APIKey = aux.APIKey
+	deps.OAuthToken = aux.OAuthToken
+	deps.ApplicationName = aux.ApplicationName
+	deps.MaxResults = aux.MaxResults
+
+	return nil
 }
 
 // getRedditToken obtains an authentication token from Reddit
@@ -981,33 +1258,4 @@ func getRedditToken(client *http.Client, deps RedditDependencies) (string, error
 	}
 
 	return result.AccessToken, nil
-}
-
-// AmazonDependencies holds the dependencies for Amazon-related activities
-type AmazonDependencies struct {
-	Client        *http.Client
-	APIKey        string
-	APISecret     string
-	AssociateTag  string
-	MarketplaceID string
-}
-
-// Type returns the platform type for AmazonDependencies
-func (deps AmazonDependencies) Type() PlatformType {
-	return PlatformAmazon
-}
-
-// PullAmazonContent pulls content from Amazon
-func (a *Activities) PullAmazonContent(ctx context.Context, contentID string) (string, error) {
-	logger := activity.GetLogger(ctx)
-	logger.Info("Pulling Amazon content", "content_id", contentID)
-
-	// Set HTTP client
-	a.amazonDeps.Client = a.httpClient
-
-	// TODO: implement Amazon content fetching
-	// This would involve using the Amazon Product Advertising API to fetch product reviews, etc.
-	// Example implementation would authenticate with the Amazon API and fetch content
-
-	return "", fmt.Errorf("Amazon content fetching not yet implemented")
 }

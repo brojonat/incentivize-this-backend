@@ -167,8 +167,8 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 		Provider: llmProvider,
 	}
 
-	// Create activities
-	activities := abb.NewActivities(
+	// Create activities with the configured Solana client
+	activities, err := abb.NewActivities(
 		solanaConfig,
 		os.Getenv("SERVER_URL"),
 		os.Getenv("AUTH_TOKEN"),
@@ -179,24 +179,21 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 		amazonDeps,
 		llmDeps,
 	)
+	if err != nil {
+		return fmt.Errorf("failed to create activities: %w", err)
+	}
 
-	// create worker
+	// Create worker
 	w := worker.New(c, abb.TaskQueueName, worker.Options{})
 
-	// register workflows and activities
-	w.RegisterWorkflow(abb.BountyAssessmentWorkflow)
-	w.RegisterWorkflow(abb.PullContentWorkflow)
-	w.RegisterWorkflow(abb.CheckContentRequirementsWorkflow)
-	w.RegisterWorkflow(abb.PayBountyWorkflow)
-	w.RegisterWorkflow(abb.ReturnBountyToOwnerWorkflow)
-
-	// register activities
+	// Register activities
 	w.RegisterActivity(activities.PullRedditContent)
 	w.RegisterActivity(activities.PullYouTubeContent)
 	w.RegisterActivity(activities.PullYelpContent)
 	w.RegisterActivity(activities.PullGoogleContent)
 	w.RegisterActivity(activities.PullAmazonContent)
 	w.RegisterActivity(activities.CheckContentRequirements)
+	w.RegisterActivity(activities.VerifyPayment)
 
 	// Only register Solana-related activities if not in local mode
 	if !localMode {

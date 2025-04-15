@@ -2,8 +2,9 @@ package abb
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"net/http"
+	"strings"
 	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/solana"
@@ -39,16 +40,17 @@ type BountyAssessmentWorkflowInput struct {
 	USDCAccount             string
 	ServerURL               string
 	AuthToken               string
-	PlatformType            PlatformType  // The platform type (Reddit, YouTube, etc.)
-	PlatformDependencies    interface{}   // Platform-specific dependencies
-	Timeout                 time.Duration // How long the bounty should remain active
+	PlatformType            PlatformType        // The platform type (Reddit, YouTube, etc.)
+	PlatformDependencies    interface{}         // Platform-specific dependencies
+	Timeout                 time.Duration       // How long the bounty should remain active
+	PaymentTimeout          time.Duration       // How long to wait for payment verification
+	SolanaConfig            solana.SolanaConfig // Solana configuration
 }
 
 // BountyAssessmentWorkflow represents the workflow that manages bounty assessment
 func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkflowInput) error {
-	// Set activity options
 	options := workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
+		StartToCloseTimeout: 2 * time.Second, // Shorter timeout for testing
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:    time.Second,
 			BackoffCoefficient: 2.0,
@@ -56,7 +58,100 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 			MaximumAttempts:    3,
 		},
 	}
+
 	ctx = workflow.WithActivityOptions(ctx, options)
+
+	// Create activities instance
+	var redditDeps RedditDependencies
+	var youtubeDeps YouTubeDependencies
+	var yelpDeps YelpDependencies
+	var googleDeps GoogleDependencies
+	var amazonDeps AmazonDependencies
+
+	// Only cast to the specified platform type
+	switch input.PlatformType {
+	case PlatformReddit:
+		data, err := json.Marshal(input.PlatformDependencies)
+		if err != nil {
+			return fmt.Errorf("failed to marshal Reddit dependencies: %w", err)
+		}
+		if err := json.Unmarshal(data, &redditDeps); err != nil {
+			return fmt.Errorf("failed to unmarshal Reddit dependencies: %w", err)
+		}
+	case PlatformYouTube:
+		data, err := json.Marshal(input.PlatformDependencies)
+		if err != nil {
+			return fmt.Errorf("failed to marshal YouTube dependencies: %w", err)
+		}
+		if err := json.Unmarshal(data, &youtubeDeps); err != nil {
+			return fmt.Errorf("failed to unmarshal YouTube dependencies: %w", err)
+		}
+	case PlatformYelp:
+		data, err := json.Marshal(input.PlatformDependencies)
+		if err != nil {
+			return fmt.Errorf("failed to marshal Yelp dependencies: %w", err)
+		}
+		if err := json.Unmarshal(data, &yelpDeps); err != nil {
+			return fmt.Errorf("failed to unmarshal Yelp dependencies: %w", err)
+		}
+	case PlatformGoogle:
+		data, err := json.Marshal(input.PlatformDependencies)
+		if err != nil {
+			return fmt.Errorf("failed to marshal Google dependencies: %w", err)
+		}
+		if err := json.Unmarshal(data, &googleDeps); err != nil {
+			return fmt.Errorf("failed to unmarshal Google dependencies: %w", err)
+		}
+	case PlatformAmazon:
+		data, err := json.Marshal(input.PlatformDependencies)
+		if err != nil {
+			return fmt.Errorf("failed to marshal Amazon dependencies: %w", err)
+		}
+		if err := json.Unmarshal(data, &amazonDeps); err != nil {
+			return fmt.Errorf("failed to unmarshal Amazon dependencies: %w", err)
+		}
+	default:
+		return fmt.Errorf("unsupported platform type: %s", input.PlatformType)
+	}
+
+	activities, err := NewActivities(
+		input.SolanaConfig,
+		input.ServerURL,
+		input.AuthToken,
+		redditDeps,
+		youtubeDeps,
+		yelpDeps,
+		googleDeps,
+		amazonDeps,
+		LLMDependencies{},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create activities: %w", err)
+	}
+
+	// Convert wallet address to PublicKey
+	fromAccount, err := solanago.PublicKeyFromBase58(input.SolanaWallet)
+	if err != nil {
+		return fmt.Errorf("invalid wallet address: %w", err)
+	}
+
+	// Verify payment has been received
+	workflow.GetLogger(ctx).Info("Waiting for payment verification")
+	var verifyResult *VerifyPaymentResult
+	err = workflow.ExecuteActivity(ctx, activities.VerifyPayment, fromAccount, input.TotalBounty, input.PaymentTimeout).Get(ctx, &verifyResult)
+	if err != nil {
+		return fmt.Errorf("failed to verify payment: %w", err)
+	}
+
+	if !verifyResult.Verified {
+		return fmt.Errorf("payment verification failed: %s", verifyResult.Error)
+	}
+
+	workflow.GetLogger(ctx).Info("Payment verified successfully",
+		"amount", verifyResult.Amount.ToUSDC())
+
+	// Initialize remaining bounty
+	remainingBounty := input.TotalBounty
 
 	// Create signal channels
 	assessmentChan := workflow.GetSignalChannel(ctx, "assessment")
@@ -64,16 +159,6 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 
 	// Create selector for handling signals
 	selector := workflow.NewSelector(ctx)
-
-	// Initialize remaining bounty
-	remainingBounty := input.TotalBounty
-
-	// Create activities instance
-	activities := &Activities{
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-		serverURL:  input.ServerURL,
-		authToken:  input.AuthToken,
-	}
 
 	// Add assessment signal handler
 	selector.AddReceive(assessmentChan, func(c workflow.ReceiveChannel, more bool) {
@@ -100,6 +185,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 			PlatformType: assessmentSignal.Platform,
 			ContentID:    assessmentSignal.ContentID,
 			Dependencies: input.PlatformDependencies,
+			SolanaConfig: input.SolanaConfig,
 		}
 
 		var content string
@@ -219,7 +305,8 @@ func (deps RedditDependencies) Type() PlatformType {
 type PullContentWorkflowInput struct {
 	PlatformType PlatformType
 	ContentID    string
-	Dependencies interface{} // Platform-specific dependencies (will be cast to the appropriate type)
+	Dependencies interface{}         // Platform-specific dependencies (will be cast to the appropriate type)
+	SolanaConfig solana.SolanaConfig // Solana configuration
 }
 
 // PullContentWorkflow represents the workflow that pulls content from a platform
@@ -236,110 +323,118 @@ func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) (
 
 	ctx = workflow.WithActivityOptions(ctx, options)
 
-	// Create activities instance with empty dependencies for unused platforms
-	activities := NewActivities(
-		solana.SolanaConfig{}, // Empty Solana config for testing
-		"",                    // Empty server URL for testing
-		"",                    // Empty auth token for testing
-		RedditDependencies{},  // Will be set based on platform
-		YouTubeDependencies{}, // Will be set based on platform
-		YelpDependencies{},    // Will be set based on platform
-		GoogleDependencies{},  // Will be set based on platform
-		AmazonDependencies{},  // Will be set based on platform
-		LLMDependencies{},     // Empty LLM deps for testing
+	// Create activities instance
+	activities, err := NewActivities(
+		input.SolanaConfig,
+		"http://test-server",
+		"test-token",
+		RedditDependencies{},
+		YouTubeDependencies{},
+		YelpDependencies{},
+		GoogleDependencies{},
+		AmazonDependencies{},
+		LLMDependencies{},
 	)
+	if err != nil {
+		return "", fmt.Errorf("failed to create activities: %w", err)
+	}
 
-	// Select the appropriate activity based on platform type
-	var result string
-	var err error
-
+	// Pull content based on platform type
 	switch input.PlatformType {
 	case PlatformReddit:
-		var deps RedditDependencies
-		if mapDeps, ok := input.Dependencies.(map[string]interface{}); ok {
-			// Convert map to RedditDependencies
-			if userAgent, ok := mapDeps["UserAgent"].(string); ok {
-				deps.UserAgent = userAgent
-			}
-			if username, ok := mapDeps["Username"].(string); ok {
-				deps.Username = username
-			}
-			if password, ok := mapDeps["Password"].(string); ok {
-				deps.Password = password
-			}
-			if clientID, ok := mapDeps["ClientID"].(string); ok {
-				deps.ClientID = clientID
-			}
-			if clientSecret, ok := mapDeps["ClientSecret"].(string); ok {
-				deps.ClientSecret = clientSecret
-			}
-		} else if typedDeps, ok := input.Dependencies.(RedditDependencies); ok {
-			deps = typedDeps
-		} else {
-			return "", fmt.Errorf("invalid dependencies for Reddit platform: got %T, expected map[string]interface{} or RedditDependencies", input.Dependencies)
-		}
-		activities.redditDeps = deps
 		var redditContent *RedditContent
 		err = workflow.ExecuteActivity(ctx, activities.PullRedditContent, input.ContentID).Get(ctx, &redditContent)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("failed to pull Reddit content: %w", err)
 		}
-		result = FormatRedditContent(redditContent)
+		return formatRedditContent(redditContent), nil
 	case PlatformYouTube:
-		var deps YouTubeDependencies
-		if mapDeps, ok := input.Dependencies.(map[string]interface{}); ok {
-			// Convert map to YouTubeDependencies
-			if apiKey, ok := mapDeps["APIKey"].(string); ok {
-				deps.APIKey = apiKey
-			}
-			if appName, ok := mapDeps["ApplicationName"].(string); ok {
-				deps.ApplicationName = appName
-			}
-			if maxResults, ok := mapDeps["MaxResults"].(int64); ok {
-				deps.MaxResults = maxResults
-			}
-		} else if typedDeps, ok := input.Dependencies.(YouTubeDependencies); ok {
-			deps = typedDeps
-		} else {
-			return "", fmt.Errorf("invalid dependencies for YouTube platform: got %T, expected map[string]interface{} or YouTubeDependencies", input.Dependencies)
-		}
-		activities.youtubeDeps = deps
 		var youtubeContent *YouTubeContent
 		err = workflow.ExecuteActivity(ctx, activities.PullYouTubeContent, input.ContentID).Get(ctx, &youtubeContent)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("failed to pull YouTube content: %w", err)
 		}
-		result = FormatYouTubeContent(youtubeContent)
+		return formatYouTubeContent(youtubeContent), nil
 	case PlatformYelp:
-		deps, ok := input.Dependencies.(YelpDependencies)
-		if !ok {
-			return "", fmt.Errorf("invalid dependencies for Yelp platform: got %T, expected YelpDependencies", input.Dependencies)
+		var content string
+		err = workflow.ExecuteActivity(ctx, activities.PullYelpContent, input.ContentID).Get(ctx, &content)
+		if err != nil {
+			return "", fmt.Errorf("failed to pull Yelp content: %w", err)
 		}
-		activities.yelpDeps = deps
-		err = workflow.ExecuteActivity(ctx, activities.PullYelpContent, input.ContentID).Get(ctx, &result)
+		return content, nil
 	case PlatformGoogle:
-		deps, ok := input.Dependencies.(GoogleDependencies)
-		if !ok {
-			return "", fmt.Errorf("invalid dependencies for Google platform: got %T, expected GoogleDependencies", input.Dependencies)
+		var content string
+		err = workflow.ExecuteActivity(ctx, activities.PullGoogleContent, input.ContentID).Get(ctx, &content)
+		if err != nil {
+			return "", fmt.Errorf("failed to pull Google content: %w", err)
 		}
-		activities.googleDeps = deps
-		err = workflow.ExecuteActivity(ctx, activities.PullGoogleContent, input.ContentID).Get(ctx, &result)
+		return content, nil
 	case PlatformAmazon:
-		deps, ok := input.Dependencies.(AmazonDependencies)
-		if !ok {
-			return "", fmt.Errorf("invalid dependencies for Amazon platform: got %T, expected AmazonDependencies", input.Dependencies)
+		var content string
+		err = workflow.ExecuteActivity(ctx, activities.PullAmazonContent, input.ContentID).Get(ctx, &content)
+		if err != nil {
+			return "", fmt.Errorf("failed to pull Amazon content: %w", err)
 		}
-		activities.amazonDeps = deps
-		err = workflow.ExecuteActivity(ctx, activities.PullAmazonContent, input.ContentID).Get(ctx, &result)
+		return content, nil
 	default:
 		return "", fmt.Errorf("unsupported platform type: %s", input.PlatformType)
 	}
+}
 
-	if err != nil {
-		return "", fmt.Errorf("activity execution failed: %w", err)
+// formatRedditContent formats a RedditContent struct into a string
+func formatRedditContent(content *RedditContent) string {
+	if content == nil {
+		return ""
 	}
 
-	return result, nil
+	var parts []string
+	if content.Title != "" {
+		parts = append(parts, fmt.Sprintf("Title: %s", content.Title))
+	}
+	if content.Selftext != "" {
+		parts = append(parts, fmt.Sprintf("Content: %s", content.Selftext))
+	}
+	if content.Body != "" {
+		parts = append(parts, fmt.Sprintf("Body: %s", content.Body))
+	}
+	if content.Author != "" {
+		parts = append(parts, fmt.Sprintf("Author: %s", content.Author))
+	}
+	if content.Subreddit != "" {
+		parts = append(parts, fmt.Sprintf("Subreddit: %s", content.Subreddit))
+	}
+	if content.URL != "" {
+		parts = append(parts, fmt.Sprintf("URL: %s", content.URL))
+	}
+
+	return strings.Join(parts, "\n")
+}
+
+// formatYouTubeContent formats a YouTubeContent struct into a string
+func formatYouTubeContent(content *YouTubeContent) string {
+	if content == nil {
+		return ""
+	}
+
+	var parts []string
+	if content.Title != "" {
+		parts = append(parts, fmt.Sprintf("Title: %s", content.Title))
+	}
+	if content.Description != "" {
+		parts = append(parts, fmt.Sprintf("Description: %s", content.Description))
+	}
+	if content.ChannelTitle != "" {
+		parts = append(parts, fmt.Sprintf("Channel: %s", content.ChannelTitle))
+	}
+
+	// Add captions if available
+	for _, caption := range content.Captions {
+		if caption.Content != "" {
+			parts = append(parts, fmt.Sprintf("Caption (%s): %s", caption.Language, caption.Content))
+		}
+	}
+
+	return strings.Join(parts, "\n")
 }
 
 // CheckContentRequirementsResult represents the result of checking content requirements
@@ -499,14 +594,23 @@ func ReturnBountyToOwnerWorkflow(ctx workflow.Context, input ReturnBountyToOwner
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	// Create activities instance
-	activities := &Activities{
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-		serverURL:  input.SolanaConfig.RPCEndpoint,
-		authToken:  "test-token", // TODO: Get this from input
+	activities, err := NewActivities(
+		input.SolanaConfig,
+		"http://test-server",
+		"test-token",
+		RedditDependencies{},
+		YouTubeDependencies{},
+		YelpDependencies{},
+		GoogleDependencies{},
+		AmazonDependencies{},
+		LLMDependencies{},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create activities: %w", err)
 	}
 
 	// Execute return bounty activity
-	err := workflow.ExecuteActivity(ctx, activities.ReturnBountyToOwner, input.ToAccount, input.Amount.ToUSDC()).Get(ctx, nil)
+	err = workflow.ExecuteActivity(ctx, activities.ReturnBountyToOwner, input.ToAccount, input.Amount.ToUSDC()).Get(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to return bounty: %w", err)
 	}

@@ -9,7 +9,11 @@ This package implements the backend HTTP server for the Reddit Bounty Board appl
 The server provides several API endpoints:
 
 - **Authentication**: Token generation and validation
-- **Bounty Management**: Create, list, and manage bounties
+- **Bounty Management**:
+  - `GET /bounties` - List all bounties
+  - `POST /bounties` - Create a new bounty
+  - `POST /bounties/pay` - Pay a bounty
+  - `POST /bounties/return` - Return a bounty to owner
 - **Submission Handling**: Process and verify Reddit content submissions
 
 ### Middleware

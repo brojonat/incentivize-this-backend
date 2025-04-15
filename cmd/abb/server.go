@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/brojonat/affiliate-bounty-board/http"
@@ -50,7 +51,7 @@ func run_server(c *cli.Context) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Handle shutdown signals
+	// Set up signal handling
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -58,21 +59,39 @@ func run_server(c *cli.Context) error {
 		cancel()
 	}()
 
-	fmt.Printf("temporal-address: %s\n", c.String("temporal-address"))
-	fmt.Printf("temporal-namespace: %s\n", c.String("temporal-namespace"))
+	// Set up logger
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	// Create Temporal client
+	// Set up Temporal client
 	tc, err := client.Dial(client.Options{
-		Logger:    getDefaultLogger(slog.LevelInfo),
 		HostPort:  c.String("temporal-address"),
 		Namespace: c.String("temporal-namespace"),
 	})
 	if err != nil {
-		return fmt.Errorf("couldn't initialize temporal client: %w", err)
+		return fmt.Errorf("failed to create temporal client: %w", err)
 	}
 	defer tc.Close()
 
-	// Create and run the server
-	logger := getDefaultLogger(slog.LevelInfo)
-	return http.RunServer(ctx, logger, tc, c.String("port"))
+	// Parse CORS configuration from environment variables
+	normalizeCORSParams := func(e string) []string {
+		params := strings.Split(e, ",")
+		for i, p := range params {
+			params[i] = strings.TrimSpace(p)
+		}
+		return params
+	}
+
+	headers := normalizeCORSParams(os.Getenv("CORS_HEADERS"))
+	methods := normalizeCORSParams(os.Getenv("CORS_METHODS"))
+	origins := normalizeCORSParams(os.Getenv("CORS_ORIGINS"))
+
+	// Add CORS config to context
+	ctx = http.WithCORSConfig(ctx, headers, methods, origins)
+
+	// Run the server
+	port := c.String("port")
+	if port == "" {
+		port = "8080"
+	}
+	return http.RunServer(ctx, logger, tc, port)
 }
