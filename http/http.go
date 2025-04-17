@@ -139,13 +139,6 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
-	mux.HandleFunc("POST /bounties/return", stools.AdaptHandler(
-		handleReturnBountyToOwner(logger, tc),
-		withLogging(logger),
-		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-		apiMode(logger, maxBytes, headers, methods, origins),
-	))
-
 	mux.HandleFunc("POST /bounties", stools.AdaptHandler(
 		handleCreateBounty(logger, tc, DefaultPayoutCalculator()),
 		withLogging(logger),
@@ -155,6 +148,13 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 
 	mux.HandleFunc("GET /bounties", stools.AdaptHandler(
 		handleListBounties(logger, tc),
+		withLogging(logger),
+		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		apiMode(logger, maxBytes, headers, methods, origins),
+	))
+
+	mux.HandleFunc("POST /assess", stools.AdaptHandler(
+		handleAssessContent(logger, tc),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
 		apiMode(logger, maxBytes, headers, methods, origins),

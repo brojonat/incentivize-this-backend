@@ -1,7 +1,6 @@
 package abb
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -385,107 +384,32 @@ type PayBountyRequest struct {
 	Amount float64 `json:"amount"`
 }
 
-// PayBounty pays a bounty to a user by making an HTTP request to the server
+// PayBounty pays a bounty to a user by directly transferring USDC
 func (a *Activities) PayBounty(ctx context.Context, userID string, amount float64) error {
 	logger := activity.GetLogger(ctx)
 	logger.Info("Paying bounty", "user_id", userID, "amount", amount)
 
-	// Create request body
-	reqBody := PayBountyRequest{
-		UserID: userID,
-		Amount: amount,
-	}
-
-	// Marshal request body
-	jsonData, err := json.Marshal(reqBody)
+	// Convert amount to USDCAmount
+	usdcAmount, err := solana.NewUSDCAmount(amount)
 	if err != nil {
-		return fmt.Errorf("failed to marshal request body: %w", err)
+		return fmt.Errorf("failed to convert amount to USDCAmount: %w", err)
 	}
 
-	// Create request
-	req, err := http.NewRequestWithContext(ctx, "POST", a.serverURL+"/bounties/pay", bytes.NewBuffer(jsonData))
+	// Convert user ID to a Solana wallet address
+	// Note: In a real system, you would look up the user's wallet address using the user ID
+	// For this example, we'll assume the userID is already a Solana public key
+	toAccount, err := solanago.PublicKeyFromBase58(userID)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return fmt.Errorf("invalid user wallet address: %w", err)
 	}
 
-	// Set headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+a.authToken)
-
-	// Send request
-	resp, err := a.httpClient.Do(req)
+	// Transfer USDC directly from escrow to user
+	err = a.solanaClient.ReleaseEscrow(ctx, toAccount, usdcAmount)
 	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check response status
-	if resp.StatusCode != http.StatusOK {
-		var errResp struct {
-			Error string `json:"error"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
-			return fmt.Errorf("request failed with status %d", resp.StatusCode)
-		}
-		return fmt.Errorf("request failed: %s", errResp.Error)
+		return fmt.Errorf("failed to release escrow: %w", err)
 	}
 
 	logger.Info("Successfully paid bounty", "user_id", userID, "amount", amount)
-	return nil
-}
-
-// ReturnBountyToOwnerRequest represents the request body for returning a bounty to the owner
-type ReturnBountyToOwnerRequest struct {
-	OwnerID string  `json:"owner_id"`
-	Amount  float64 `json:"amount"`
-}
-
-// ReturnBountyToOwner returns the remaining bounty amount to the owner by making an HTTP request to the server
-func (a *Activities) ReturnBountyToOwner(ctx context.Context, ownerID string, amount float64) error {
-	logger := activity.GetLogger(ctx)
-	logger.Info("Returning bounty to owner", "owner_id", ownerID, "amount", amount)
-
-	// Create request body
-	reqBody := ReturnBountyToOwnerRequest{
-		OwnerID: ownerID,
-		Amount:  amount,
-	}
-
-	// Marshal request body
-	jsonData, err := json.Marshal(reqBody)
-	if err != nil {
-		return fmt.Errorf("failed to marshal request body: %w", err)
-	}
-
-	// Create request
-	req, err := http.NewRequestWithContext(ctx, "POST", a.serverURL+"/bounties/return", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+a.authToken)
-
-	// Send request
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Check response status
-	if resp.StatusCode != http.StatusOK {
-		var errResp struct {
-			Error string `json:"error"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
-			return fmt.Errorf("request failed with status %d", resp.StatusCode)
-		}
-		return fmt.Errorf("request failed: %s", errResp.Error)
-	}
-
-	logger.Info("Successfully returned bounty to owner", "owner_id", ownerID, "amount", amount)
 	return nil
 }
 

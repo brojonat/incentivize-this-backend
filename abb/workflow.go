@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
-	"github.com/google/uuid"
-	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
@@ -18,11 +17,11 @@ import (
 // TaskQueueName is the name of the task queue for all workflows
 const TaskQueueName = "affiliate-bounty-board"
 
-// BountyAssessmentSignal represents the signal that will be sent to assess content from a platform
-type BountyAssessmentSignal struct {
-	ContentID string       // ID of the content on the platform
-	UserID    string       // User ID who submitted the content
-	Platform  PlatformType // Platform the content is from
+// AssessContentSignal represents a signal to assess content against bounty requirements
+type AssessContentSignal struct {
+	ContentID string       `json:"content_id"`
+	UserID    string       `json:"user_id"`
+	Platform  PlatformType `json:"platform"`
 }
 
 // CancelBountySignal represents the signal to cancel the bounty and return remaining funds
@@ -162,7 +161,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 
 	// Add assessment signal handler
 	selector.AddReceive(assessmentChan, func(c workflow.ReceiveChannel, more bool) {
-		var assessmentSignal BountyAssessmentSignal
+		var assessmentSignal AssessContentSignal
 		c.Receive(ctx, &assessmentSignal)
 
 		// Check if we have enough remaining bounty
@@ -239,7 +238,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 
 		// Return remaining bounty to owner
 		if !remainingBounty.IsZero() {
-			err := workflow.ExecuteActivity(ctx, activities.ReturnBountyToOwner, input.OwnerID, remainingBounty.ToUSDC()).Get(ctx, nil)
+			err := workflow.ExecuteActivity(ctx, activities.PayBounty, input.OwnerID, remainingBounty.ToUSDC()).Get(ctx, nil)
 			if err != nil {
 				workflow.GetLogger(ctx).Error("Failed to return bounty to owner", "error", err)
 				return
@@ -260,7 +259,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	selector.AddFuture(timeoutFuture, func(f workflow.Future) {
 		_ = f.Get(ctx, nil)
 		if !remainingBounty.IsZero() {
-			err := workflow.ExecuteActivity(ctx, activities.ReturnBountyToOwner, input.OwnerID, remainingBounty.ToUSDC()).Get(ctx, nil)
+			err := workflow.ExecuteActivity(ctx, activities.PayBounty, input.OwnerID, remainingBounty.ToUSDC()).Get(ctx, nil)
 			if err != nil {
 				workflow.GetLogger(ctx).Error("Failed to return remaining bounty to owner", "error", err)
 				return
@@ -326,8 +325,8 @@ func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) (
 	// Create activities instance
 	activities, err := NewActivities(
 		input.SolanaConfig,
-		"http://test-server",
-		"test-token",
+		os.Getenv("SERVER_URL"),
+		os.Getenv("AUTH_TOKEN"),
 		RedditDependencies{},
 		YouTubeDependencies{},
 		YelpDependencies{},
@@ -468,76 +467,12 @@ func CheckContentRequirementsWorkflow(ctx workflow.Context, content, requirement
 	return result, nil
 }
 
-// SolanaDependencies contains the Solana client and configuration
-type SolanaDependencies struct {
-	Client solana.SolanaClient
-}
-
-// Workflow represents a workflow instance
-type Workflow struct {
-	client client.Client
-}
-
-// NewWorkflow creates a new workflow instance
-func NewWorkflow(c client.Client) *Workflow {
-	return &Workflow{client: c}
-}
-
 // PayBountyWorkflowInput represents the input parameters for the pay bounty workflow
 type PayBountyWorkflowInput struct {
 	FromAccount  string
 	ToAccount    string
 	Amount       *solana.USDCAmount
 	SolanaConfig solana.SolanaConfig
-}
-
-// ReturnBountyToOwnerWorkflowInput represents the input parameters for the return bounty workflow
-type ReturnBountyToOwnerWorkflowInput struct {
-	ToAccount    string
-	Amount       *solana.USDCAmount
-	SolanaConfig solana.SolanaConfig
-}
-
-// PayBounty executes the pay bounty workflow
-func (w *Workflow) PayBounty(ctx context.Context, input PayBountyWorkflowInput) error {
-	workflowID := fmt.Sprintf("pay-bounty-%s", uuid.New().String())
-	workflowOptions := client.StartWorkflowOptions{
-		ID:        workflowID,
-		TaskQueue: TaskQueueName,
-	}
-
-	we, err := w.client.ExecuteWorkflow(ctx, workflowOptions, PayBountyWorkflow, input)
-	if err != nil {
-		return fmt.Errorf("failed to start workflow: %w", err)
-	}
-
-	// Wait for workflow completion
-	if err := we.Get(ctx, nil); err != nil {
-		return fmt.Errorf("workflow failed: %w", err)
-	}
-
-	return nil
-}
-
-// ReturnBountyToOwner executes the return bounty workflow
-func (w *Workflow) ReturnBountyToOwner(ctx context.Context, input ReturnBountyToOwnerWorkflowInput) error {
-	workflowID := fmt.Sprintf("return-bounty-%s", uuid.New().String())
-	workflowOptions := client.StartWorkflowOptions{
-		ID:        workflowID,
-		TaskQueue: TaskQueueName,
-	}
-
-	we, err := w.client.ExecuteWorkflow(ctx, workflowOptions, ReturnBountyToOwnerWorkflow, input)
-	if err != nil {
-		return fmt.Errorf("failed to start workflow: %w", err)
-	}
-
-	// Wait for workflow completion
-	if err := we.Get(ctx, nil); err != nil {
-		return fmt.Errorf("workflow failed: %w", err)
-	}
-
-	return nil
 }
 
 // PayBountyWorkflow represents the workflow that pays a bounty
@@ -574,45 +509,6 @@ func PayBountyWorkflow(ctx workflow.Context, input PayBountyWorkflowInput) error
 	err = workflow.ExecuteActivity(ctx, activities.TransferUSDC, fromAccount, toAccount, input.Amount).Get(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to transfer USDC: %w", err)
-	}
-
-	return nil
-}
-
-// ReturnBountyToOwnerWorkflow represents the workflow that returns a bounty to its owner
-func ReturnBountyToOwnerWorkflow(ctx workflow.Context, input ReturnBountyToOwnerWorkflowInput) error {
-	options := workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval:    time.Second,
-			BackoffCoefficient: 2.0,
-			MaximumInterval:    time.Minute,
-			MaximumAttempts:    3,
-		},
-	}
-
-	ctx = workflow.WithActivityOptions(ctx, options)
-
-	// Create activities instance
-	activities, err := NewActivities(
-		input.SolanaConfig,
-		"http://test-server",
-		"test-token",
-		RedditDependencies{},
-		YouTubeDependencies{},
-		YelpDependencies{},
-		GoogleDependencies{},
-		AmazonDependencies{},
-		LLMDependencies{},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create activities: %w", err)
-	}
-
-	// Execute return bounty activity
-	err = workflow.ExecuteActivity(ctx, activities.ReturnBountyToOwner, input.ToAccount, input.Amount.ToUSDC()).Get(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to return bounty: %w", err)
 	}
 
 	return nil

@@ -200,7 +200,6 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 		w.RegisterActivity(activities.TransferUSDC)
 		w.RegisterActivity(activities.ReleaseEscrow)
 		w.RegisterActivity(activities.PayBounty)
-		w.RegisterActivity(activities.ReturnBountyToOwner)
 	}
 
 	// run worker

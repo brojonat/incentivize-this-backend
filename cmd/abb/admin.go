@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	abbhttp "github.com/brojonat/affiliate-bounty-board/http"
 	"github.com/brojonat/affiliate-bounty-board/http/api"
 	"github.com/urfave/cli/v2"
 )
@@ -16,6 +17,7 @@ import (
 var (
 	EnvServerSecretKey = "SERVER_SECRET_KEY"
 	EnvServerEndpoint  = "SERVER_ENDPOINT"
+	EnvAuthToken       = "AUTH_TOKEN"
 )
 
 func getAuthToken(ctx *cli.Context) error {
@@ -81,6 +83,146 @@ func getAuthToken(ctx *cli.Context) error {
 	return printServerResponse(res)
 }
 
+func createBounty(ctx *cli.Context) error {
+	// Create a map for the request to avoid type conversion issues
+	req := map[string]interface{}{
+		"requirements_description": ctx.String("requirements"),
+		"bounty_per_post":          ctx.Float64("per-post"),
+		"total_bounty":             ctx.Float64("total"),
+		"owner_id":                 ctx.String("owner-id"),
+		"solana_wallet":            ctx.String("solana-wallet"),
+		"usdc_account":             ctx.String("usdc-account"),
+		"platform_type":            ctx.String("platform"),
+	}
+
+	// Marshal to JSON
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Create and send the HTTP request
+	httpReq, err := http.NewRequest(
+		http.MethodPost,
+		ctx.String("endpoint")+"/bounties",
+		bytes.NewBuffer(body),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set headers
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+ctx.String("token"))
+
+	// Execute the request
+	res, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+
+	return printServerResponse(res)
+}
+
+func payBounty(ctx *cli.Context) error {
+	// Create the request
+	req := abbhttp.PayBountyRequest{
+		UserID:      ctx.String("user-id"),
+		Amount:      ctx.Float64("amount"),
+		ToAccount:   ctx.String("to-account"),
+		FromAccount: ctx.String("from-account"),
+	}
+
+	// Marshal to JSON
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Create and send the HTTP request
+	httpReq, err := http.NewRequest(
+		http.MethodPost,
+		ctx.String("endpoint")+"/bounties/pay",
+		bytes.NewBuffer(body),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set headers
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+ctx.String("token"))
+
+	// Execute the request
+	res, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+
+	return printServerResponse(res)
+}
+
+func assessContent(ctx *cli.Context) error {
+	// Create a map for the request to avoid type conversion issues
+	req := map[string]interface{}{
+		"bounty_id":  ctx.String("bounty-id"),
+		"content_id": ctx.String("content-id"),
+		"user_id":    ctx.String("user-id"),
+		"platform":   ctx.String("platform"),
+	}
+
+	// Marshal to JSON
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Create and send the HTTP request
+	httpReq, err := http.NewRequest(
+		http.MethodPost,
+		ctx.String("endpoint")+"/assess",
+		bytes.NewBuffer(body),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set headers
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+ctx.String("token"))
+
+	// Execute the request
+	res, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+
+	return printServerResponse(res)
+}
+
+func listBounties(ctx *cli.Context) error {
+	// Create and send the HTTP request
+	httpReq, err := http.NewRequest(
+		http.MethodGet,
+		ctx.String("endpoint")+"/bounties",
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set headers
+	httpReq.Header.Set("Authorization", "Bearer "+ctx.String("token"))
+
+	// Execute the request
+	res, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+
+	return printServerResponse(res)
+}
+
 func adminCommands() []*cli.Command {
 	return []*cli.Command{
 		{
@@ -117,6 +259,171 @@ func adminCommands() []*cli.Command {
 						},
 					},
 					Action: getAuthToken,
+				},
+			},
+		},
+		{
+			Name:  "bounty",
+			Usage: "Bounty management commands",
+			Subcommands: []*cli.Command{
+				{
+					Name:        "create",
+					Usage:       "Create a new bounty",
+					Description: "Creates a new bounty with specified parameters",
+					Flags: []cli.Flag{
+						&cli.StringFlag{
+							Name:    "endpoint",
+							Aliases: []string{"end", "e"},
+							Value:   "http://localhost:8080",
+							Usage:   "Server endpoint",
+							EnvVars: []string{EnvServerEndpoint},
+						},
+						&cli.StringFlag{
+							Name:     "token",
+							Required: true,
+							Usage:    "Authorization token",
+							EnvVars:  []string{EnvAuthToken},
+						},
+						&cli.StringFlag{
+							Name:     "requirements",
+							Required: true,
+							Usage:    "Description of the bounty requirements",
+						},
+						&cli.Float64Flag{
+							Name:     "per-post",
+							Required: true,
+							Usage:    "Amount to pay per post (in USDC)",
+						},
+						&cli.Float64Flag{
+							Name:     "total",
+							Required: true,
+							Usage:    "Total bounty amount (in USDC)",
+						},
+						&cli.StringFlag{
+							Name:     "owner-id",
+							Required: true,
+							Usage:    "ID of the bounty owner",
+						},
+						&cli.StringFlag{
+							Name:     "solana-wallet",
+							Required: true,
+							Usage:    "Solana wallet address of the bounty owner",
+						},
+						&cli.StringFlag{
+							Name:     "usdc-account",
+							Required: true,
+							Usage:    "USDC account address of the bounty owner",
+						},
+						&cli.StringFlag{
+							Name:     "platform",
+							Required: true,
+							Usage:    "Platform type (reddit, youtube, yelp, google)",
+							Value:    "reddit",
+						},
+					},
+					Action: createBounty,
+				},
+				{
+					Name:        "pay",
+					Usage:       "Pay a bounty",
+					Description: "Pays a bounty to a user",
+					Flags: []cli.Flag{
+						&cli.StringFlag{
+							Name:    "endpoint",
+							Aliases: []string{"end", "e"},
+							Value:   "http://localhost:8080",
+							Usage:   "Server endpoint",
+							EnvVars: []string{EnvServerEndpoint},
+						},
+						&cli.StringFlag{
+							Name:     "token",
+							Required: true,
+							Usage:    "Authorization token",
+							EnvVars:  []string{EnvAuthToken},
+						},
+						&cli.StringFlag{
+							Name:  "user-id",
+							Usage: "ID of the user receiving the bounty (optional)",
+						},
+						&cli.Float64Flag{
+							Name:     "amount",
+							Required: true,
+							Usage:    "Amount to pay (in USDC)",
+						},
+						&cli.StringFlag{
+							Name:     "to-account",
+							Required: true,
+							Usage:    "Destination wallet address",
+						},
+						&cli.StringFlag{
+							Name:  "from-account",
+							Usage: "Source account (defaults to escrow if empty)",
+						},
+					},
+					Action: payBounty,
+				},
+				{
+					Name:        "assess",
+					Usage:       "Signal to assess content against bounty requirements",
+					Description: "Sends a signal to assess content against bounty requirements",
+					Flags: []cli.Flag{
+						&cli.StringFlag{
+							Name:    "endpoint",
+							Aliases: []string{"end", "e"},
+							Value:   "http://localhost:8080",
+							Usage:   "Server endpoint",
+							EnvVars: []string{EnvServerEndpoint},
+						},
+						&cli.StringFlag{
+							Name:     "token",
+							Required: true,
+							Usage:    "Authorization token",
+							EnvVars:  []string{EnvAuthToken},
+						},
+						&cli.StringFlag{
+							Name:     "bounty-id",
+							Required: true,
+							Usage:    "ID of the bounty",
+						},
+						&cli.StringFlag{
+							Name:     "content-id",
+							Required: true,
+							Usage:    "ID of the content to assess",
+						},
+						&cli.StringFlag{
+							Name:     "user-id",
+							Required: true,
+							Usage:    "ID of the user who created the content",
+						},
+						&cli.StringFlag{
+							Name:     "platform",
+							Required: true,
+							Usage:    "Platform type (reddit, youtube, yelp, google)",
+							Value:    "reddit",
+						},
+					},
+					Action: assessContent,
+				},
+				{
+					Name:        "list",
+					Usage:       "List available bounties",
+					Description: "Lists all available bounties",
+					Flags: []cli.Flag{
+						&cli.StringFlag{
+							Name:    "endpoint",
+							Aliases: []string{"end", "e"},
+							Value:   "http://localhost:8080",
+							Usage:   "Server endpoint",
+							EnvVars: []string{EnvServerEndpoint},
+						},
+						&cli.StringFlag{
+							Name:     "token",
+							Required: true,
+							Usage:    "Authorization token",
+							EnvVars:  []string{EnvAuthToken},
+						},
+					},
+					Action: listBounties,
 				},
 			},
 		},
