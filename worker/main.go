@@ -183,10 +183,16 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 		return fmt.Errorf("failed to create activities: %w", err)
 	}
 
-	// Create worker
-	w := worker.New(c, abb.TaskQueueName, worker.Options{})
+	// Create the single worker
+	w := worker.New(c, os.Getenv("TASK_QUEUE"), worker.Options{})
 
-	// Register activities
+	// Register all workflows
+	w.RegisterWorkflow(abb.BountyAssessmentWorkflow)
+	w.RegisterWorkflow(abb.PullContentWorkflow)
+	w.RegisterWorkflow(abb.CheckContentRequirementsWorkflow)
+	w.RegisterWorkflow(abb.PayBountyWorkflow)
+
+	// Register all activities
 	w.RegisterActivity(activities.PullRedditContent)
 	w.RegisterActivity(activities.PullYouTubeContent)
 	w.RegisterActivity(activities.PullYelpContent)
@@ -194,14 +200,13 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 	w.RegisterActivity(activities.PullAmazonContent)
 	w.RegisterActivity(activities.CheckContentRequirements)
 	w.RegisterActivity(activities.VerifyPayment)
+	w.RegisterActivity(activities.TransferUSDC)
+	w.RegisterActivity(activities.ReleaseEscrow)
+	w.RegisterActivity(activities.PayBounty)
 
-	// Only register Solana-related activities if not in local mode
-	if !localMode {
-		w.RegisterActivity(activities.TransferUSDC)
-		w.RegisterActivity(activities.ReleaseEscrow)
-		w.RegisterActivity(activities.PayBounty)
-	}
-
-	// run worker
-	return w.Run(worker.InterruptCh())
+	// Run the single worker
+	l.Info("Starting worker", "TaskQueue", os.Getenv("TASK_QUEUE"))
+	err = w.Run(worker.InterruptCh())
+	l.Info("Worker stopped")
+	return err
 }

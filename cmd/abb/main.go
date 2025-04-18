@@ -70,7 +70,7 @@ func main() {
 
 	app := &cli.App{
 		Name:  "abb",
-		Usage: "Reddit Bounty Board CLI",
+		Usage: "Affiliate Bounty Board CLI",
 		Commands: []*cli.Command{
 			{
 				Name:        "run",

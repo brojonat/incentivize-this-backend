@@ -1,6 +1,6 @@
 # http
 
-This package implements the backend HTTP server for the Reddit Bounty Board application.
+This package implements the backend HTTP server for the Affiliate Bounty Board application.
 
 ## Core Components
 

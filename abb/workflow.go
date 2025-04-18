@@ -14,9 +14,6 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
-// TaskQueueName is the name of the task queue for all workflows
-const TaskQueueName = "affiliate-bounty-board"
-
 // AssessContentSignal represents a signal to assess content against bounty requirements
 type AssessContentSignal struct {
 	ContentID string       `json:"content_id"`
@@ -31,19 +28,19 @@ type CancelBountySignal struct {
 
 // BountyAssessmentWorkflowInput represents the input parameters for the workflow
 type BountyAssessmentWorkflowInput struct {
-	RequirementsDescription string
-	BountyPerPost           *solana.USDCAmount
-	TotalBounty             *solana.USDCAmount
-	OwnerID                 string
-	SolanaWallet            string
-	USDCAccount             string
-	ServerURL               string
-	AuthToken               string
-	PlatformType            PlatformType        // The platform type (Reddit, YouTube, etc.)
-	PlatformDependencies    interface{}         // Platform-specific dependencies
-	Timeout                 time.Duration       // How long the bounty should remain active
-	PaymentTimeout          time.Duration       // How long to wait for payment verification
-	SolanaConfig            solana.SolanaConfig // Solana configuration
+	Requirements         []string           `json:"requirements"`
+	BountyPerPost        *solana.USDCAmount `json:"bounty_per_post"`
+	TotalBounty          *solana.USDCAmount `json:"total_bounty"`
+	OwnerID              string             `json:"owner_id"`
+	SolanaWallet         string             `json:"solana_wallet"`
+	USDCAccount          string             `json:"usdc_account"`
+	ServerURL            string
+	AuthToken            string
+	PlatformType         PlatformType        // The platform type (Reddit, YouTube, etc.)
+	PlatformDependencies interface{}         // Platform-specific dependencies
+	Timeout              time.Duration       // How long the bounty should remain active
+	PaymentTimeout       time.Duration       // How long to wait for payment verification
+	SolanaConfig         solana.SolanaConfig // Solana configuration
 }
 
 // BountyAssessmentWorkflow represents the workflow that manages bounty assessment
@@ -196,7 +193,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 
 		// Check content requirements
 		var result CheckContentRequirementsResult
-		err = workflow.ExecuteActivity(ctx, activities.CheckContentRequirements, content, input.RequirementsDescription).Get(ctx, &result)
+		err = workflow.ExecuteActivity(ctx, activities.CheckContentRequirements, content, input.Requirements).Get(ctx, &result)
 		if err != nil {
 			workflow.GetLogger(ctx).Error("Failed to check content requirements", "error", err)
 			return
@@ -443,7 +440,7 @@ type CheckContentRequirementsResult struct {
 }
 
 // CheckContentRequirementsWorkflow represents the workflow that checks if content satisfies requirements
-func CheckContentRequirementsWorkflow(ctx workflow.Context, content, requirements string) (CheckContentRequirementsResult, error) {
+func CheckContentRequirementsWorkflow(ctx workflow.Context, content string, requirements []string) (CheckContentRequirementsResult, error) {
 	options := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{

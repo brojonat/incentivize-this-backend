@@ -86,13 +86,13 @@ func getAuthToken(ctx *cli.Context) error {
 func createBounty(ctx *cli.Context) error {
 	// Create a map for the request to avoid type conversion issues
 	req := map[string]interface{}{
-		"requirements_description": ctx.String("requirements"),
-		"bounty_per_post":          ctx.Float64("per-post"),
-		"total_bounty":             ctx.Float64("total"),
-		"owner_id":                 ctx.String("owner-id"),
-		"solana_wallet":            ctx.String("solana-wallet"),
-		"usdc_account":             ctx.String("usdc-account"),
-		"platform_type":            ctx.String("platform"),
+		"requirements":    ctx.StringSlice("requirements"),
+		"bounty_per_post": ctx.Float64("per-post"),
+		"total_bounty":    ctx.Float64("total"),
+		"owner_id":        ctx.String("owner-id"),
+		"solana_wallet":   ctx.String("solana-wallet"),
+		"usdc_account":    ctx.String("usdc-account"),
+		"platform_type":   ctx.String("platform"),
 	}
 
 	// Marshal to JSON
@@ -113,7 +113,7 @@ func createBounty(ctx *cli.Context) error {
 
 	// Set headers
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+ctx.String("token"))
+	httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", ctx.String("token")))
 
 	// Execute the request
 	res, err := http.DefaultClient.Do(httpReq)
@@ -284,8 +284,9 @@ func adminCommands() []*cli.Command {
 							Usage:    "Authorization token",
 							EnvVars:  []string{EnvAuthToken},
 						},
-						&cli.StringFlag{
+						&cli.StringSliceFlag{
 							Name:     "requirements",
+							Aliases:  []string{"req", "r"},
 							Required: true,
 							Usage:    "Description of the bounty requirements",
 						},

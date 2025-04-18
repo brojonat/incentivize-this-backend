@@ -41,7 +41,7 @@ build-push-cli:
 	docker build -f Dockerfile -t ${CLI_IMG_TAG} .
 	docker push ${CLI_IMG_TAG}
 
-refresh-token:
+refresh-token-debug:
 	$(call setup_env, .env.server.debug)
 	@$(MAKE) build-cli
 	./bin/abb admin auth get-token --email ${ADMIN_EMAIL} --env-file .env.server.debug
@@ -53,7 +53,7 @@ run-http-server-local:
 		sleep 2; \
 	fi
 	@$(MAKE) build-cli
-	./bin/abb run http-server --temporal-address localhost:7233 --temporal-namespace default
+	./bin/abb run http-server --temporal-address ${TEMPORAL_ADDRESS} --temporal-namespace ${TEMPORAL_NAMESPACE}
 
 run-worker-local:
 	$(call setup_env, .env.worker.debug)
@@ -62,7 +62,7 @@ run-worker-local:
 		sleep 2; \
 	fi
 	@$(MAKE) build-cli
-	./bin/abb run worker --temporal-address localhost:7233 --temporal-namespace default
+	./bin/abb run worker --temporal-address ${TEMPORAL_ADDRESS} --temporal-namespace ${TEMPORAL_NAMESPACE}
 
 # Deployment targets
 .PHONY: deploy-server deploy-worker deploy-all delete-server delete-worker delete-all

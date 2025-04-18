@@ -35,25 +35,25 @@ type ReturnBountyToOwnerRequest struct {
 
 // CreateBountyRequest represents the request body for creating a new bounty
 type CreateBountyRequest struct {
-	RequirementsDescription string           `json:"requirements_description"`
-	BountyPerPost           float64          `json:"bounty_per_post"`
-	TotalBounty             float64          `json:"total_bounty"`
-	OwnerID                 string           `json:"owner_id"`
-	SolanaWallet            string           `json:"solana_wallet"`
-	USDCAccount             string           `json:"usdc_account"`
-	PlatformType            abb.PlatformType `json:"platform_type"`
+	Requirements  []string         `json:"requirements"`
+	BountyPerPost float64          `json:"bounty_per_post"`
+	TotalBounty   float64          `json:"total_bounty"`
+	OwnerID       string           `json:"owner_id"`
+	SolanaWallet  string           `json:"solana_wallet"`
+	USDCAccount   string           `json:"usdc_account"`
+	PlatformType  abb.PlatformType `json:"platform_type"`
 }
 
 // BountyListItem represents a single bounty in the list response
 type BountyListItem struct {
-	WorkflowID              string           `json:"workflow_id"`
-	Status                  string           `json:"status"`
-	RequirementsDescription string           `json:"requirements_description"`
-	BountyPerPost           float64          `json:"bounty_per_post"`
-	TotalBounty             float64          `json:"total_bounty"`
-	OwnerID                 string           `json:"owner_id"`
-	PlatformType            abb.PlatformType `json:"platform_type"`
-	CreatedAt               time.Time        `json:"created_at"`
+	WorkflowID    string           `json:"workflow_id"`
+	Status        string           `json:"status"`
+	Requirements  []string         `json:"requirements"`
+	BountyPerPost float64          `json:"bounty_per_post"`
+	TotalBounty   float64          `json:"total_bounty"`
+	OwnerID       string           `json:"owner_id"`
+	PlatformType  abb.PlatformType `json:"platform_type"`
+	CreatedAt     time.Time        `json:"created_at"`
 }
 
 // BountyLister defines the interface for listing bounties
@@ -139,7 +139,7 @@ func handlePayBounty(l *slog.Logger, tc client.Client) http.HandlerFunc {
 		workflowID := fmt.Sprintf("pay-bounty-%s", uuid.New().String())
 		workflowOptions := client.StartWorkflowOptions{
 			ID:        workflowID,
-			TaskQueue: abb.TaskQueueName,
+			TaskQueue: os.Getenv("TASK_QUEUE"),
 		}
 
 		we, err := tc.ExecuteWorkflow(r.Context(), workflowOptions, abb.PayBountyWorkflow, abb.PayBountyWorkflowInput{
@@ -176,8 +176,8 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 		}
 
 		// Validate request
-		if req.RequirementsDescription == "" {
-			writeBadRequestError(w, fmt.Errorf("requirements_description is required"))
+		if len(req.Requirements) == 0 {
+			writeBadRequestError(w, fmt.Errorf("requirements is required"))
 			return
 		}
 		if req.BountyPerPost <= 0 {
@@ -237,22 +237,22 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 
 		// Create workflow input
 		input := abb.BountyAssessmentWorkflowInput{
-			RequirementsDescription: req.RequirementsDescription,
-			BountyPerPost:           bountyPerPost,
-			TotalBounty:             totalBounty,
-			OwnerID:                 req.OwnerID,
-			SolanaWallet:            req.SolanaWallet,
-			USDCAccount:             req.USDCAccount,
-			ServerURL:               os.Getenv("SERVER_URL"),
-			AuthToken:               os.Getenv("AUTH_TOKEN"),
-			PlatformType:            req.PlatformType,
+			Requirements:  req.Requirements,
+			BountyPerPost: bountyPerPost,
+			TotalBounty:   totalBounty,
+			OwnerID:       req.OwnerID,
+			SolanaWallet:  req.SolanaWallet,
+			USDCAccount:   req.USDCAccount,
+			ServerURL:     os.Getenv("SERVER_URL"),
+			AuthToken:     os.Getenv("AUTH_TOKEN"),
+			PlatformType:  req.PlatformType,
 		}
 
 		// Start workflow
 		workflowID := fmt.Sprintf("bounty-%s-%s", req.OwnerID, uuid.New().String())
 		workflowOptions := client.StartWorkflowOptions{
 			ID:        workflowID,
-			TaskQueue: abb.TaskQueueName,
+			TaskQueue: os.Getenv("TASK_QUEUE"),
 		}
 
 		we, err := tc.ExecuteWorkflow(r.Context(), workflowOptions, abb.BountyAssessmentWorkflow, input)
@@ -297,14 +297,14 @@ func handleListBounties(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			}
 
 			bounties = append(bounties, BountyListItem{
-				WorkflowID:              execution.Execution.WorkflowId,
-				Status:                  execution.Status.String(),
-				RequirementsDescription: input.RequirementsDescription,
-				BountyPerPost:           input.BountyPerPost.ToUSDC(),
-				TotalBounty:             input.TotalBounty.ToUSDC(),
-				OwnerID:                 input.OwnerID,
-				PlatformType:            input.PlatformType,
-				CreatedAt:               execution.StartTime.AsTime(),
+				WorkflowID:    execution.Execution.WorkflowId,
+				Status:        execution.Status.String(),
+				Requirements:  input.Requirements,
+				BountyPerPost: input.BountyPerPost.ToUSDC(),
+				TotalBounty:   input.TotalBounty.ToUSDC(),
+				OwnerID:       input.OwnerID,
+				PlatformType:  input.PlatformType,
+				CreatedAt:     execution.StartTime.AsTime(),
 			})
 		}
 

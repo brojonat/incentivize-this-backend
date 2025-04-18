@@ -278,19 +278,19 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	wallet := solana_go.NewWallet()
 
 	input := BountyAssessmentWorkflowInput{
-		RequirementsDescription: "Test requirements",
-		BountyPerPost:           bountyPerPost,
-		TotalBounty:             totalBounty,
-		OwnerID:                 "test-owner",
-		SolanaWallet:            wallet.PublicKey().String(),
-		USDCAccount:             wallet.PublicKey().String(),
-		ServerURL:               "http://test-server",
-		AuthToken:               "test-token",
-		PlatformType:            PlatformReddit,
-		PlatformDependencies:    RedditDependencies{},
-		Timeout:                 5 * time.Second, // Shorter timeout for testing
-		PaymentTimeout:          time.Second,     // Shorter payment timeout for testing
-		SolanaConfig:            testConfig,
+		Requirements:         []string{"Test requirement 1", "Test requirement 2"},
+		BountyPerPost:        bountyPerPost,
+		TotalBounty:          totalBounty,
+		OwnerID:              "test-owner",
+		SolanaWallet:         wallet.PublicKey().String(),
+		USDCAccount:          wallet.PublicKey().String(),
+		ServerURL:            "http://test-server",
+		AuthToken:            "test-token",
+		PlatformType:         PlatformReddit,
+		PlatformDependencies: RedditDependencies{},
+		Timeout:              5 * time.Second, // Shorter timeout for testing
+		PaymentTimeout:       time.Second,     // Shorter payment timeout for testing
+		SolanaConfig:         testConfig,
 	}
 
 	// Execute workflow and send signals
@@ -397,19 +397,19 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	wallet := solana_go.NewWallet()
 
 	input := BountyAssessmentWorkflowInput{
-		RequirementsDescription: "Test requirements",
-		BountyPerPost:           bountyPerPost,
-		TotalBounty:             totalBounty,
-		OwnerID:                 "test-owner",
-		SolanaWallet:            wallet.PublicKey().String(),
-		USDCAccount:             wallet.PublicKey().String(),
-		ServerURL:               "http://test-server",
-		AuthToken:               "test-token",
-		PlatformType:            PlatformReddit,
-		PlatformDependencies:    RedditDependencies{},
-		Timeout:                 5 * time.Second, // Shorter timeout for testing
-		PaymentTimeout:          time.Second,     // Shorter payment timeout for testing
-		SolanaConfig:            testConfig,
+		Requirements:         []string{"Test requirement 1", "Test requirement 2"},
+		BountyPerPost:        bountyPerPost,
+		TotalBounty:          totalBounty,
+		OwnerID:              "test-owner",
+		SolanaWallet:         wallet.PublicKey().String(),
+		USDCAccount:          wallet.PublicKey().String(),
+		ServerURL:            "http://test-server",
+		AuthToken:            "test-token",
+		PlatformType:         PlatformReddit,
+		PlatformDependencies: RedditDependencies{},
+		Timeout:              5 * time.Second, // Shorter timeout for testing
+		PaymentTimeout:       time.Second,     // Shorter payment timeout for testing
+		SolanaConfig:         testConfig,
 	}
 
 	// Execute workflow and send signals
@@ -607,14 +607,14 @@ func TestCheckContentRequirementsWorkflow(t *testing.T) {
 	env.RegisterActivity(activities.CheckContentRequirements)
 
 	// Mock activity
-	env.OnActivity(activities.CheckContentRequirements, mock.Anything, "test content", "test requirements").
+	env.OnActivity(activities.CheckContentRequirements, mock.Anything, "test content", []string{"test requirements"}).
 		Return(CheckContentRequirementsResult{
 			Satisfies: true,
 			Reason:    "Content meets requirements",
 		}, nil)
 
 	// Execute workflow
-	env.ExecuteWorkflow(CheckContentRequirementsWorkflow, "test content", "test requirements")
+	env.ExecuteWorkflow(CheckContentRequirementsWorkflow, "test content", []string{"test requirements"})
 
 	// Verify workflow completed successfully
 	require.True(t, env.IsWorkflowCompleted())

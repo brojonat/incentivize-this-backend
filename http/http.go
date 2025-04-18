@@ -124,7 +124,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
-	mux.HandleFunc("GET /token", stools.AdaptHandler(
+	mux.HandleFunc("POST /token", stools.AdaptHandler(
 		handleIssueSudoToken(logger),
 		withLogging(logger),
 		atLeastOneAuth(basicAuthorizerCtxSetEmail(getSecretKey)),
@@ -132,8 +132,8 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	))
 
 	// Add bounty routes with explicit dependencies
-	mux.HandleFunc("POST /bounties/pay", stools.AdaptHandler(
-		handlePayBounty(logger, tc),
+	mux.HandleFunc("GET /bounties", stools.AdaptHandler(
+		handleListBounties(logger, tc),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
 		apiMode(logger, maxBytes, headers, methods, origins),
@@ -146,19 +146,21 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
-	mux.HandleFunc("GET /bounties", stools.AdaptHandler(
-		handleListBounties(logger, tc),
-		withLogging(logger),
-		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-		apiMode(logger, maxBytes, headers, methods, origins),
-	))
-
 	mux.HandleFunc("POST /assess", stools.AdaptHandler(
 		handleAssessContent(logger, tc),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
 		apiMode(logger, maxBytes, headers, methods, origins),
 	))
+
+	mux.HandleFunc("POST /bounties/pay", stools.AdaptHandler(
+		handlePayBounty(logger, tc),
+		withLogging(logger),
+		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		apiMode(logger, maxBytes, headers, methods, origins),
+	))
+
+
 
 	server := &http.Server{
 		Addr:    ":" + port,

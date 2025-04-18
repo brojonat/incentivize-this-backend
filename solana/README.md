@@ -1,6 +1,6 @@
 # solana
 
-This package provides the Solana blockchain integration for the Reddit Bounty Board application.
+This package provides the Solana blockchain integration for the Affiliate Bounty Board application.
 
 ## Core Components
 

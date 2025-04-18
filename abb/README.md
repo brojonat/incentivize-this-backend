@@ -1,6 +1,6 @@
 # abb
 
-This package implements the Temporal workflows and activities that power the Reddit Bounty Board application.
+This package implements the Temporal workflows and activities that power the Affiliate Bounty Board application.
 
 ## Core Components
 
@@ -69,7 +69,7 @@ redditBountyInput := abb.BountyAssessmentWorkflowInput{
     Timeout:                 24 * time.Hour,
 }
 
-// Start the Reddit bounty workflow
+// Start the affiliate bounty workflow
 redditWorkflowID := "reddit-bounty-" + uuid.New().String()
 _, err = client.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
     ID:        redditWorkflowID,

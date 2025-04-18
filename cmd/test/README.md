@@ -1,6 +1,6 @@
 # Test Scripts
 
-This directory contains test scripts for various components of the Reddit Bounty Board application.
+This directory contains test scripts for various components of the Affiliate Bounty Board application.
 
 ## Content Pulling Tests
 

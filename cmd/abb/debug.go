@@ -391,7 +391,7 @@ func testPullContent(c *cli.Context) error {
 	workflowID := fmt.Sprintf("test-pull-content-%s-%s", platformStr, contentID)
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: abb.TaskQueueName,
+		TaskQueue: os.Getenv("TASK_QUEUE"),
 		// Add workflow task timeout to avoid waiting indefinitely
 		WorkflowTaskTimeout: 30 * time.Second,
 	}
@@ -464,7 +464,7 @@ func testCheckContentRequirements(c *cli.Context) error {
 	workflowID := fmt.Sprintf("check-requirements-%s", uuid.New().String())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        workflowID,
-		TaskQueue: abb.TaskQueueName,
+		TaskQueue: os.Getenv("TASK_QUEUE"),
 	}
 
 	// Execute the workflow using the registered workflow function

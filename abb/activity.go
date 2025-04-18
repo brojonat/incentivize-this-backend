@@ -270,11 +270,11 @@ func (a *Activities) PullRedditContent(contentID string) (*RedditContent, error)
 }
 
 // CheckContentRequirements checks if the content satisfies the requirements
-func (a *Activities) CheckContentRequirements(ctx context.Context, content, requirements string) (CheckContentRequirementsResult, error) {
+func (a *Activities) CheckContentRequirements(ctx context.Context, content string, requirements []string) (CheckContentRequirementsResult, error) {
 	logger := activity.GetLogger(ctx)
 	logger.Info("Starting content requirements check",
 		"content_length", len(content),
-		"requirements_count", strings.Count(requirements, "\n")+1)
+		"requirements_count", len(requirements))
 
 	prompt := fmt.Sprintf(`You are a content verification system. Your task is to determine if the given content satisfies the specified requirements.
 
@@ -291,7 +291,7 @@ You must respond with a valid JSON object in exactly this format:
 }
 
 Do not include any text before or after the JSON object. The response must be valid JSON that can be parsed by a JSON parser.
-Evaluate strictly and conservatively. Only return true if ALL requirements are clearly met.`, requirements, content)
+Evaluate strictly and conservatively. Only return true if ALL requirements are clearly met.`, strings.Join(requirements, "\n"), content)
 
 	// Call the LLM service using the provider
 	resp, err := a.llmDeps.Provider.Complete(ctx, prompt)
