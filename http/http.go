@@ -127,7 +127,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	mux.HandleFunc("POST /token", stools.AdaptHandler(
 		handleIssueSudoToken(logger),
 		withLogging(logger),
-		atLeastOneAuth(basicAuthorizerCtxSetEmail(getSecretKey)),
+		atLeastOneAuth(oauthAuthorizerForm(getSecretKey)),
 		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
@@ -159,8 +159,6 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
 		apiMode(logger, maxBytes, headers, methods, origins),
 	))
-
-
 
 	server := &http.Server{
 		Addr:    ":" + port,

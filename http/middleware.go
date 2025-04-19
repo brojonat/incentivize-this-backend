@@ -203,6 +203,41 @@ func bearerAuthorizerCtxSetToken(gsk func() string) func(http.ResponseWriter, *h
 	}
 }
 
+// oauthAuthorizerForm creates a middleware that authenticates requests using form data.
+// It expects 'username' and 'password' fields in the form.
+// It returns true if valid, false otherwise. It does NOT modify context.
+func oauthAuthorizerForm(gsk func() string) func(http.ResponseWriter, *http.Request) bool {
+	return func(w http.ResponseWriter, r *http.Request) bool {
+		if err := r.ParseForm(); err != nil {
+			writeUnauthorized(w) // Consider logging the parse error
+			return false
+		}
+
+		email := r.FormValue("username")
+		password := r.FormValue("password")
+
+		if email == "" || password == "" {
+			writeUnauthorized(w) // Missing credentials
+			return false
+		}
+
+		expectedPassword := gsk()
+		if expectedPassword == "" {
+			slog.Default().Error("oauthAuthorizerForm: server secret key not configured")
+			writeInternalError(slog.Default(), w, fmt.Errorf("authentication configuration error"))
+			return false
+		}
+
+		if password != expectedPassword {
+			writeUnauthorized(w) // Invalid credentials
+			return false
+		}
+		ctx := context.WithValue(r.Context(), ctxKeyEmail, email)
+		*r = *r.WithContext(ctx)
+		return true
+	}
+}
+
 // Iterates over the supplied authorizers and if at least one passes, then the
 // next handler is called, otherwise an unauthorized response is written.
 func atLeastOneAuth(authorizers ...func(http.ResponseWriter, *http.Request) bool) func(http.HandlerFunc) http.HandlerFunc {

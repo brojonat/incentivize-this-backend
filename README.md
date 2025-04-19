@@ -31,26 +31,42 @@ I was watching this new show on Apple with Seth Rogan where he has to make a cin
 2. Update the environment files with your configuration:
    - Set up your database credentials
    - Configure Temporal connection details
-   - Set up any other required environment variables
+   - Configure Solana credentials
+   - Configure individual platform credentials
 
 ### Local Development
 
-1. Start Temporal server locally:
+The recommended way to run the server and worker locally for development is using the integrated tmux development session. This provides separate panes for the server, worker, Temporal port-forwarding, and a CLI with environment variables automatically sourced.
 
-   ```bash
-   make temporal
-   ```
+**Prerequisites for Dev Session:**
 
-2. Run the worker locally:
+- Ensure `tmux` is installed (`brew install tmux` on macOS).
+- Ensure you have configured `kubectl` access to a Kubernetes cluster where Temporal is running.
 
-   ```bash
-   make run-worker
-   ```
+**Running the Dev Session:**
 
-3. Run the server locally:
-   ```bash
-   make run-server
-   ```
+1.  **Build the CLI and run tests:**
+
+    ```bash
+    make build-cli
+    make test
+    ```
+
+2.  **Start the Session:**
+
+    ```bash
+    make start-dev-session
+    ```
+
+    This will create/attach to a tmux session named `abb-dev`.
+
+3.  **Stopping the Session:**
+    Detach from tmux normally (`Ctrl+b`, `d`) or run:
+    ```bash
+    make stop-dev-session
+    ```
+
+_(For details on the specific processes running in the session and how to test the bounty workflow within it, see the "Testing the Bounty Workflow Locally" section below.)_
 
 ### Testing the Bounty Workflow Locally
 
@@ -241,14 +257,12 @@ The application consists of two main components:
 
 1. **Server**: HTTP API server that handles:
 
-   - User authentication
-   - Bounty creation and management
-   - Content assessment
-   - Payment processing
+   - User authentication/token management
+   - Bounty CRUDL endpoints
 
 2. **Worker**: Temporal worker that:
    - Processes bounty workflows
-   - Handles content creation
+   - Handles content assessment
    - Manages payment distribution
 
 ### System Architecture Diagram
@@ -278,15 +292,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Environment Setup
 
-The project uses environment variables for configuration. Create a `.env.server` file with the following variables:
-
-```bash
-SERVER_SECRET_KEY=your_secret_key
-SERVER_ENDPOINT=http://localhost:8080
-SERVER_PORT=8080
-AUTH_TOKEN=your_bearer_token  # Will be set by the CLI
-```
-
 Load the environment variables using:
 
 ```bash
@@ -295,12 +300,13 @@ set -o allexport && source .env.server && set +o allexport
 
 ## Authentication
 
-The project uses a two-step authentication process:
+The project uses a two-step authentication process typical to what you'd see in a OAuth2 flow:
 
-1. **Basic Auth**: Used only for the `/token` endpoint to obtain a Bearer token
+1. **Form with Credentials**: Used only for the `POST /token` endpoint to obtain a Bearer token
 
-   - Username: Your email
-   - Password: Server secret key (`SERVER_SECRET_KEY`)
+   - Client submits form data with the following fields
+     - `username`: Your email
+     - `password`: Server secret key (`SERVER_SECRET_KEY`)
 
 2. **Bearer Token**: Used for all other authenticated endpoints
    - Obtained from the `/token` endpoint

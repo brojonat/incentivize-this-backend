@@ -31,7 +31,12 @@ func handleIssueSudoToken(l *slog.Logger) http.HandlerFunc {
 			Email:          email,
 			Status:         UserStatusSudo,
 		}
-		token, _ := generateAccessToken(c)
+		token, err := generateAccessToken(c)
+		if err != nil {
+			// Handle potential error during token signing
+			writeInternalError(l, w, fmt.Errorf("failed to generate token: %w", err))
+			return
+		}
 		resp := api.DefaultJSONResponse{Message: token}
 		writeJSONResponse(w, resp, http.StatusOK)
 	}

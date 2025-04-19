@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,15 +36,22 @@ var (
 )
 
 func getAuthToken(ctx *cli.Context) error {
+	// Prepare form data
+	formData := url.Values{}
+	formData.Set("username", ctx.String("email"))
+	formData.Set("password", ctx.String("secret-key"))
+
 	r, err := http.NewRequest(
 		http.MethodPost,
 		ctx.String("endpoint")+"/token",
-		nil,
+		bytes.NewBufferString(formData.Encode()), // Use encoded form data
 	)
 	if err != nil {
 		return err
 	}
-	r.SetBasicAuth(ctx.String("email"), ctx.String("secret-key"))
+	// Set Content-Type header for form data
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
 	res, err := http.DefaultClient.Do(r)
 	if err != nil {
 		return fmt.Errorf("could not do server request: %w", err)
