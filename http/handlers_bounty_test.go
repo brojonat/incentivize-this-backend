@@ -14,8 +14,10 @@ import (
 	"github.com/stretchr/testify/mock"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/api/enums/v1"
+	historypb "go.temporal.io/api/history/v1"
 	workflowpb "go.temporal.io/api/workflow/v1"
 	"go.temporal.io/api/workflowservice/v1"
+	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/mocks"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -43,30 +45,59 @@ func TestHandleListBounties(t *testing.T) {
 						StartTime: timestamppb.New(now),
 					},
 				}
-				mtc.On("ListWorkflow", mock.Anything, mock.Anything).
+				mtc.On("ListWorkflow", mock.Anything, mock.AnythingOfType("*workflowservice.ListWorkflowExecutionsRequest")).
 					Return(&workflowservice.ListWorkflowExecutionsResponse{
 						Executions: executions,
 					}, nil)
 
-				// Setup GetWorkflow mock
-				mockRun := &mocks.WorkflowRun{}
-				mockRun.On("Get", mock.Anything, mock.Anything).
-					Return(nil).
-					Run(func(args mock.Arguments) {
-						input := args.Get(1).(*abb.BountyAssessmentWorkflowInput)
-						bountyPerPost, _ := solana.NewUSDCAmount(10.0)
-						totalBounty, _ := solana.NewUSDCAmount(100.0)
-						*input = abb.BountyAssessmentWorkflowInput{
-							Requirements:      []string{"Test requirement 1", "Test requirement 2"},
-							BountyPerPost:     bountyPerPost,
-							TotalBounty:       totalBounty,
-							BountyOwnerWallet: "test-owner",
-							PlatformType:      abb.PlatformReddit,
-						}
-					})
+				// --- Mock GetWorkflowHistory ---
+				mockIter := &mocks.HistoryEventIterator{}
+				// Define the input payload for the workflow
+				bountyPerPost, _ := solana.NewUSDCAmount(10.0)
+				totalBounty, _ := solana.NewUSDCAmount(100.0)
+				expectedInput := abb.BountyAssessmentWorkflowInput{
+					Requirements:      []string{"Test requirement 1", "Test requirement 2"},
+					BountyPerPost:     bountyPerPost,
+					TotalBounty:       totalBounty,
+					BountyOwnerWallet: "test-owner",
+					PlatformType:      abb.PlatformReddit,
+					// Add other fields matching the expected input in the handler
+				}
+				inputPayload, err := converter.GetDefaultDataConverter().ToPayload(expectedInput)
+				assert.NoError(t, err) // Use assert within the test setup
 
-				mtc.On("GetWorkflow", mock.Anything, "test-workflow-1", "test-run-1").
-					Return(mockRun)
+				// Create the history event
+				historyEvent := &historypb.HistoryEvent{
+					EventId:   1,
+					EventTime: timestamppb.Now(),
+					EventType: enums.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED,
+					Attributes: &historypb.HistoryEvent_WorkflowExecutionStartedEventAttributes{
+						WorkflowExecutionStartedEventAttributes: &historypb.WorkflowExecutionStartedEventAttributes{
+							Input: &commonpb.Payloads{
+								Payloads: []*commonpb.Payload{inputPayload},
+							},
+							// Add other necessary attributes if needed
+						},
+					},
+				}
+
+				// Configure the mock iterator
+				var nextCalls int
+				mockIter.On("HasNext").Return(func() bool {
+					nextCalls++
+					return nextCalls <= 1 // Only return true for the first call
+				})
+				mockIter.On("Next").Return(historyEvent, nil).Once() // Return the event once
+
+				// Add the mock expectation for GetWorkflowHistory
+				mtc.On("GetWorkflowHistory",
+					mock.Anything, // context
+					"test-workflow-1",
+					"test-run-1",
+					false,
+					enums.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT,
+				).Return(mockIter, nil)
+				// --- End Mock GetWorkflowHistory ---
 			},
 			expectedStatus: http.StatusOK,
 			expectedBody: []BountyListItem{
