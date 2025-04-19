@@ -13,8 +13,10 @@ import (
 	"github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
+	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
 )
 
 // PayBountyRequest represents the request body for paying a bounty
@@ -330,25 +332,69 @@ func handleListBounties(l *slog.Logger, tc client.Client) http.HandlerFunc {
 		}
 
 		// List workflows of type BountyAssessmentWorkflow
+		// Use a background context for listing, as it might take time
+		listCtx, listCancel := context.WithTimeout(context.Background(), 30*time.Second) // Timeout for the whole list operation
+		defer listCancel()
+
 		query := fmt.Sprintf(`WorkflowType = '%s'`, "BountyAssessmentWorkflow")
-		executions, err := tc.ListWorkflow(r.Context(), &workflowservice.ListWorkflowExecutionsRequest{
+		executions, err := tc.ListWorkflow(listCtx, &workflowservice.ListWorkflowExecutionsRequest{
 			Query: query,
 		})
 		if err != nil {
-			writeInternalError(l, w, fmt.Errorf("failed to list bounties: %w", err))
+			if listCtx.Err() == context.DeadlineExceeded {
+				writeInternalError(l, w, fmt.Errorf("timed out listing bounties: %w", err))
+			} else {
+				writeInternalError(l, w, fmt.Errorf("failed to list bounties: %w", err))
+			}
 			return
 		}
 
 		// Convert workflows to bounty list items
 		bounties := make([]BountyListItem, 0)
 		for _, execution := range executions.Executions {
-			// Get workflow input
+			// Get workflow input from history
 			var input abb.BountyAssessmentWorkflowInput
-			err = tc.GetWorkflow(r.Context(), execution.Execution.WorkflowId, execution.Execution.RunId).Get(r.Context(), &input)
-			if err != nil {
-				l.Error("failed to get workflow input", "error", err, "workflow_id", execution.Execution.WorkflowId)
+
+			// Use a short timeout for fetching history for *each* workflow
+			histCtx, histCancel := context.WithTimeout(context.Background(), 5*time.Second)
+
+			historyIterator := tc.GetWorkflowHistory(histCtx, execution.Execution.WorkflowId, execution.Execution.RunId, false, enums.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
+			if !historyIterator.HasNext() {
+				l.Error("failed to get workflow history or history is empty", "workflow_id", execution.Execution.WorkflowId)
+				histCancel() // Ensure context is cancelled
 				continue
 			}
+
+			event, err := historyIterator.Next()
+			if err != nil {
+				l.Error("failed to get first history event", "error", err, "workflow_id", execution.Execution.WorkflowId)
+				histCancel()
+				continue
+			}
+
+			if event.GetEventType() != enums.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED {
+				l.Error("first history event is not WorkflowExecutionStarted", "event_type", event.GetEventType(), "workflow_id", execution.Execution.WorkflowId)
+				histCancel()
+				continue
+			}
+
+			attrs := event.GetWorkflowExecutionStartedEventAttributes()
+			if attrs == nil || attrs.Input == nil || len(attrs.Input.Payloads) == 0 {
+				l.Error("WorkflowExecutionStarted event missing input attributes", "workflow_id", execution.Execution.WorkflowId)
+				histCancel()
+				continue
+			}
+
+			// Decode the input payload
+			// Assuming input is the first payload
+			err = converter.GetDefaultDataConverter().FromPayload(attrs.Input.Payloads[0], &input)
+			if err != nil {
+				l.Error("failed to decode workflow input from history", "error", err, "workflow_id", execution.Execution.WorkflowId)
+				histCancel()
+				continue
+			}
+
+			histCancel() // Cancel context as soon as history is fetched
 
 			bounties = append(bounties, BountyListItem{
 				WorkflowID:        execution.Execution.WorkflowId,
