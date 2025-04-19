@@ -677,3 +677,44 @@ If your keypair is located at the default path (`~/.config/solana/id.json`), you
 ```
 
 **Important:** Handle your private keys with extreme care. Never commit them to version control or share them publicly.
+
+### 4. Finding Token Accounts and Checking Balances (spl-token)
+
+Unlike SOL which is held directly by your main wallet address, SPL Tokens (like USDC) are held in separate Associated Token Accounts (ATAs) linked to your main wallet. You often need to find the address of an ATA or check its token balance.
+
+The `spl-token` command-line utility is essential for this. (You might need to install the Solana Tool Suite if you don't have it: `sh -c "$(curl -sSfL https://release.solana.com/v1.18.4/install)"` - check Solana docs for latest).
+
+**Finding an Associated Token Account (ATA) Address:**
+
+To find the specific ATA address for a given owner wallet and a specific token mint:
+
+```bash
+# Replace <TOKEN_MINT_ADDRESS> with the mint (e.g., Devnet USDC)
+# Replace <OWNER_WALLET_ADDRESS> with the main wallet address
+
+spl-token address --token <TOKEN_MINT_ADDRESS> --owner <OWNER_WALLET_ADDRESS>
+
+# Example for Native Devnet USDC (Gh9Zw...):
+spl-token address --token Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr --owner AuQiyiWqPVHYhv9emCGfZm6oWaic4ojBHzqK4cv6Np4V
+
+# Example for Wrapped Devnet USDC (4zMMC...):
+spl-token address --token 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU --owner AuQiyiWqPVHYhv9emCGfZm6oWaic4ojBHzqK4cv6Np4V
+```
+
+This command prints the derived ATA address.
+
+**Checking the Token Balance of an Account:**
+
+Once you know the address of a specific token account (like an ATA), you can check its balance:
+
+```bash
+# Replace <TOKEN_ACCOUNT_ADDRESS> with the ATA address you found
+# Replace <RPC_ENDPOINT> with your Devnet RPC URL (e.g., https://api.devnet.solana.com)
+
+spl-token balance --address <TOKEN_ACCOUNT_ADDRESS> --url <RPC_ENDPOINT>
+
+# Example checking the wrapped USDC ATA derived above:
+spl-token balance --address 5U7XDWrusNB6zTGZ8dazJsu67MDzWMco3WGKFYkiLjt1 --url https://api.devnet.solana.com
+```
+
+This command shows the balance of the specific SPL Token held by that account address. Remember that the ATA itself usually holds 0 SOL; its SOL balance is irrelevant.
