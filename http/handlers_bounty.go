@@ -35,25 +35,25 @@ type ReturnBountyToOwnerRequest struct {
 
 // CreateBountyRequest represents the request body for creating a new bounty
 type CreateBountyRequest struct {
-	Requirements  []string         `json:"requirements"`
-	BountyPerPost float64          `json:"bounty_per_post"`
-	TotalBounty   float64          `json:"total_bounty"`
-	OwnerID       string           `json:"owner_id"`
-	SolanaWallet  string           `json:"solana_wallet"`
-	USDCAccount   string           `json:"usdc_account"`
-	PlatformType  abb.PlatformType `json:"platform_type"`
+	Requirements       []string         `json:"requirements"`
+	BountyPerPost      float64          `json:"bounty_per_post"`
+	TotalBounty        float64          `json:"total_bounty"`
+	BountyOwnerWallet  string           `json:"bounty_owner_wallet"`
+	BountyFunderWallet string           `json:"bounty_funder_wallet"`
+	PlatformType       abb.PlatformType `json:"platform_type"`
+	PaymentTimeout     int              `json:"payment_timeout"` // Timeout in seconds
 }
 
 // BountyListItem represents a single bounty in the list response
 type BountyListItem struct {
-	WorkflowID    string           `json:"workflow_id"`
-	Status        string           `json:"status"`
-	Requirements  []string         `json:"requirements"`
-	BountyPerPost float64          `json:"bounty_per_post"`
-	TotalBounty   float64          `json:"total_bounty"`
-	OwnerID       string           `json:"owner_id"`
-	PlatformType  abb.PlatformType `json:"platform_type"`
-	CreatedAt     time.Time        `json:"created_at"`
+	WorkflowID        string           `json:"workflow_id"`
+	Status            string           `json:"status"`
+	Requirements      []string         `json:"requirements"`
+	BountyPerPost     float64          `json:"bounty_per_post"`
+	TotalBounty       float64          `json:"total_bounty"`
+	BountyOwnerWallet string           `json:"bounty_owner_wallet"`
+	PlatformType      abb.PlatformType `json:"platform_type"`
+	CreatedAt         time.Time        `json:"created_at"`
 }
 
 // BountyLister defines the interface for listing bounties
@@ -123,10 +123,10 @@ func handlePayBounty(l *slog.Logger, tc client.Client) http.HandlerFunc {
 		}
 
 		solanaConfig := abb.SolanaConfig{
-			RPCEndpoint:        os.Getenv("SOLANA_RPC_ENDPOINT"),
-			WSEndpoint:         os.Getenv("SOLANA_WS_ENDPOINT"),
-			EscrowPrivateKey:   &escrowPrivateKey,
-			EscrowTokenAccount: escrowTokenAccount,
+			RPCEndpoint:      os.Getenv("SOLANA_RPC_ENDPOINT"),
+			WSEndpoint:       os.Getenv("SOLANA_WS_ENDPOINT"),
+			EscrowPrivateKey: &escrowPrivateKey,
+			EscrowWallet:     escrowTokenAccount,
 		}
 
 		// If FromAccount is not specified, use the escrow account
@@ -187,16 +187,12 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 			writeBadRequestError(w, fmt.Errorf("total_bounty must be greater than 0"))
 			return
 		}
-		if req.OwnerID == "" {
-			writeBadRequestError(w, fmt.Errorf("owner_id is required"))
+		if req.BountyOwnerWallet == "" {
+			writeBadRequestError(w, fmt.Errorf("bounty_owner_wallet is required"))
 			return
 		}
-		if req.SolanaWallet == "" {
-			writeBadRequestError(w, fmt.Errorf("solana_wallet is required"))
-			return
-		}
-		if req.USDCAccount == "" {
-			writeBadRequestError(w, fmt.Errorf("usdc_account is required"))
+		if req.BountyFunderWallet == "" {
+			writeBadRequestError(w, fmt.Errorf("bounty_funder_wallet is required"))
 			return
 		}
 
@@ -207,6 +203,13 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 		default:
 			writeBadRequestError(w, fmt.Errorf("invalid platform_type: must be one of reddit or youtube"))
 			return
+		}
+
+		paymentTimeoutDuration := time.Duration(req.PaymentTimeout) * time.Second
+		if paymentTimeoutDuration <= 0 {
+			// Ensure a minimum positive timeout, using default if zero/negative
+			logger.Warn("Invalid payment_timeout received, defaulting", "received", req.PaymentTimeout, "default_seconds", 10)
+			paymentTimeoutDuration = 10 * time.Second // Default to 10 seconds
 		}
 
 		// Apply revenue sharing using the calculator function
@@ -234,34 +237,86 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 			return
 		}
 
-		// Create workflow input
-		input := abb.BountyAssessmentWorkflowInput{
-			Requirements:  req.Requirements,
-			BountyPerPost: bountyPerPost,
-			TotalBounty:   totalBounty,
-			OwnerID:       req.OwnerID,
-			SolanaWallet:  req.SolanaWallet,
-			USDCAccount:   req.USDCAccount,
-			ServerURL:     os.Getenv("SERVER_URL"),
-			AuthToken:     os.Getenv("AUTH_TOKEN"),
-			PlatformType:  req.PlatformType,
+		// --- Populate SolanaConfig from Server Environment ---
+		privateKeyStr := os.Getenv("SOLANA_ESCROW_PRIVATE_KEY")
+		escrowWalletStr := os.Getenv("SOLANA_ESCROW_WALLET")
+		rpcEndpoint := os.Getenv("SOLANA_RPC_ENDPOINT")
+		wsEndpoint := os.Getenv("SOLANA_WS_ENDPOINT") // Optional, ok if empty
+		usdcMintAddr := os.Getenv("SOLANA_USDC_MINT_ADDRESS")
+
+		if privateKeyStr == "" {
+			writeInternalError(logger, w, fmt.Errorf("server config error: SOLANA_ESCROW_PRIVATE_KEY not set"))
+			return
+		}
+		if escrowWalletStr == "" {
+			writeInternalError(logger, w, fmt.Errorf("server config error: SOLANA_ESCROW_WALLET not set"))
+			return
+		}
+		if rpcEndpoint == "" {
+			writeInternalError(logger, w, fmt.Errorf("server config error: SOLANA_RPC_ENDPOINT not set"))
+			return
+		}
+		if usdcMintAddr == "" {
+			writeInternalError(logger, w, fmt.Errorf("server config error: SOLANA_USDC_MINT_ADDRESS not set"))
+			return
 		}
 
-		// Start workflow
-		workflowID := fmt.Sprintf("bounty-%s-%s", req.OwnerID, uuid.New().String())
+		escrowPrivateKey, err := solanago.PrivateKeyFromBase58(privateKeyStr)
+		if err != nil {
+			writeInternalError(logger, w, fmt.Errorf("failed to parse escrow private key from env: %w", err))
+			return
+		}
+		escrowWallet, err := solanago.PublicKeyFromBase58(escrowWalletStr)
+		if err != nil {
+			writeInternalError(logger, w, fmt.Errorf("failed to parse escrow wallet public key from env: %w", err))
+			return
+		}
+
+		solanaConfig := abb.SolanaConfig{
+			RPCEndpoint:      rpcEndpoint,
+			WSEndpoint:       wsEndpoint,
+			EscrowPrivateKey: &escrowPrivateKey,
+			EscrowWallet:     escrowWallet,
+			USDCMintAddress:  usdcMintAddr,
+		}
+		// --- End SolanaConfig Population ---
+
+		// Convert ORIGINAL total bounty for verification
+		originalTotalBountyAmount, err := solana.NewUSDCAmount(req.TotalBounty)
+		if err != nil {
+			writeBadRequestError(w, fmt.Errorf("invalid original total_bounty amount: %w", err))
+			return
+		}
+
+		// Create workflow input
+		input := abb.BountyAssessmentWorkflowInput{
+			Requirements:        req.Requirements,
+			BountyPerPost:       bountyPerPost,             // User payable amount per post
+			TotalBounty:         totalBounty,               // User payable total amount
+			OriginalTotalBounty: originalTotalBountyAmount, // Original amount for verification
+			BountyOwnerWallet:   req.BountyOwnerWallet,
+			BountyFunderWallet:  req.BountyFunderWallet,
+			PlatformType:        req.PlatformType,
+			Timeout:             24 * time.Hour * 7,     // Default bounty active duration (e.g., 1 week)
+			PaymentTimeout:      paymentTimeoutDuration, // Use duration from request
+			SolanaConfig:        solanaConfig,           // Assign the populated config
+		}
+
+		// Execute workflow
+		workflowID := fmt.Sprintf("bounty-%s", uuid.New().String())
 		workflowOptions := client.StartWorkflowOptions{
 			ID:        workflowID,
 			TaskQueue: os.Getenv("TASK_QUEUE"),
 		}
 
-		we, err := tc.ExecuteWorkflow(r.Context(), workflowOptions, abb.BountyAssessmentWorkflow, input)
+		_, err = tc.ExecuteWorkflow(r.Context(), workflowOptions, abb.BountyAssessmentWorkflow, input)
 		if err != nil {
 			writeInternalError(logger, w, fmt.Errorf("failed to start workflow: %w", err))
 			return
 		}
 
 		writeJSONResponse(w, DefaultJSONResponse{
-			Message: fmt.Sprintf("Successfully started bounty assessment workflow with ID %s", we.GetID()),
+			Message: fmt.Sprintf("Workflow started: %s", workflowID),
 		}, http.StatusOK)
 	}
 }
@@ -296,14 +351,14 @@ func handleListBounties(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			}
 
 			bounties = append(bounties, BountyListItem{
-				WorkflowID:    execution.Execution.WorkflowId,
-				Status:        execution.Status.String(),
-				Requirements:  input.Requirements,
-				BountyPerPost: input.BountyPerPost.ToUSDC(),
-				TotalBounty:   input.TotalBounty.ToUSDC(),
-				OwnerID:       input.OwnerID,
-				PlatformType:  input.PlatformType,
-				CreatedAt:     execution.StartTime.AsTime(),
+				WorkflowID:        execution.Execution.WorkflowId,
+				Status:            execution.Status.String(),
+				Requirements:      input.Requirements,
+				BountyPerPost:     input.BountyPerPost.ToUSDC(),
+				TotalBounty:       input.TotalBounty.ToUSDC(),
+				BountyOwnerWallet: input.BountyOwnerWallet,
+				PlatformType:      input.PlatformType,
+				CreatedAt:         execution.StartTime.AsTime(),
 			})
 		}
 

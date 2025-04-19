@@ -52,6 +52,68 @@ I was watching this new show on Apple with Seth Rogan where he has to make a cin
    make run-server
    ```
 
+### Testing the Bounty Workflow Locally
+
+This flow demonstrates how to create a bounty, fund it using the CLI utility (simulating an advertiser payment), and trigger the workflow locally using the `dev-session`.
+
+1.  **Start the Development Session:**
+    This launches tmux with the necessary components (server, worker, port-forwarding) and sources `.env.server.debug` in the CLI pane.
+
+    ```bash
+    make start-dev-session
+    ```
+
+2.  **Create the Bounty (in the tmux CLI pane):**
+    Run the `bounty create` command. Note the `Workflow started: <WORKFLOW_ID>` message in the output.
+
+    ```bash
+    # Example:
+    ./bin/abb admin bounty create -r "foo" -r "bar" -r "baz" --per-post 0.01 --total 0.1 --platform reddit --payment-timeout 10m
+    # Output will include: Workflow started: bounty-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    ```
+
+3.  **Prepare Funder Private Key (CLI pane):**
+    Ensure the funder wallet configured in `.env.server.debug` (`SOLANA_TEST_FUNDER_PRIVATE_KEY`) has Devnet SOL for fees and the correct Devnet USDC (matching `SOLANA_USDC_MINT_ADDRESS`) for the bounty amount. You can export the private key for use in the next step (or just have it ready).
+
+    ```bash
+    # Example using print-private-key utility (assuming key is in a file)
+    export SOLANA_TEST_FUNDER_PRIVATE_KEY=$(./bin/abb admin util print-private-key -k ~/.config/solana/test-funder.json)
+    # Or, if SOLANA_TEST_FUNDER_PRIVATE_KEY is already set in .env.server.debug, it's sourced by dev-session.
+    ```
+
+4.  **Fund the Bounty (CLI pane):**
+    Use the `fund-escrow` command. Crucially, you must provide:
+
+    - The _original_ total bounty amount (`-a 0.1` in this example).
+    - The specific `workflowID` (`-w <WORKFLOW_ID>`) obtained from step 2. This links the payment to the correct bounty workflow via the transaction memo.
+
+    ```bash
+    # Replace {bounty_workflow_id} with the actual ID from step 2
+    ./bin/abb admin util fund-escrow -a 0.1 -w {bounty_workflow_id}
+    ```
+
+5.  **Observe Verification (in the tmux Worker pane):**
+    The worker logs (`logs/worker.log`) should show the `VerifyPayment` activity polling for transactions. Once it finds the funding transaction matching the amount and the workflow ID in the memo, it will log `Matching payment transaction found` and `Payment verified successfully`, allowing the workflow to proceed.
+
+    This process allows you to test the full bounty lifecycle, including the crucial payment verification step, in your local development environment.
+
+### Key Makefile Targets
+
+Here are some of the most frequently used Makefile targets:
+
+- `make build-cli`: Builds the `abb` command-line interface executable.
+- `make test`: Runs all unit tests.
+- `make test-coverage`: Runs tests and generates an HTML coverage report.
+- `make run-http-server-local`: Runs the HTTP server locally (requires Temporal and port-forwarding).
+- `make run-worker-local`: Runs the Temporal worker locally (requires Temporal and port-forwarding).
+- `make dev-session`: Starts a tmux session with the server, worker, and a CLI pane for easy local development. It handles port-forwarding automatically. Requires `tmux`.
+- `make stop-dev-session`: Stops the tmux development session and associated processes.
+- `make deploy-all`: Builds and deploys both the server and worker to the configured Kubernetes cluster.
+- `make logs-server`/`make logs-worker`: Tails logs for the deployed server/worker pods.
+- `make status`: Shows the status of Kubernetes deployments and pods.
+
+Refer to the `Makefile` for the complete list and details.
+
 ## Deployment
 
 ### Prerequisites
@@ -566,3 +628,52 @@ OPENAI_MODEL=gpt-4  # or preferred model
 - Set up monitoring and alerting
 - Regular security audits
 - Proper secret management
+
+## Solana Wallet Management
+
+These steps outline how to generate a new Solana keypair, fund it on devnet/testnet, and retrieve its private key using the `abb` CLI.
+
+### 1. Generate a New Keypair
+
+Use the Solana CLI tool to create a new keypair file. Choose a memorable path, for example, `~/.config/solana/my_new_wallet.json`.
+
+```bash
+# Install Solana tools if you haven't already: https://docs.solana.com/cli/install
+solana-keygen new --outfile ~/.config/solana/my_new_wallet.json
+```
+
+This command will output the public key (wallet address) and save the keypair to the specified file. Keep this file secure.
+
+### 2. Fund the Wallet (Airdrop)
+
+You can request SOL tokens for your new wallet on networks like devnet or testnet using the `solana airdrop` command. Replace `<YOUR_NEW_WALLET_ADDRESS>` with the public key generated in the previous step.
+
+```bash
+# Make sure your Solana CLI is configured for the desired network (e.g., devnet)
+# solana config set --url https://api.devnet.solana.com
+
+# Request an airdrop (amount may vary by network)
+solana airdrop 2 <YOUR_NEW_WALLET_ADDRESS>
+```
+
+Wait for the transaction to confirm. You can check the balance with `solana balance <YOUR_NEW_WALLET_ADDRESS>`.
+
+### 3. Print the Private Key
+
+Use the `abb` CLI utility to print the private key in base58 format from your keypair file. This is useful if you need to import the wallet into another application or service.
+
+```bash
+# First, ensure the CLI is built
+make build-cli
+
+# Print the private key
+./bin/abb util print-private-key --keypair-path ~/.config/solana/my_new_wallet.json
+```
+
+If your keypair is located at the default path (`~/.config/solana/id.json`), you can omit the `--keypair-path` flag:
+
+```bash
+./bin/abb util print-private-key
+```
+
+**Important:** Handle your private keys with extreme care. Never commit them to version control or share them publicly.

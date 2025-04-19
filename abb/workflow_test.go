@@ -49,10 +49,10 @@ func TestWorkflow(t *testing.T) {
 		escrowAccount := solanago.NewWallet().PublicKey()
 
 		testConfig := SolanaConfig{
-			RPCEndpoint:        "https://api.testnet.solana.com",
-			WSEndpoint:         "wss://api.testnet.solana.com",
-			EscrowPrivateKey:   &escrowKey,
-			EscrowTokenAccount: escrowAccount,
+			RPCEndpoint:      "https://api.testnet.solana.com",
+			WSEndpoint:       "wss://api.testnet.solana.com",
+			EscrowPrivateKey: &escrowKey,
+			EscrowWallet:     escrowAccount,
 		}
 
 		// Create activities instance (minimal config needed for TransferUSDC)
@@ -98,10 +98,10 @@ func TestWorkflow(t *testing.T) {
 		escrowAccount := solanago.NewWallet().PublicKey()
 
 		testConfig := SolanaConfig{
-			RPCEndpoint:        "https://api.testnet.solana.com",
-			WSEndpoint:         "wss://api.testnet.solana.com",
-			EscrowPrivateKey:   &escrowKey,
-			EscrowTokenAccount: escrowAccount,
+			RPCEndpoint:      "https://api.testnet.solana.com",
+			WSEndpoint:       "wss://api.testnet.solana.com",
+			EscrowPrivateKey: &escrowKey,
+			EscrowWallet:     escrowAccount,
 		}
 
 		// Create mock HTTP client
@@ -183,10 +183,10 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	escrowAccount := solanago.NewWallet().PublicKey()
 
 	testConfig := SolanaConfig{
-		RPCEndpoint:        "https://api.testnet.solana.com",
-		WSEndpoint:         "wss://api.testnet.solana.com",
-		EscrowPrivateKey:   &escrowKey,
-		EscrowTokenAccount: escrowAccount,
+		RPCEndpoint:      "https://api.testnet.solana.com",
+		WSEndpoint:       "wss://api.testnet.solana.com",
+		EscrowPrivateKey: &escrowKey,
+		EscrowWallet:     escrowAccount,
 	}
 
 	// Create activities instance
@@ -259,18 +259,15 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	wallet := solanago.NewWallet()
 
 	input := BountyAssessmentWorkflowInput{
-		Requirements:   []string{"Test requirement 1", "Test requirement 2"},
-		BountyPerPost:  bountyPerPost,
-		TotalBounty:    totalBounty,
-		OwnerID:        "test-owner",
-		SolanaWallet:   wallet.PublicKey().String(),
-		USDCAccount:    wallet.PublicKey().String(),
-		ServerURL:      "http://test-server",
-		AuthToken:      "test-token",
-		PlatformType:   PlatformReddit,
-		Timeout:        5 * time.Second, // Shorter timeout for testing
-		PaymentTimeout: time.Second,     // Shorter payment timeout for testing
-		SolanaConfig:   testConfig,
+		Requirements:       []string{"Test requirement 1", "Test requirement 2"},
+		BountyPerPost:      bountyPerPost,
+		TotalBounty:        totalBounty,
+		BountyOwnerWallet:  "test-owner",                // Renamed field
+		BountyFunderWallet: wallet.PublicKey().String(), // Renamed field
+		PlatformType:       PlatformReddit,
+		Timeout:            5 * time.Second, // Shorter timeout for testing
+		PaymentTimeout:     time.Second,     // Shorter payment timeout for testing
+		SolanaConfig:       testConfig,
 	}
 
 	// Execute workflow and send signals
@@ -297,10 +294,10 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	escrowAccount := solanago.NewWallet().PublicKey()
 
 	testConfig := SolanaConfig{
-		RPCEndpoint:        "https://api.testnet.solana.com",
-		WSEndpoint:         "wss://api.testnet.solana.com",
-		EscrowPrivateKey:   &escrowKey,
-		EscrowTokenAccount: escrowAccount,
+		RPCEndpoint:      "https://api.testnet.solana.com",
+		WSEndpoint:       "wss://api.testnet.solana.com",
+		EscrowPrivateKey: &escrowKey,
+		EscrowWallet:     escrowAccount,
 	}
 
 	// Create activities instance
@@ -373,18 +370,15 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	wallet := solanago.NewWallet()
 
 	input := BountyAssessmentWorkflowInput{
-		Requirements:   []string{"Test requirement 1", "Test requirement 2"},
-		BountyPerPost:  bountyPerPost,
-		TotalBounty:    totalBounty,
-		OwnerID:        "test-owner",
-		SolanaWallet:   wallet.PublicKey().String(),
-		USDCAccount:    wallet.PublicKey().String(),
-		ServerURL:      "http://test-server",
-		AuthToken:      "test-token",
-		PlatformType:   PlatformReddit,
-		Timeout:        5 * time.Second, // Shorter timeout for testing
-		PaymentTimeout: time.Second,     // Shorter payment timeout for testing
-		SolanaConfig:   testConfig,
+		Requirements:       []string{"Test requirement 1", "Test requirement 2"},
+		BountyPerPost:      bountyPerPost,
+		TotalBounty:        totalBounty,
+		BountyOwnerWallet:  "test-owner",                // Renamed field
+		BountyFunderWallet: wallet.PublicKey().String(), // Renamed field
+		PlatformType:       PlatformReddit,
+		Timeout:            5 * time.Second, // Shorter timeout for testing
+		PaymentTimeout:     time.Second,     // Shorter payment timeout for testing
+		SolanaConfig:       testConfig,
 	}
 
 	// Execute workflow and send signals
@@ -613,8 +607,8 @@ func TestPayBountyWorkflow(t *testing.T) {
 	escrowKey := solanago.NewWallet().PrivateKey
 	escrowAccount := solanago.NewWallet().PublicKey()
 	testConfig := SolanaConfig{
-		EscrowPrivateKey:   &escrowKey,
-		EscrowTokenAccount: escrowAccount,
+		EscrowPrivateKey: &escrowKey,
+		EscrowWallet:     escrowAccount,
 	}
 	activities, err := NewActivities(
 		testConfig, "", "", // Minimal deps for registration

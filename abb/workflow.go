@@ -21,23 +21,21 @@ type AssessContentSignal struct {
 
 // CancelBountySignal represents the signal to cancel the bounty and return remaining funds
 type CancelBountySignal struct {
-	OwnerID string
+	BountyOwnerWallet string
 }
 
 // BountyAssessmentWorkflowInput represents the input parameters for the workflow
 type BountyAssessmentWorkflowInput struct {
-	Requirements   []string           `json:"requirements"`
-	BountyPerPost  *solana.USDCAmount `json:"bounty_per_post"`
-	TotalBounty    *solana.USDCAmount `json:"total_bounty"`
-	OwnerID        string             `json:"owner_id"`
-	SolanaWallet   string             `json:"solana_wallet"`
-	USDCAccount    string             `json:"usdc_account"`
-	ServerURL      string
-	AuthToken      string
-	PlatformType   PlatformType  // The platform type (Reddit, YouTube, etc.)
-	Timeout        time.Duration // How long the bounty should remain active
-	PaymentTimeout time.Duration // How long to wait for payment verification
-	SolanaConfig   SolanaConfig  // Use local abb.SolanaConfig
+	Requirements        []string           `json:"requirements"`
+	BountyPerPost       *solana.USDCAmount `json:"bounty_per_post"`
+	TotalBounty         *solana.USDCAmount `json:"total_bounty"`
+	OriginalTotalBounty *solana.USDCAmount `json:"original_total_bounty"`
+	BountyOwnerWallet   string             `json:"bounty_owner_wallet"`
+	BountyFunderWallet  string             `json:"bounty_funder_wallet"`
+	PlatformType        PlatformType       // The platform type (Reddit, YouTube, etc.)
+	PaymentTimeout      time.Duration      // How long to wait for funding/payment verification
+	Timeout             time.Duration      // How long the bounty should remain active
+	SolanaConfig        SolanaConfig       // Use local abb.SolanaConfig
 }
 
 // BountyAssessmentWorkflow represents the workflow that manages bounty assessment
@@ -54,16 +52,32 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 
 	ctx = workflow.WithActivityOptions(ctx, options)
 
-	// Convert wallet address to PublicKey
-	fromAccount, err := solanago.PublicKeyFromBase58(input.SolanaWallet)
+	// Convert funder wallet address to PublicKey
+	funderAccount, err := solanago.PublicKeyFromBase58(input.BountyFunderWallet)
 	if err != nil {
-		return fmt.Errorf("invalid wallet address: %w", err)
+		// Fallback removed, only funder wallet is used now
+		return fmt.Errorf("invalid funder wallet address: %w", err)
 	}
 
 	// Verify payment has been received
-	workflow.GetLogger(ctx).Info("Waiting for payment verification")
+	workflow.GetLogger(ctx).Info("Waiting for payment verification", "timeout", input.PaymentTimeout)
+
+	// Define specific activity options for VerifyPayment
+	verifyPaymentActivityOptions := workflow.ActivityOptions{
+		StartToCloseTimeout: input.PaymentTimeout + (10 * time.Second), // Add buffer to internal timeout
+		// Use a shorter retry policy for transient errors during the check itself,
+		// but don't retry indefinitely if payment isn't seen.
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumInterval:    10 * time.Second, // Keep max interval short
+			MaximumAttempts:    5,                // Limit attempts for transient errors
+		},
+	}
+	verifyPaymentCtx := workflow.WithActivityOptions(ctx, verifyPaymentActivityOptions)
+
 	var verifyResult *VerifyPaymentResult
-	err = workflow.ExecuteActivity(ctx, (*Activities).VerifyPayment, fromAccount, input.TotalBounty, input.PaymentTimeout).Get(ctx, &verifyResult)
+	err = workflow.ExecuteActivity(verifyPaymentCtx, (*Activities).VerifyPayment, funderAccount, input.OriginalTotalBounty, input.PaymentTimeout).Get(ctx, &verifyResult)
 	if err != nil {
 		return fmt.Errorf("failed to verify payment: %w", err)
 	}
@@ -75,7 +89,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	workflow.GetLogger(ctx).Info("Payment verified successfully",
 		"amount", verifyResult.Amount.ToUSDC())
 
-	// Initialize remaining bounty
+	// Initialize remaining bounty using the USER-PAYABLE total
 	remainingBounty := input.TotalBounty
 
 	// Create signal channels
@@ -155,15 +169,15 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 		var cancelSignal CancelBountySignal
 		c.Receive(ctx, &cancelSignal)
 
-		// Verify the owner ID matches
-		if cancelSignal.OwnerID != input.OwnerID {
-			workflow.GetLogger(ctx).Error("Invalid owner ID in cancellation signal")
+		// Verify the owner wallet matches
+		if cancelSignal.BountyOwnerWallet != input.BountyOwnerWallet {
+			workflow.GetLogger(ctx).Error("Invalid owner wallet in cancellation signal")
 			return
 		}
 
 		// Return remaining bounty to owner
 		if !remainingBounty.IsZero() {
-			err := workflow.ExecuteActivity(ctx, (*Activities).TransferUSDC, input.OwnerID, remainingBounty.ToUSDC()).Get(ctx, nil)
+			err := workflow.ExecuteActivity(ctx, (*Activities).TransferUSDC, input.BountyOwnerWallet, remainingBounty.ToUSDC()).Get(ctx, nil)
 			if err != nil {
 				workflow.GetLogger(ctx).Error("Failed to return bounty to owner", "error", err)
 				return
@@ -171,7 +185,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 
 			// Log the cancellation
 			workflow.GetLogger(ctx).Info("Bounty cancelled and remaining funds returned to owner",
-				"owner_id", input.OwnerID,
+				"bounty_owner_wallet", input.BountyOwnerWallet,
 				"remaining_amount", remainingBounty.ToUSDC())
 
 			// Set remaining bounty to zero to exit the loop
@@ -184,13 +198,13 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	selector.AddFuture(timeoutFuture, func(f workflow.Future) {
 		_ = f.Get(ctx, nil)
 		if !remainingBounty.IsZero() {
-			err := workflow.ExecuteActivity(ctx, (*Activities).TransferUSDC, input.OwnerID, remainingBounty.ToUSDC()).Get(ctx, nil)
+			err := workflow.ExecuteActivity(ctx, (*Activities).TransferUSDC, input.BountyOwnerWallet, remainingBounty.ToUSDC()).Get(ctx, nil)
 			if err != nil {
 				workflow.GetLogger(ctx).Error("Failed to return remaining bounty to owner", "error", err)
 			} else {
 				// Log the timeout
 				workflow.GetLogger(ctx).Info("Bounty timed out and remaining funds returned to owner",
-					"owner_id", input.OwnerID,
+					"bounty_owner_wallet", input.BountyOwnerWallet,
 					"remaining_amount", remainingBounty.ToUSDC())
 			}
 

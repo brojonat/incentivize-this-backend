@@ -8,94 +8,139 @@ import (
 	// Solana Go SDK packages
 	solanago "github.com/gagliardetto/solana-go"
 
+	associatedtokenaccount "github.com/gagliardetto/solana-go/programs/associated-token-account"
+	memo "github.com/gagliardetto/solana-go/programs/memo"
 	spltoken "github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
 )
 
-// SendUSDC sends a specified amount of USDC to a recipient's main wallet address.
-// Configuration (RPC endpoint, mint address, sender key) must be provided as arguments.
-//
-// NOTE: callers are responsible for confirming the transaction with ConfirmTransaction
-// using the signature returned by this function!
-//
-// Args:
-//   - ctx:            Context for cancellation and timeouts.
-//   - client:         An initialized Solana RPC client (*rpc.Client).
-//   - usdcMintAddress: The public key of the USDC token mint.
-//   - senderPrivateKey: The sender's private key.
-//   - recipientPublicKey: The recipient's main wallet address (as PublicKey).
-//   - amount:       The amount of USDC to send *in its smallest unit* (e.g., for 6 decimals, 1 USDC = 1,000,000 units).
-func SendUSDC(
+const usdcDecimals = 6 // Standard USDC decimals
+
+// BuildUSDCFundingInstructions creates the necessary instructions for funding, optionally including a memo.
+// It handles ATA creation for both sender and recipient if needed.
+func BuildUSDCFundingInstructions(
 	ctx context.Context,
 	client *rpc.Client,
 	usdcMintAddress solanago.PublicKey,
-	senderPrivateKey solanago.PrivateKey,
+	senderPublicKey solanago.PublicKey,
 	recipientPublicKey solanago.PublicKey,
 	amount uint64,
-) (solanago.Signature, error) {
+	workflowID string, // Optional: If non-empty, a memo instruction will be added
+) (instructions []solanago.Instruction, senderAta solanago.PublicKey, recipientAta solanago.PublicKey, err error) {
 
-	// Standard USDC typically has 6 decimal places.
-	// For production, you might want to fetch this dynamically from the mint account info,
-	// or pass it as an argument if supporting tokens with different decimals.
-	const usdcDecimals = 6
-
-	senderPublicKey := senderPrivateKey.PublicKey()
-
-	// Sender's ATA for USDC
-	senderAtaAddress, _, err := solanago.FindAssociatedTokenAddress(
-		senderPublicKey, usdcMintAddress,
-	)
+	// Derive ATAs
+	senderAta, _, err = solanago.FindAssociatedTokenAddress(senderPublicKey, usdcMintAddress)
 	if err != nil {
-		return solanago.Signature{}, fmt.Errorf("failed to find sender ATA: %w", err)
+		err = fmt.Errorf("failed to find sender ATA: %w", err)
+		return
+	}
+	recipientAta, _, err = solanago.FindAssociatedTokenAddress(recipientPublicKey, usdcMintAddress)
+	if err != nil {
+		err = fmt.Errorf("failed to find recipient ATA: %w", err)
+		return
 	}
 
-	// Recipient's ATA for USDC
-	recipientAtaAddress, _, err := solanago.FindAssociatedTokenAddress(
-		recipientPublicKey, usdcMintAddress,
-	)
-	if err != nil {
-		return solanago.Signature{}, fmt.Errorf("failed to find recipient ATA: %w", err)
+	// Instruction slice: Memo + Sender ATA + Recipient ATA + Transfer
+	instructions = make([]solanago.Instruction, 0, 4)
+
+	// 1. Add Memo Instruction (if workflowID is provided)
+	if workflowID != "" {
+		// Manual construction of the memo instruction
+		memoInstruction := solanago.NewInstruction(
+			memo.ProgramID,            // The Memo Program's public key
+			[]*solanago.AccountMeta{}, // No accounts needed
+			[]byte(workflowID),        // Memo content as bytes
+		)
+		instructions = append(instructions, memoInstruction)
 	}
 
-	// Optional Check: Does the recipient ATA exist? If not, it needs creation.
-	// This basic transfer assumes the recipient ATA already exists or will be
-	// created by another mechanism (like the recipient wallet auto-creating it).
-	// For robustness, check and potentially add a create ATA instruction.
-	_, err = client.GetAccountInfo(ctx, recipientAtaAddress)
+	// 2. Check and Create Sender ATA if needed
+	_, err = client.GetAccountInfo(ctx, senderAta)
 	if err != nil {
 		if err == rpc.ErrNotFound {
-			// Need to add associatedtokenaccount.NewCreateInstruction(...)
-			return solanago.Signature{}, fmt.Errorf("recipient ATA %s does not exist and creation is not implemented", recipientAtaAddress)
+			fmt.Printf("Sender ATA %s does not exist. Creating...\n", senderAta)
+			var createSenderAtaInstruction solanago.Instruction
+			createSenderAtaInstruction, err = associatedtokenaccount.NewCreateInstruction(
+				senderPublicKey, // Payer (pays rent)
+				senderPublicKey, // Wallet address (owner of the new ATA)
+				usdcMintAddress, // Mint
+			).ValidateAndBuild()
+			if err != nil {
+				err = fmt.Errorf("failed to build CreateAssociatedTokenAccount instruction for sender: %w", err)
+				return
+			}
+			instructions = append(instructions, createSenderAtaInstruction)
+		} else {
+			err = fmt.Errorf("failed to check sender ATA %s: %w", senderAta, err)
+			return
 		}
-		return solanago.Signature{}, fmt.Errorf("failed to check recipient ATA %s: %w", recipientAtaAddress, err)
-	}
+	} // else: Sender ATA exists
 
-	// Build the Transaction
-	recentBlockhashResult, err := client.GetRecentBlockhash(ctx, rpc.CommitmentFinalized)
+	// 3. Check and Create Recipient ATA if needed
+	_, err = client.GetAccountInfo(ctx, recipientAta)
 	if err != nil {
-		return solanago.Signature{}, fmt.Errorf("failed to get recent blockhash: %w", err)
-	}
-	blockhash := recentBlockhashResult.Value.Blockhash
+		if err == rpc.ErrNotFound {
+			fmt.Printf("Recipient ATA %s does not exist. Creating...\n", recipientAta)
+			var createRecipientAtaInstruction solanago.Instruction
+			createRecipientAtaInstruction, err = associatedtokenaccount.NewCreateInstruction(
+				senderPublicKey,    // Payer (pays rent)
+				recipientPublicKey, // Wallet address (owner of the new ATA)
+				usdcMintAddress,    // Mint
+			).ValidateAndBuild()
+			if err != nil {
+				err = fmt.Errorf("failed to build CreateAssociatedTokenAccount instruction for recipient: %w", err)
+				return
+			}
+			instructions = append(instructions, createRecipientAtaInstruction)
+		} else {
+			err = fmt.Errorf("failed to check recipient ATA %s: %w", recipientAta, err)
+			return
+		}
+	} // else: Recipient ATA exists
 
-	// Create the SPL Token Transfer instruction (Checked version handles decimals)
-	transferInstruction, err := spltoken.NewTransferCheckedInstruction(
+	// 4. Build the SPL Token Transfer instruction
+	var transferInstruction solanago.Instruction
+	transferInstruction, err = spltoken.NewTransferCheckedInstruction(
 		amount,                 // Amount in base units
 		usdcDecimals,           // Decimals of the token mint
-		senderAtaAddress,       // Source ATA
+		senderAta,              // Source ATA
 		usdcMintAddress,        // Token Mint address
-		recipientAtaAddress,    // Destination ATA
+		recipientAta,           // Destination ATA
 		senderPublicKey,        // Authority (owner of source ATA)
 		[]solanago.PublicKey{}, // Additional signers (none needed here)
 	).ValidateAndBuild()
 	if err != nil {
-		return solanago.Signature{}, fmt.Errorf("failed to build SPL Token transfer instruction: %w", err)
+		err = fmt.Errorf("failed to build SPL Token transfer instruction: %w", err)
+		return
 	}
+	instructions = append(instructions, transferInstruction)
+
+	// Ensure error is nil if we reach here successfully
+	err = nil
+	return
+}
+
+// sendTransaction is a helper to build, sign, and send a transaction with given instructions.
+func sendTransaction(
+	ctx context.Context,
+	client *rpc.Client,
+	instructions []solanago.Instruction,
+	senderPrivateKey solanago.PrivateKey,
+) (solanago.Signature, error) {
+	senderPublicKey := senderPrivateKey.PublicKey()
+
+	// Get Blockhash
+	latestBlockhashResult, err := client.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+	if err != nil {
+		return solanago.Signature{}, fmt.Errorf("failed to get latest blockhash: %w", err)
+	}
+	blockhash := latestBlockhashResult.Value.Blockhash
 
 	// Create the transaction
 	tx, err := solanago.NewTransaction(
-		[]solanago.Instruction{transferInstruction},
+		instructions,
 		blockhash,
-		solanago.TransactionPayer(senderPublicKey), // Sender pays the transaction fee
+		solanago.TransactionPayer(senderPublicKey),
 	)
 	if err != nil {
 		return solanago.Signature{}, fmt.Errorf("failed to create new transaction: %w", err)
@@ -105,7 +150,7 @@ func SendUSDC(
 	_, err = tx.Sign(
 		func(key solanago.PublicKey) *solanago.PrivateKey {
 			if senderPublicKey.Equals(key) {
-				return &senderPrivateKey // Provide the private key when requested
+				return &senderPrivateKey
 			}
 			return nil
 		},
@@ -120,12 +165,53 @@ func SendUSDC(
 		PreflightCommitment: rpc.CommitmentFinalized,
 	})
 	if err != nil {
-		// Consider attempting to parse the RPC error for more specific details
-		// e.g., using jsonrpc.RPCError or checking the error string
 		return solanago.Signature{}, fmt.Errorf("failed to send transaction: %w", err)
 	}
 
-	return signature, nil // Return the signature upon successful submission
+	return signature, nil
+}
+
+// SendUSDC sends a specified amount of USDC to a recipient's main wallet address.
+// This version does NOT include a memo.
+// NOTE: callers are responsible for confirming the transaction!
+func SendUSDC(
+	ctx context.Context,
+	client *rpc.Client,
+	usdcMintAddress solanago.PublicKey,
+	senderPrivateKey solanago.PrivateKey,
+	recipientPublicKey solanago.PublicKey,
+	amount uint64,
+) (solanago.Signature, error) {
+	instructions, _, _, err := BuildUSDCFundingInstructions(
+		ctx, client, usdcMintAddress, senderPrivateKey.PublicKey(), recipientPublicKey, amount, "", // Empty workflowID means no memo
+	)
+	if err != nil {
+		return solanago.Signature{}, err
+	}
+	return sendTransaction(ctx, client, instructions, senderPrivateKey)
+}
+
+// SendUSDCWithMemo sends USDC and includes a workflow ID in the transaction memo.
+// NOTE: callers are responsible for confirming the transaction!
+func SendUSDCWithMemo(
+	ctx context.Context,
+	client *rpc.Client,
+	usdcMintAddress solanago.PublicKey,
+	senderPrivateKey solanago.PrivateKey,
+	recipientPublicKey solanago.PublicKey,
+	amount uint64,
+	workflowID string,
+) (solanago.Signature, error) {
+	if workflowID == "" {
+		return solanago.Signature{}, fmt.Errorf("workflowID cannot be empty when calling SendUSDCWithMemo")
+	}
+	instructions, _, _, err := BuildUSDCFundingInstructions(
+		ctx, client, usdcMintAddress, senderPrivateKey.PublicKey(), recipientPublicKey, amount, workflowID,
+	)
+	if err != nil {
+		return solanago.Signature{}, err
+	}
+	return sendTransaction(ctx, client, instructions, senderPrivateKey)
 }
 
 // ConfirmTransaction waits for a transaction signature to reach a specified commitment level.

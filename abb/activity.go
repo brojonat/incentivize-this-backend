@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,9 +14,11 @@ import (
 
 	solanautil "github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/programs/memo"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/jmespath/go-jmespath"
 	"go.temporal.io/sdk/activity"
+	temporal_log "go.temporal.io/sdk/log"
 )
 
 // PlatformType represents the type of platform
@@ -38,11 +39,11 @@ const (
 
 // SolanaConfig holds the necessary configuration for Solana interactions.
 type SolanaConfig struct {
-	RPCEndpoint        string               `json:"rpc_endpoint"`
-	WSEndpoint         string               `json:"ws_endpoint"`
-	EscrowPrivateKey   *solanago.PrivateKey `json:"escrow_private_key"`
-	EscrowTokenAccount solanago.PublicKey   `json:"escrow_token_account"`
-	USDCMintAddress    string               `json:"usdc_mint_address"`
+	RPCEndpoint      string               `json:"rpc_endpoint"`
+	WSEndpoint       string               `json:"ws_endpoint"`
+	EscrowPrivateKey *solanago.PrivateKey `json:"escrow_private_key"`
+	EscrowWallet     solanago.PublicKey   `json:"escrow_token_account"`
+	USDCMintAddress  string               `json:"usdc_mint_address"`
 }
 
 // Activities holds all activity implementations and their dependencies
@@ -378,11 +379,25 @@ func (a *Activities) TransferUSDC(ctx context.Context, userID string, amount flo
 	}
 	senderPrivateKey := *a.solanaConfig.EscrowPrivateKey
 
-	usdcMintAddress, err := solanautil.PublicKeyFromBase58(a.solanaConfig.USDCMintAddress)
+	// Get the Owner wallet address (the escrow wallet)
+	escrowWalletOwner := a.solanaConfig.EscrowWallet
+
+	// Parse the USDC mint address
+	usdcMint, err := solanago.PublicKeyFromBase58(a.solanaConfig.USDCMintAddress)
 	if err != nil {
+		// This is a config error, likely fatal for this activity
 		logger.Error("Failed to parse USDC mint address from config", "mint", a.solanaConfig.USDCMintAddress, "error", err)
-		return fmt.Errorf("failed to parse usdc mint address '%s': %w", a.solanaConfig.USDCMintAddress, err)
+		return fmt.Errorf("invalid USDC mint address in config: %w", err)
 	}
+
+	// Find the Associated Token Account (ATA) for the escrow wallet and USDC mint
+	escrowAtaAddress, _, err := solanago.FindAssociatedTokenAddress(escrowWalletOwner, usdcMint)
+	if err != nil {
+		// ATA derivation should not fail unless inputs are wrong, treat as fatal
+		logger.Error("Failed to derive ATA for escrow wallet", "owner", escrowWalletOwner, "mint", usdcMint, "error", err)
+		return fmt.Errorf("failed to find ATA for escrow wallet: %w", err)
+	}
+	logger.Info("Checking balance for derived Escrow USDC ATA", "ata_address", escrowAtaAddress.String())
 
 	// 3. Convert amount to uint64 base units
 	amountBaseUnits := usdcAmount.ToSmallestUnit().Uint64()
@@ -397,7 +412,7 @@ func (a *Activities) TransferUSDC(ctx context.Context, userID string, amount flo
 	sig, err := solanautil.SendUSDC(
 		ctx,
 		client,
-		usdcMintAddress,
+		usdcMint,
 		senderPrivateKey,
 		recipientPublicKey, // Use the already parsed recipient key
 		amountBaseUnits,
@@ -1079,71 +1094,336 @@ type VerifyPaymentResult struct {
 	Error    string
 }
 
-// VerifyPayment verifies that payment has been received in the escrow account
+// VerifyPayment verifies that a specific payment transaction has been received in the escrow account
 func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey, expectedAmount *solanautil.USDCAmount, timeout time.Duration) (*VerifyPaymentResult, error) {
 	logger := activity.GetLogger(ctx)
-	logger.Info("Verifying payment", "from", from.String(), "expected_amount", expectedAmount.ToUSDC(), "timeout", timeout)
+	expectedAmountUint64 := expectedAmount.ToSmallestUnit().Uint64()
+	activityInfo := activity.GetInfo(ctx)
+	expectedWorkflowID := activityInfo.WorkflowExecution.ID
+	logger.Info("VerifyPayment started",
+		"workflow_id", expectedWorkflowID,
+		"from_owner", from.String(),
+		"expected_amount_lamports", expectedAmountUint64,
+		"timeout", timeout,
+		"rpc_endpoint", a.solanaConfig.RPCEndpoint,
+		"usdc_mint", a.solanaConfig.USDCMintAddress,
+		"escrow_owner", a.solanaConfig.EscrowWallet.String())
 
-	// Create a ticker to check balance periodically
-	ticker := time.NewTicker(5 * time.Second)
+	// Create a ticker to check transactions periodically
+	ticker := time.NewTicker(10 * time.Second) // Check more frequently for debugging
 	defer ticker.Stop()
 
-	// Create a timeout context
+	// Create a timeout context for the entire verification process
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// --- Need to implement GetUSDCBalance or similar using base solana-go ---
-	// The old `a.solanaClient.GetUSDCBalance` needs replacement.
-	// We'll use the rpc client directly.
-
 	rpcClient := solanautil.NewRPCClient(a.solanaConfig.RPCEndpoint)
-	tokenAccount := a.solanaConfig.EscrowTokenAccount
+
+	// Get the escrow wallet that should receive the funds
+	escrowWallet := a.solanaConfig.EscrowWallet
+
+	// Parse the USDC mint address
+	usdcMint, err := solanago.PublicKeyFromBase58(a.solanaConfig.USDCMintAddress)
+	if err != nil {
+		logger.Error("Failed to parse USDC mint address from config", "mint", a.solanaConfig.USDCMintAddress, "error", err)
+		return nil, fmt.Errorf("invalid USDC mint address in config: %w", err)
+	}
+
+	// Find the Associated Token Account (ATA) for the escrow wallet and USDC mint
+	escrowAtaAddress, _, err := solanago.FindAssociatedTokenAddress(escrowWallet, usdcMint)
+	if err != nil {
+		logger.Error("Failed to derive ATA for escrow wallet", "owner", escrowWallet, "mint", usdcMint, "error", err)
+		return nil, fmt.Errorf("failed to find ATA for escrow wallet: %w", err)
+	}
+	logger.Info("Derived Escrow USDC ATA to check for incoming transaction", "ata_address", escrowAtaAddress.String())
+
+	// Keep track of signatures we've already checked to avoid redundant lookups
+	checkedSignatures := make(map[solanago.Signature]bool)
 
 	for {
 		select {
 		case <-timeoutCtx.Done():
+			logger.Warn("Payment verification timed out", "from_owner", from.String(), "escrow_ata", escrowAtaAddress.String())
 			return &VerifyPaymentResult{
 				Verified: false,
 				Error:    "payment verification timed out",
-			}, nil
+			}, nil // Timeout is not a processing error, just verification failure
+
 		case <-ticker.C:
-			// Get token account balance using rpc client
-			balanceResult, err := rpcClient.GetTokenAccountBalance(ctx, tokenAccount, rpc.CommitmentConfirmed)
+			logger.Debug("Checking for recent transactions...", "escrow_ata", escrowAtaAddress.String())
+			// Get recent signatures for the escrow ATA
+			limitSignatures := 15 // Fetch a few more signatures
+			signatures, err := rpcClient.GetSignaturesForAddressWithOpts(
+				ctx,
+				escrowAtaAddress,
+				&rpc.GetSignaturesForAddressOpts{
+					Limit:      &limitSignatures, // Pointer to int
+					Commitment: rpc.CommitmentFinalized,
+				},
+			)
 			if err != nil {
-				logger.Error("Failed to get escrow balance", "account", tokenAccount.String(), "error", err)
-				// Don't return error immediately, maybe transient network issue
+				logger.Error("Failed to get signatures for escrow ATA", "account", escrowAtaAddress.String(), "error", err)
+				// Don't fail immediately, could be transient RPC issue, wait for next tick or timeout
 				continue
 			}
 
-			if balanceResult == nil || balanceResult.Value == nil {
-				logger.Warn("Received nil balance result for escrow account", "account", tokenAccount.String())
-				continue
-			}
+			logger.Debug("Fetched signatures", "count", len(signatures))
 
-			// Convert the balance string amount to USDCAmount
-			// Assuming the decimals match USDC_DECIMALS (6)
-			currentBalanceStr := balanceResult.Value.Amount
-			currentBalanceBigInt, ok := new(big.Int).SetString(currentBalanceStr, 10)
-			if !ok {
-				logger.Error("Failed to parse balance amount string from RPC", "amountStr", currentBalanceStr)
-				continue
-			}
-			currentBalance := &solanautil.USDCAmount{Value: currentBalanceBigInt}
+			// Process signatures from oldest in batch to newest to find the first matching one
+			for i := len(signatures) - 1; i >= 0; i-- {
+				sigResult := signatures[i]
+				// Defensive nil check
+				if sigResult == nil {
+					logger.Warn("Received nil signature result in batch", "index", i)
+					continue
+				}
+				sig := sigResult.Signature
+				logger.Debug("Checking signature", "index", i, "sig", sig.String())
 
-			// Check if we have received the expected amount
-			if currentBalance.Cmp(expectedAmount) >= 0 {
-				logger.Info("Payment verified", "expected", expectedAmount.ToUSDC(), "current", currentBalance.ToUSDC())
-				return &VerifyPaymentResult{
-					Verified: true,
-					Amount:   currentBalance,
-				}, nil
-			}
+				if checkedSignatures[sig] {
+					logger.Debug("Signature already checked, skipping", "sig", sig.String())
+					continue // Already processed this one
+				}
+				checkedSignatures[sig] = true // Mark as checked
 
-			logger.Info("Waiting for payment",
-				"expected", expectedAmount.ToUSDC(),
-				"current", currentBalance.ToUSDC())
+				// Check if transaction actually succeeded before fetching details
+				if sigResult.Err != nil {
+					logger.Debug("Skipping failed transaction", "signature", sig.String(), "error", sigResult.Err)
+					continue
+				}
+
+				logger.Debug("Fetching transaction details", "signature", sig.String())
+				// Ensure MaxSupportedTransactionVersion is set to 0 to handle versioned transactions
+				maxSupportedTxVersion := uint64(0)
+				txResult, err := rpcClient.GetTransaction(
+					ctx,
+					sig,
+					&rpc.GetTransactionOpts{
+						Encoding:                       solanago.EncodingBase64, // Fetch as Base64 to avoid parsing issues
+						Commitment:                     rpc.CommitmentFinalized,
+						MaxSupportedTransactionVersion: &maxSupportedTxVersion,
+					},
+				)
+				if err != nil {
+					logger.Warn("Failed to get transaction details", "signature", sig.String(), "error", err)
+					continue
+				}
+				if txResult == nil || txResult.Meta == nil {
+					logger.Warn("Received nil transaction or meta", "signature", sig.String())
+					continue
+				}
+				// Double-check transaction success via meta error
+				if txResult.Meta.Err != nil {
+					logger.Debug("Skipping transaction with meta error", "signature", sig.String(), "error", txResult.Meta.Err)
+					continue
+				}
+
+				// --- Transaction Parsing Logic ---
+				// Look for the specific transfer: from 'from' owner, to 'escrowAtaAddress', correct USDC amount.
+				// Using token balances is often the most reliable way across instruction types.
+				if txResult.Meta != nil && txResult.Meta.PreTokenBalances != nil && txResult.Meta.PostTokenBalances != nil && txResult.Transaction != nil {
+
+					// Get account keys from the meta - this might be more reliable than parsing the tx itself
+					// Need to reconstruct the PublicKey list from meta if possible, or find another way
+					// For now, let's attempt to get it from the (potentially unparsed) transaction envelope first.
+					// If GetTransaction fails due to parsing later, this check might need refinement.
+					var accountKeys []solanago.PublicKey
+					rawTx, err := txResult.Transaction.GetTransaction()
+					if err != nil {
+						logger.Warn("Could not decode raw transaction from envelope", "signature", sig.String(), "error", err)
+						// Even if we can't check memo, maybe balances are enough? Let checkTokenBalances run.
+						// Setting accountKeys to nil might break checkTokenBalances, needs review.
+						// For now, let's assume we need the decoded tx for reliable keys.
+						logger.Error("Cannot verify transaction without decoded account keys", "signature", sig.String())
+						continue
+					}
+					if rawTx == nil || len(rawTx.Message.AccountKeys) == 0 {
+						logger.Warn("Decoded transaction or account keys are nil/empty, cannot verify transaction", "signature", sig.String())
+						continue
+					}
+					accountKeys = rawTx.Message.AccountKeys
+
+					// --- Check 1: Verify Memo ---
+					memoMatches := false
+					memoContent := ""
+					for _, ix := range rawTx.Message.Instructions {
+						progKey, err := rawTx.Message.Program(ix.ProgramIDIndex)
+						if err != nil {
+							logger.Warn("Could not get program key for instruction", "index", ix.ProgramIDIndex, "error", err)
+							continue
+						}
+						if progKey.Equals(memo.ProgramID) {
+							memoContent = string(ix.Data)
+							if memoContent == expectedWorkflowID {
+								memoMatches = true
+								break // Found matching memo
+							}
+						}
+					}
+					logger.Debug("Memo check result", "signature", sig.String(), "found_memo", memoContent, "expected_memo", expectedWorkflowID, "match", memoMatches)
+
+					// --- Check 2: Verify Token Balances ---
+					balancesMatch, err := checkTokenBalancesForTransfer(
+						logger, // Pass the temporal logger
+						txResult.Meta.PreTokenBalances,
+						txResult.Meta.PostTokenBalances,
+						accountKeys,          // Pass account keys from message
+						from,                 // Expected source *owner*
+						escrowAtaAddress,     // Expected destination *ATA*
+						usdcMint,             // Expected mint
+						expectedAmountUint64, // Expected amount in lamports
+					)
+					if err != nil {
+						logger.Error("Error checking token balances for tx", "signature", sig.String(), "error", err)
+						continue // Move to next signature
+					}
+
+					// --- Final Verification ---
+					if balancesMatch && memoMatches {
+						logger.Info("Matching payment transaction found (balances and memo match)",
+							"signature", sig.String(),
+							"from_owner", from.String(),
+							"to_ata", escrowAtaAddress.String(),
+							"amount_lamports", expectedAmountUint64)
+						// We found the specific transaction we were looking for.
+						return &VerifyPaymentResult{
+							Verified: true,
+							Amount:   expectedAmount, // Return the amount we were looking for
+						}, nil
+					}
+				} else {
+					logger.Warn("Transaction missing pre/post token balances, cannot verify via balance diff", "signature", sig.String())
+					// TODO: Optionally add parsing of instructions here as a fallback
+				}
+				// --- End Transaction Parsing ---
+			}
+			logger.Debug("Finished checking batch of signatures")
+		} // end select
+	} // end for
+}
+
+// checkTokenBalancesForTransfer parses token balances to find a specific transfer.
+// Returns true if the specified transfer is found, false otherwise.
+func checkTokenBalancesForTransfer(
+	logger temporal_log.Logger,
+	preBalances []rpc.TokenBalance,
+	postBalances []rpc.TokenBalance,
+	accountKeys []solanago.PublicKey, // Added: List of accounts from the transaction message
+	expectedSourceOwner solanago.PublicKey,
+	expectedDestATA solanago.PublicKey,
+	expectedMint solanago.PublicKey,
+	expectedAmountLamports uint64,
+) (bool, error) {
+
+	logger.Debug("checkTokenBalances: Input",
+		"expectedSourceOwner", expectedSourceOwner.String(),
+		"expectedDestATA", expectedDestATA.String(),
+		"expectedMint", expectedMint.String(),
+		"expectedAmountLamports", expectedAmountLamports)
+
+	// Create maps for easy lookup PREFERABLY from ATA address -> balance info
+	preBalanceMap := make(map[solanago.PublicKey]rpc.TokenBalance) // Correct type pointer usage
+	for _, b := range preBalances {
+		if int(b.AccountIndex) >= len(accountKeys) {
+			logger.Error("PreBalance AccountIndex out of bounds", "index", b.AccountIndex, "accountKeysLen", len(accountKeys))
+			continue // Skip invalid index
+		}
+		accountAddr := accountKeys[b.AccountIndex]
+		preBalanceMap[accountAddr] = b
+	}
+	postBalanceMap := make(map[solanago.PublicKey]rpc.TokenBalance) // Correct type pointer usage
+	for _, b := range postBalances {
+		if int(b.AccountIndex) >= len(accountKeys) {
+			logger.Error("PostBalance AccountIndex out of bounds", "index", b.AccountIndex, "accountKeysLen", len(accountKeys))
+			continue // Skip invalid index
+		}
+		accountAddr := accountKeys[b.AccountIndex]
+		postBalanceMap[accountAddr] = b
+		logger.Debug("checkTokenBalances: Post balance entry", "accountIndex", b.AccountIndex, "accountAddr", accountAddr.String(), "owner", b.Owner.String(), "mint", b.Mint.String(), "amount", b.UiTokenAmount.Amount)
+	}
+
+	// Check Destination ATA
+	postDestBal, destExists := postBalanceMap[expectedDestATA]
+	if !destExists {
+		logger.Debug("checkTokenBalances: Expected destination ATA not found in post balances", "dest_ata", expectedDestATA.String())
+		return false, nil
+	}
+	if !postDestBal.Mint.Equals(expectedMint) {
+		logger.Debug("checkTokenBalances: Destination ATA mint mismatch", "dest_ata", expectedDestATA.String(), "found_mint", postDestBal.Mint.String(), "expected_mint", expectedMint.String())
+		return false, nil
+	}
+	preDestBal, ok := preBalanceMap[expectedDestATA] // Okay if it didn't exist before
+
+	preDestAmountLamports := uint64(0)
+	// Only parse if pre-balance existed and amount is valid
+	if ok && preDestBal.UiTokenAmount.Amount != "" {
+		var err error
+		preDestAmountLamports, err = strconv.ParseUint(preDestBal.UiTokenAmount.Amount, 10, 64)
+		if err != nil {
+			logger.Warn("checkTokenBalances: Failed to parse preDestAmountLamports", "value", preDestBal.UiTokenAmount.Amount, "error", err)
+			// Treat unparseable balance as 0 or handle error appropriately
+			preDestAmountLamports = 0
 		}
 	}
+	postDestAmountLamports, err := strconv.ParseUint(postDestBal.UiTokenAmount.Amount, 10, 64)
+	if err != nil {
+		logger.Error("checkTokenBalances: Failed to parse postDestAmountLamports", "value", postDestBal.UiTokenAmount.Amount, "error", err)
+		return false, fmt.Errorf("failed to parse post-destination balance: %w", err) // Critical parsing failure
+	}
+
+	destIncrease := postDestAmountLamports - preDestAmountLamports
+	logger.Debug("checkTokenBalances: Destination balance check", "dest_ata", expectedDestATA.String(), "pre", preDestAmountLamports, "post", postDestAmountLamports, "increase", destIncrease, "expected", expectedAmountLamports)
+	if destIncrease != expectedAmountLamports {
+		logger.Debug("checkTokenBalances: Destination ATA balance did not increase by expected amount")
+		return false, nil // Didn't receive the right amount
+	}
+	logger.Debug("Destination ATA balance increase matches expected amount", "dest_ata", expectedDestATA.String(), "increase", expectedAmountLamports)
+
+	// Check Source Account
+	foundSourceMatch := false
+	for sourceAta, preSourceBal := range preBalanceMap {
+		// Check mint and owner match
+		logger.Debug("checkTokenBalances: Checking potential source account", "source_ata", sourceAta.String(), "owner", preSourceBal.Owner.String(), "expected_owner", expectedSourceOwner.String(), "mint", preSourceBal.Mint.String(), "expected_mint", expectedMint.String())
+		if preSourceBal.Mint.Equals(expectedMint) && preSourceBal.Owner.Equals(expectedSourceOwner) {
+			postSourceBal, sourcePostExists := postBalanceMap[sourceAta]
+			if !sourcePostExists { // Source account might have been closed, check balance went to 0
+				logger.Warn("checkTokenBalances: Source ATA not found in post balances, potentially closed?", "ata", sourceAta.String())
+				continue // Cannot verify decrease if post balance is missing
+			}
+
+			preSourceAmountLamports, err := strconv.ParseUint(preSourceBal.UiTokenAmount.Amount, 10, 64)
+			if err != nil {
+				logger.Warn("checkTokenBalances: Failed to parse preSourceAmountLamports", "value", preSourceBal.UiTokenAmount.Amount, "error", err)
+				continue // Skip if pre-balance is unparseable
+			}
+			postSourceAmountLamports, err := strconv.ParseUint(postSourceBal.UiTokenAmount.Amount, 10, 64)
+			if err != nil {
+				logger.Warn("checkTokenBalances: Failed to parse postSourceAmountLamports", "value", postSourceBal.UiTokenAmount.Amount, "error", err)
+				continue // Skip if post-balance is unparseable
+			}
+
+			sourceDecrease := preSourceAmountLamports - postSourceAmountLamports
+			logger.Debug("checkTokenBalances: Source balance check", "source_ata", sourceAta.String(), "pre", preSourceAmountLamports, "post", postSourceAmountLamports, "decrease", sourceDecrease, "expected", expectedAmountLamports)
+
+			// Check if balance decreased by the expected amount
+			if sourceDecrease == expectedAmountLamports {
+				logger.Debug("Source account balance decrease matches expected amount and owner",
+					"source_ata", sourceAta.String(),
+					"source_owner", expectedSourceOwner.String(),
+					"decrease", expectedAmountLamports)
+				foundSourceMatch = true
+				break // Found the matching source decrease
+			}
+		}
+	}
+
+	if !foundSourceMatch {
+		logger.Debug("checkTokenBalances: Did not find any source ATA owned by expected owner with matching balance decrease")
+		return false, nil
+	}
+
+	// If we passed the destination check AND found a matching source owned by the correct wallet
+	return true, nil
 }
 
 // MarshalJSON implements json.Marshaler for YouTubeDependencies
@@ -1228,4 +1508,9 @@ func getRedditToken(client *http.Client, deps RedditDependencies) (string, error
 	}
 
 	return result.AccessToken, nil
+}
+
+// Helper function to create pointer for literals (if solanago.Ptr is unavailable/problematic)
+func ptr[T any](v T) *T {
+	return &v
 }

@@ -57,11 +57,11 @@ func TestHandleListBounties(t *testing.T) {
 						bountyPerPost, _ := solana.NewUSDCAmount(10.0)
 						totalBounty, _ := solana.NewUSDCAmount(100.0)
 						*input = abb.BountyAssessmentWorkflowInput{
-							Requirements:  []string{"Test requirement 1", "Test requirement 2"},
-							BountyPerPost: bountyPerPost,
-							TotalBounty:   totalBounty,
-							OwnerID:       "test-owner",
-							PlatformType:  abb.PlatformReddit,
+							Requirements:      []string{"Test requirement 1", "Test requirement 2"},
+							BountyPerPost:     bountyPerPost,
+							TotalBounty:       totalBounty,
+							BountyOwnerWallet: "test-owner",
+							PlatformType:      abb.PlatformReddit,
 						}
 					})
 
@@ -71,14 +71,14 @@ func TestHandleListBounties(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			expectedBody: []BountyListItem{
 				{
-					WorkflowID:    "test-workflow-1",
-					Status:        "Running",
-					Requirements:  []string{"Test requirement 1", "Test requirement 2"},
-					BountyPerPost: 10.0,
-					TotalBounty:   100.0,
-					OwnerID:       "test-owner",
-					PlatformType:  abb.PlatformReddit,
-					CreatedAt:     now.UTC(),
+					WorkflowID:        "test-workflow-1",
+					Status:            "Running",
+					Requirements:      []string{"Test requirement 1", "Test requirement 2"},
+					BountyPerPost:     10.0,
+					TotalBounty:       100.0,
+					BountyOwnerWallet: "test-owner",
+					PlatformType:      abb.PlatformReddit,
+					CreatedAt:         now.UTC(),
 				},
 			},
 		},

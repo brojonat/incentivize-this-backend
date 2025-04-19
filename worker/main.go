@@ -34,63 +34,36 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 	}
 	defer c.Close()
 
-	// Get Solana private key from environment
-	privateKeyStr := os.Getenv("SOLANA_ESCROW_PRIVATE_KEY")
-	keypairPath := os.Getenv("SOLANA_ESCROW_KEYPAIR")
-	tokenAccountStr := os.Getenv("SOLANA_ESCROW_TOKEN_ACCOUNT")
-	usdcMintStr := os.Getenv("USDC_MINT_ADDRESS")
+	// Get Solana escrow details from environment
+	escrowPrivateKeyStr := os.Getenv("SOLANA_ESCROW_PRIVATE_KEY")
+	escrowWalletStr := os.Getenv("SOLANA_ESCROW_WALLET")
+	usdcMintStr := os.Getenv("SOLANA_USDC_MINT_ADDRESS")
 
 	var solanaConfig abb.SolanaConfig
 
-	// Check if Solana credentials are provided
-	if (privateKeyStr == "" && keypairPath == "") || tokenAccountStr == "" || usdcMintStr == "" {
-		l.Warn("Partial or no Solana credentials/config provided. Solana functionality will be limited.",
-			"private_key", privateKeyStr != "",
-			"keypair_file", keypairPath != "",
-			"token_account", tokenAccountStr != "",
-			"usdc_mint", usdcMintStr != "")
+	// Parse and validate provided credentials
+	escrowPrivateKey, err := solanago.PrivateKeyFromBase58(escrowPrivateKeyStr)
+	if err != nil {
+		return fmt.Errorf("failed to parse escrow private key from ESCROW_PRIVATE_KEY_STR: %w", err)
+	}
 
-		// Use dummy values for fields that require non-nil values
-		dummyKey := solanago.NewWallet().PrivateKey
-		dummyAccount := dummyKey.PublicKey()
+	escrowWallet, err := solanago.PublicKeyFromBase58(escrowWalletStr)
+	if err != nil {
+		return fmt.Errorf("failed to parse escrow wallet address from ESCROW_WALLET_STR: %w", err)
+	}
 
-		solanaConfig = abb.SolanaConfig{
-			RPCEndpoint:        os.Getenv("SOLANA_RPC_ENDPOINT"),
-			WSEndpoint:         os.Getenv("SOLANA_WS_ENDPOINT"),
-			EscrowPrivateKey:   &dummyKey,
-			EscrowTokenAccount: dummyAccount,
-			USDCMintAddress:    "",
-		}
-	} else {
-		var escrowPrivateKey solanago.PrivateKey
+	// Validate that the private key corresponds to the wallet address
+	if !escrowPrivateKey.PublicKey().Equals(escrowWallet) {
+		return fmt.Errorf("escrow private key does not match escrow wallet address")
+	}
 
-		// If privateKeyStr is provided, use it
-		if privateKeyStr != "" {
-			escrowPrivateKey, err = solanago.PrivateKeyFromBase58(privateKeyStr)
-			if err != nil {
-				return fmt.Errorf("failed to parse escrow private key: %w", err)
-			}
-		} else {
-			// Otherwise, load from keypair file
-			escrowPrivateKey, err = solanago.PrivateKeyFromSolanaKeygenFile(keypairPath)
-			if err != nil {
-				return fmt.Errorf("failed to load escrow private key from file %s: %w", keypairPath, err)
-			}
-		}
-
-		escrowTokenAccount, err := solanago.PublicKeyFromBase58(tokenAccountStr)
-		if err != nil {
-			return fmt.Errorf("failed to parse escrow token account: %w", err)
-		}
-
-		// Create Solana config
-		solanaConfig = abb.SolanaConfig{
-			RPCEndpoint:        os.Getenv("SOLANA_RPC_ENDPOINT"),
-			WSEndpoint:         os.Getenv("SOLANA_WS_ENDPOINT"),
-			EscrowPrivateKey:   &escrowPrivateKey,
-			EscrowTokenAccount: escrowTokenAccount,
-			USDCMintAddress:    usdcMintStr,
-		}
+	// Create Solana config with validated credentials
+	solanaConfig = abb.SolanaConfig{
+		RPCEndpoint:      os.Getenv("SOLANA_RPC_ENDPOINT"),
+		WSEndpoint:       os.Getenv("SOLANA_WS_ENDPOINT"),
+		EscrowPrivateKey: &escrowPrivateKey,
+		EscrowWallet:     escrowWallet,
+		USDCMintAddress:  usdcMintStr,
 	}
 
 	// Create LLM provider

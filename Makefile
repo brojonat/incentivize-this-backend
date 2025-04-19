@@ -1,3 +1,8 @@
+#!/usr/bin/env bash
+
+# Set the shell for make explicitly
+SHELL := /bin/bash
+
 define setup_env
 	$(eval ENV_FILE := $(1))
 	$(eval include $(1))
@@ -162,3 +167,59 @@ describe-server:
 
 describe-worker:
 	kubectl describe deployment affiliate-bounty-board-workers
+
+# Tmux Development Session
+# ------------------------
+.PHONY: dev-session start-dev-session stop-dev-session
+
+# Variables for tmux session
+TMUX_SESSION := abb-dev
+PORT_FORWARD_CMD := "kubectl port-forward service/temporal-web 8081:8080"
+SERVER_CMD := $(MAKE) run-http-server-local # Command to run the server
+WORKER_CMD := $(MAKE) run-worker-local   # Command to run the worker
+
+# Stop existing session (if any) and start a new one
+dev-session: stop-dev-session start-dev-session
+
+# Start the tmux development session
+start-dev-session: build-cli # Ensure CLI is built
+	@echo "Starting tmux development session: $(TMUX_SESSION)"
+	# Create session in detached mode with port-forward. Ignore error if session already exists.
+	@/usr/local/bin/tmux new-session -d -s $(TMUX_SESSION) -n 'DevEnv' "$(PORT_FORWARD_CMD)" || true
+	# Add a brief pause to allow the server to initialize
+	@sleep 0.5
+	# Configure panes for a 2x2 layout
+	@/usr/local/bin/tmux split-window -v -t $(TMUX_SESSION):0 "$(WORKER_CMD) 2>&1 | tee logs/worker.log" # Split vertically, run worker, pipe to tee
+	@/usr/local/bin/tmux select-pane -t 0                                     # Select Port Forward pane (0)
+	@/usr/local/bin/tmux split-window -h -t $(TMUX_SESSION):0.0 "$(SERVER_CMD) 2>&1 | tee logs/server.log" # Split horizontally, run server, pipe to tee
+	@/usr/local/bin/tmux select-pane -t 1                                     # Select Worker pane (1)
+	@/usr/local/bin/tmux split-window -h -t $(TMUX_SESSION):0.1                  # Split horizontally for CLI (pane 3)
+	@/usr/local/bin/tmux select-layout -t $(TMUX_SESSION):0 tiled             # Apply tiled layout
+	# Send messages to panes
+	@/usr/local/bin/tmux select-pane -t 0 # Select Port Forward pane (index 0)
+	@/usr/local/bin/tmux send-keys -t 0 'echo "Port Forward Pane ^"' C-m
+	@/usr/local/bin/tmux select-pane -t 1 # Select Pane 1 (Should be Server)
+	@/usr/local/bin/tmux send-keys -t 1 'echo "Server Pane ^"' C-m
+	@/usr/local/bin/tmux select-pane -t 2 # Select Pane 2 (Should be CLI)
+	@/usr/local/bin/tmux send-keys -t 2 'set -o allexport; source .env.server.debug; set +o allexport; echo "CLI Pane - .env.server.debug sourced."' C-m
+	@/usr/local/bin/tmux select-pane -t 3 # Select Pane 3 (Should be Worker)
+	@/usr/local/bin/tmux send-keys -t 3 'echo "Worker Pane ^"' C-m
+	# Attach to the session, focusing the CLI pane (index 2)
+	@/usr/local/bin/tmux select-pane -t 2
+	@/usr/local/bin/tmux attach-session -t $(TMUX_SESSION)
+
+# Stop the tmux development session and associated processes
+stop-dev-session:
+	@echo "Stopping background processes..."
+	# Attempt to kill the port-forward command (adjust pattern if needed)
+	@pkill -f "kubectl port-forward service/temporal-web" || true
+	# Attempt to kill processes started by the make commands (adjust patterns if needed)
+	# Using the make target names might be specific enough
+	@pkill -f "$(MAKE) run-http-server-local" || true
+	@pkill -f "$(MAKE) run-worker-local" || true
+	# If the Go executables have specific names you build, you could target those too
+	# @pkill -f "./bin/abb run http-server" || true
+	# @pkill -f "./bin/abb run worker" || true
+	@sleep 1 # Give processes a moment to terminate
+	@echo "Stopping tmux development session: $(TMUX_SESSION)"
+	@/usr/local/bin/tmux kill-session -t $(TMUX_SESSION) || true # Ignore error if session doesn't exist

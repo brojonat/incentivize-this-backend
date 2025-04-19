@@ -2,22 +2,36 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	abbhttp "github.com/brojonat/affiliate-bounty-board/http"
 	"github.com/brojonat/affiliate-bounty-board/http/api"
+	solanautil "github.com/brojonat/affiliate-bounty-board/solana"
+	solanago "github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/urfave/cli/v2"
 )
 
 var (
-	EnvServerSecretKey = "SERVER_SECRET_KEY"
-	EnvServerEndpoint  = "SERVER_ENDPOINT"
-	EnvAuthToken       = "AUTH_TOKEN"
+	EnvServerSecretKey  = "SERVER_SECRET_KEY"
+	EnvServerEndpoint   = "SERVER_ENDPOINT"
+	EnvAuthToken        = "AUTH_TOKEN"
+	EnvTestOwnerWallet  = "SOLANA_TEST_OWNER_WALLET"
+	EnvTestFunderWallet = "SOLANA_TEST_FUNDER_WALLET"
+
+	// New Solana related env vars for CLI utils
+	EnvSolanaRPCEndpoint     = "SOLANA_RPC_ENDPOINT"
+	EnvSolanaUSDCMintAddress = "SOLANA_USDC_MINT_ADDRESS"
+	EnvSolanaEscrowWallet    = "SOLANA_ESCROW_WALLET"
+	EnvTestFunderPrivateKey  = "SOLANA_TEST_FUNDER_PRIVATE_KEY"
 )
 
 func getAuthToken(ctx *cli.Context) error {
@@ -84,15 +98,32 @@ func getAuthToken(ctx *cli.Context) error {
 }
 
 func createBounty(ctx *cli.Context) error {
+	bountyOwnerWallet := ctx.String("bounty-owner-wallet")
+	bountyFunderWallet := ctx.String("bounty-funder-wallet")
+
+	// Validate bounty-owner-wallet is a valid Base58 address
+	if _, err := solanago.PublicKeyFromBase58(bountyOwnerWallet); err != nil {
+		return fmt.Errorf("invalid --bounty-owner-wallet: %w", err)
+	}
+
+	// Validate bounty-funder-wallet is provided and valid
+	if bountyFunderWallet == "" {
+		return fmt.Errorf("must provide --bounty-funder-wallet")
+	}
+	if _, err := solanago.PublicKeyFromBase58(bountyFunderWallet); err != nil {
+		return fmt.Errorf("invalid --bounty-funder-wallet: %w", err)
+	}
+
 	// Create a map for the request to avoid type conversion issues
+	paymentTimeoutDuration := ctx.Duration("payment-timeout")
 	req := map[string]interface{}{
-		"requirements":    ctx.StringSlice("requirements"),
-		"bounty_per_post": ctx.Float64("per-post"),
-		"total_bounty":    ctx.Float64("total"),
-		"owner_id":        ctx.String("owner-id"),
-		"solana_wallet":   ctx.String("solana-wallet"),
-		"usdc_account":    ctx.String("usdc-account"),
-		"platform_type":   ctx.String("platform"),
+		"requirements":         ctx.StringSlice("requirements"),
+		"bounty_per_post":      ctx.Float64("per-post"),
+		"total_bounty":         ctx.Float64("total"),
+		"bounty_owner_wallet":  bountyOwnerWallet,
+		"bounty_funder_wallet": bountyFunderWallet,
+		"platform_type":        ctx.String("platform"),
+		"payment_timeout":      int(paymentTimeoutDuration.Seconds()),
 	}
 
 	// Marshal to JSON
@@ -223,6 +254,122 @@ func listBounties(ctx *cli.Context) error {
 	return printServerResponse(res)
 }
 
+// getDefaultKeypairPath returns the default path to the Solana keypair, expanding the tilde.
+// Returns an empty string if the home directory cannot be determined.
+func getDefaultKeypairPath() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		// Log or handle the error appropriately if needed,
+		// but for a default value, returning empty might be acceptable.
+		return ""
+	}
+	return filepath.Join(homeDir, ".config", "solana", "id.json")
+}
+
+// Action function for the print-private-key command
+func printPrivateKeyAction(ctx *cli.Context) error {
+	keypairPath := ctx.String("keypair-path")
+	if keypairPath == "" {
+		// This should ideally be caught by Required: true, but double-check
+		return fmt.Errorf("missing required flag: --keypair-path")
+	}
+
+	privateKey, err := solanago.PrivateKeyFromSolanaKeygenFile(keypairPath)
+	if err != nil {
+		return fmt.Errorf("error loading keypair file '%s': %w", keypairPath, err)
+	}
+
+	// Print the base58 encoded private key string to standard output
+	fmt.Println(privateKey.String())
+	return nil
+}
+
+// Action function for the fund-escrow command
+func fundEscrowAction(ctx *cli.Context) error {
+	fmt.Println("Initiating escrow funding...")
+
+	// --- Get Flag Values ---
+	amount := ctx.Float64("amount")
+	funderSecretKey := ctx.String("from-secret")
+	recipientAddrStr := ctx.String("to")
+	rpcEndpoint := ctx.String("rpc-endpoint")
+	usdcMintAddrStr := ctx.String("usdc-mint")
+	workflowID := ctx.String("workflow-id")
+
+	// --- Validate Inputs & Convert ---
+	if amount <= 0 {
+		return fmt.Errorf("amount must be positive")
+	}
+	usdcAmount, err := solanautil.NewUSDCAmount(amount)
+	if err != nil {
+		return fmt.Errorf("invalid amount %.6f: %w", amount, err)
+	}
+	amountLamports := usdcAmount.ToSmallestUnit().Uint64()
+
+	funderPrivateKey, err := solanago.PrivateKeyFromBase58(funderSecretKey)
+	if err != nil {
+		return fmt.Errorf("error parsing funder private key: %w", err)
+	}
+	funderPublicKey := funderPrivateKey.PublicKey()
+	fmt.Printf("  Funder Public Key: %s\n", funderPublicKey)
+
+	recipientPublicKey, err := solanago.PublicKeyFromBase58(recipientAddrStr)
+	if err != nil {
+		return fmt.Errorf("invalid recipient escrow address '%s': %w", recipientAddrStr, err)
+	}
+
+	usdcMint, err := solanago.PublicKeyFromBase58(usdcMintAddrStr)
+	if err != nil {
+		return fmt.Errorf("invalid USDC mint address '%s': %w", usdcMintAddrStr, err)
+	}
+
+	fmt.Printf("  Amount: %.6f USDC\n", amount)
+	fmt.Printf("  Funder Public Key: %s\n", funderPublicKey.String())
+	fmt.Printf("  Recipient Escrow Wallet: %s\n", recipientPublicKey.String())
+	fmt.Printf("  RPC Endpoint: %s\n", rpcEndpoint)
+	fmt.Printf("  USDC Mint: %s\n", usdcMintAddrStr)
+	fmt.Printf("  Workflow ID (Memo): %s\n", workflowID)
+
+	// --- Initialize Solana Client ---
+	client := solanautil.NewRPCClient(rpcEndpoint)
+	if err := solanautil.CheckRPCHealth(context.Background(), client); err != nil {
+		return fmt.Errorf("RPC health check failed for %s: %w", rpcEndpoint, err)
+	}
+	fmt.Println("  RPC connection successful.")
+
+	// --- Perform Transfer ---
+	fmt.Println("  Sending transaction (with memo)...")
+	sig, err := solanautil.SendUSDCWithMemo(
+		context.Background(),
+		client,
+		usdcMint,
+		funderPrivateKey,
+		recipientPublicKey,
+		amountLamports,
+		workflowID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to send USDC with memo: %w", err)
+	}
+	fmt.Printf("  Transaction sent! Signature: %s\n", sig.String())
+
+	// --- Confirm Transaction (Optional but Recommended) ---
+	fmt.Println("  Waiting for final confirmation...")
+	confirmCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second) // 90s timeout for confirmation
+	defer cancel()
+	err = solanautil.ConfirmTransaction(confirmCtx, client, sig, rpc.CommitmentFinalized)
+	if err != nil {
+		// Log warning but don't fail the command entirely, tx might still succeed
+		fmt.Printf("  Warning: Failed to confirm transaction within timeout: %v\n", err)
+		fmt.Printf("  You can check the status manually: solana confirm -v %s --url %s\n", sig, rpcEndpoint)
+	} else {
+		fmt.Println("  Transaction confirmed successfully!")
+	}
+
+	fmt.Println("Escrow funding process complete.")
+	return nil
+}
+
 func adminCommands() []*cli.Command {
 	return []*cli.Command{
 		{
@@ -301,25 +448,26 @@ func adminCommands() []*cli.Command {
 							Usage:    "Total bounty amount (in USDC)",
 						},
 						&cli.StringFlag{
-							Name:     "owner-id",
+							Name:     "bounty-owner-wallet",
 							Required: true,
-							Usage:    "ID of the bounty owner",
+							Usage:    "Wallet address of the bounty owner",
+							EnvVars:  []string{EnvTestOwnerWallet},
 						},
 						&cli.StringFlag{
-							Name:     "solana-wallet",
-							Required: true,
-							Usage:    "Solana wallet address of the bounty owner",
-						},
-						&cli.StringFlag{
-							Name:     "usdc-account",
-							Required: true,
-							Usage:    "USDC account address of the bounty owner",
+							Name:    "bounty-funder-wallet",
+							Usage:   "Solana wallet address providing the initial bounty funds (checked for payment)",
+							EnvVars: []string{EnvTestFunderWallet},
 						},
 						&cli.StringFlag{
 							Name:     "platform",
 							Required: true,
 							Usage:    "Platform type (reddit, youtube, yelp, google)",
 							Value:    "reddit",
+						},
+						&cli.DurationFlag{
+							Name:  "payment-timeout",
+							Usage: "Timeout duration to wait for payment verification (e.g., 10s, 1m)",
+							Value: 10 * time.Second,
 						},
 					},
 					Action: createBounty,
@@ -425,6 +573,70 @@ func adminCommands() []*cli.Command {
 						},
 					},
 					Action: listBounties,
+				},
+			},
+		},
+		{
+			Name:  "util",
+			Usage: "Utility commands",
+			Subcommands: []*cli.Command{
+				{
+					Name:  "print-private-key",
+					Usage: "Prints the base58 private key string from a keypair JSON file",
+					Flags: []cli.Flag{
+						&cli.StringFlag{
+							Name:    "keypair-path",
+							Aliases: []string{"k"},
+							// Required: false, // Made optional to allow default
+							Usage: "Path to the Solana keypair JSON file",
+							Value: getDefaultKeypairPath(), // Use helper for dynamic default
+						},
+					},
+					Action: printPrivateKeyAction,
+				},
+				{
+					Name:        "fund-escrow",
+					Usage:       "Sends USDC from a funder wallet to the escrow wallet",
+					Description: "Utility to manually fund the escrow wallet for testing/development. Uses Solana transfer logic directly.",
+					Flags: []cli.Flag{
+						&cli.Float64Flag{
+							Name:    "amount",
+							Aliases: []string{"a"},
+							Value:   1.0,
+							Usage:   "Amount of USDC to send",
+						},
+						&cli.StringFlag{
+							Name:     "from-secret",
+							Usage:    "Base58 encoded private key string of the funder",
+							EnvVars:  []string{EnvTestFunderPrivateKey},
+							Required: true,
+						},
+						&cli.StringFlag{
+							Name:     "to",
+							Usage:    "Recipient escrow wallet public key address",
+							EnvVars:  []string{EnvSolanaEscrowWallet},
+							Required: true, // Require explicit recipient
+						},
+						&cli.StringFlag{
+							Name:     "rpc-endpoint",
+							Usage:    "Solana RPC endpoint URL",
+							EnvVars:  []string{EnvSolanaRPCEndpoint},
+							Required: true, // Require explicit endpoint
+						},
+						&cli.StringFlag{
+							Name:     "usdc-mint",
+							Usage:    "USDC mint public key address",
+							EnvVars:  []string{EnvSolanaUSDCMintAddress},
+							Required: true, // Require explicit mint
+						},
+						&cli.StringFlag{
+							Name:     "workflow-id",
+							Aliases:  []string{"id", "w"},
+							Usage:    "Workflow ID to include in transaction memo",
+							Required: true,
+						},
+					},
+					Action: fundEscrowAction,
 				},
 			},
 		},
