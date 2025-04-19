@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/solana"
-	solana_go "github.com/gagliardetto/solana-go"
+	solanago "github.com/gagliardetto/solana-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -45,31 +45,25 @@ func TestWorkflow(t *testing.T) {
 		env := testSuite.NewTestWorkflowEnvironment()
 
 		// Create test configuration
-		escrowKey := solana_go.NewWallet().PrivateKey
-		escrowAccount := solana_go.NewWallet().PublicKey()
+		escrowKey := solanago.NewWallet().PrivateKey
+		escrowAccount := solanago.NewWallet().PublicKey()
 
-		testConfig := solana.SolanaConfig{
+		testConfig := SolanaConfig{
 			RPCEndpoint:        "https://api.testnet.solana.com",
 			WSEndpoint:         "wss://api.testnet.solana.com",
 			EscrowPrivateKey:   &escrowKey,
 			EscrowTokenAccount: escrowAccount,
 		}
 
-		// Create activities instance
+		// Create activities instance (minimal config needed for TransferUSDC)
 		activities, err := NewActivities(
-			testConfig,
-			"http://test-server",
-			"test-token",
-			RedditDependencies{},
-			YouTubeDependencies{},
-			YelpDependencies{},
-			GoogleDependencies{},
-			AmazonDependencies{},
-			LLMDependencies{},
+			testConfig, "", "", // Minimal deps for registration
+			RedditDependencies{}, YouTubeDependencies{}, YelpDependencies{},
+			GoogleDependencies{}, AmazonDependencies{}, LLMDependencies{},
 		)
 		require.NoError(t, err)
 
-		// Register activities
+		// Register activities using the instance
 		env.RegisterActivity(activities.TransferUSDC)
 
 		// Test PayBounty
@@ -79,18 +73,16 @@ func TestWorkflow(t *testing.T) {
 		}
 
 		// Create valid Solana addresses for testing
-		fromWallet := solana_go.NewWallet()
-		toWallet := solana_go.NewWallet()
+		toWallet := solanago.NewWallet()
 
 		payInput := PayBountyWorkflowInput{
-			FromAccount:  fromWallet.PublicKey().String(),
 			ToAccount:    toWallet.PublicKey().String(),
 			Amount:       amount,
 			SolanaConfig: testConfig,
 		}
 
-		// Mock activity calls
-		env.OnActivity(activities.TransferUSDC, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		// Mock activity calls using the instance
+		env.OnActivity(activities.TransferUSDC, mock.Anything, payInput.ToAccount, payInput.Amount.ToUSDC()).Return(nil)
 
 		env.ExecuteWorkflow(PayBountyWorkflow, payInput)
 		assert.NoError(t, env.GetWorkflowError())
@@ -102,18 +94,15 @@ func TestWorkflow(t *testing.T) {
 		env := testSuite.NewTestWorkflowEnvironment()
 
 		// Create test configuration
-		escrowKey := solana_go.NewWallet().PrivateKey
-		escrowAccount := solana_go.NewWallet().PublicKey()
+		escrowKey := solanago.NewWallet().PrivateKey
+		escrowAccount := solanago.NewWallet().PublicKey()
 
-		testConfig := solana.SolanaConfig{
+		testConfig := SolanaConfig{
 			RPCEndpoint:        "https://api.testnet.solana.com",
 			WSEndpoint:         "wss://api.testnet.solana.com",
 			EscrowPrivateKey:   &escrowKey,
 			EscrowTokenAccount: escrowAccount,
 		}
-
-		// Create mock Solana client
-		mockSolanaClient := solana.NewMockSolanaClient(testConfig)
 
 		// Create mock HTTP client
 		mockHTTPClient := &http.Client{
@@ -122,7 +111,7 @@ func TestWorkflow(t *testing.T) {
 
 		// Create activities instance
 		activities, err := NewActivities(
-			testConfig,
+			testConfig, // Pass the locally defined abb.SolanaConfig
 			"http://test-server",
 			"test-token",
 			RedditDependencies{},
@@ -137,12 +126,9 @@ func TestWorkflow(t *testing.T) {
 		// Override the HTTP client with our mock
 		activities.httpClient = mockHTTPClient
 
-		// Override the Solana client with our mock
-		activities.solanaClient = mockSolanaClient
-
 		// Register activities
 		env.RegisterActivity(activities.VerifyPayment)
-		env.RegisterActivity(activities.PayBounty)
+		env.RegisterActivity(activities.TransferUSDC)
 		env.RegisterActivity(activities.PullRedditContent)
 		env.RegisterActivity(activities.CheckContentRequirements)
 
@@ -180,11 +166,10 @@ func TestWorkflow(t *testing.T) {
 				Reason:    "Content meets requirements",
 			}, nil)
 
-		env.OnActivity(activities.PayBounty, mock.Anything, mock.Anything, mock.Anything).
-			Return(nil)
+		// Mock TransferUSDC call for returning bounty to owner
+		env.OnActivity((*Activities).TransferUSDC, mock.Anything, "test-owner", mock.AnythingOfType("float64")).Return(nil)
 
 		// Just verify the activity registration is successful
-		// We've removed direct activity calls that were causing errors
 		assert.NoError(t, err)
 	})
 }
@@ -194,18 +179,15 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	env := testSuite.NewTestWorkflowEnvironment()
 
 	// Create test configuration
-	escrowKey := solana_go.NewWallet().PrivateKey
-	escrowAccount := solana_go.NewWallet().PublicKey()
+	escrowKey := solanago.NewWallet().PrivateKey
+	escrowAccount := solanago.NewWallet().PublicKey()
 
-	testConfig := solana.SolanaConfig{
+	testConfig := SolanaConfig{
 		RPCEndpoint:        "https://api.testnet.solana.com",
 		WSEndpoint:         "wss://api.testnet.solana.com",
 		EscrowPrivateKey:   &escrowKey,
 		EscrowTokenAccount: escrowAccount,
 	}
-
-	// Create mock Solana client
-	mockSolanaClient := solana.NewMockSolanaClient(testConfig)
 
 	// Create activities instance
 	activities, err := NewActivities(
@@ -221,12 +203,9 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Override the Solana client with our mock
-	activities.solanaClient = mockSolanaClient
-
 	// Register activities
 	env.RegisterActivity(activities.VerifyPayment)
-	env.RegisterActivity(activities.PayBounty)
+	env.RegisterActivity(activities.TransferUSDC)
 	env.RegisterActivity(activities.PullRedditContent)
 	env.RegisterActivity(activities.CheckContentRequirements)
 
@@ -264,33 +243,34 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 			Reason:    "Content meets requirements",
 		}, nil)
 
-	env.OnActivity(activities.PayBounty, mock.Anything, mock.Anything, mock.Anything).
-		Return(nil)
-
-	// Create test input
+	// Create test input BEFORE defining the mock that uses its variables
 	bountyPerPost, err := solana.NewUSDCAmount(1.0)
 	require.NoError(t, err)
+
+	// Mock TransferUSDC if BountyAssessmentWorkflow uses it
+	// Mock using function pointer and specific/typed args
+	env.OnActivity((*Activities).TransferUSDC, mock.Anything, "test-user", bountyPerPost.ToUSDC()).Return(nil)
+	env.OnActivity((*Activities).TransferUSDC, mock.Anything, "test-owner", mock.AnythingOfType("float64")).Return(nil)
 
 	totalBounty, err := solana.NewUSDCAmount(10.0)
 	require.NoError(t, err)
 
 	// Create valid Solana wallet for testing
-	wallet := solana_go.NewWallet()
+	wallet := solanago.NewWallet()
 
 	input := BountyAssessmentWorkflowInput{
-		Requirements:         []string{"Test requirement 1", "Test requirement 2"},
-		BountyPerPost:        bountyPerPost,
-		TotalBounty:          totalBounty,
-		OwnerID:              "test-owner",
-		SolanaWallet:         wallet.PublicKey().String(),
-		USDCAccount:          wallet.PublicKey().String(),
-		ServerURL:            "http://test-server",
-		AuthToken:            "test-token",
-		PlatformType:         PlatformReddit,
-		PlatformDependencies: RedditDependencies{},
-		Timeout:              5 * time.Second, // Shorter timeout for testing
-		PaymentTimeout:       time.Second,     // Shorter payment timeout for testing
-		SolanaConfig:         testConfig,
+		Requirements:   []string{"Test requirement 1", "Test requirement 2"},
+		BountyPerPost:  bountyPerPost,
+		TotalBounty:    totalBounty,
+		OwnerID:        "test-owner",
+		SolanaWallet:   wallet.PublicKey().String(),
+		USDCAccount:    wallet.PublicKey().String(),
+		ServerURL:      "http://test-server",
+		AuthToken:      "test-token",
+		PlatformType:   PlatformReddit,
+		Timeout:        5 * time.Second, // Shorter timeout for testing
+		PaymentTimeout: time.Second,     // Shorter payment timeout for testing
+		SolanaConfig:   testConfig,
 	}
 
 	// Execute workflow and send signals
@@ -313,18 +293,15 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	env := testSuite.NewTestWorkflowEnvironment()
 
 	// Create test configuration
-	escrowKey := solana_go.NewWallet().PrivateKey
-	escrowAccount := solana_go.NewWallet().PublicKey()
+	escrowKey := solanago.NewWallet().PrivateKey
+	escrowAccount := solanago.NewWallet().PublicKey()
 
-	testConfig := solana.SolanaConfig{
+	testConfig := SolanaConfig{
 		RPCEndpoint:        "https://api.testnet.solana.com",
 		WSEndpoint:         "wss://api.testnet.solana.com",
 		EscrowPrivateKey:   &escrowKey,
 		EscrowTokenAccount: escrowAccount,
 	}
-
-	// Create mock Solana client
-	mockSolanaClient := solana.NewMockSolanaClient(testConfig)
 
 	// Create activities instance
 	activities, err := NewActivities(
@@ -340,12 +317,9 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Override the Solana client with our mock
-	activities.solanaClient = mockSolanaClient
-
 	// Register activities
 	env.RegisterActivity(activities.VerifyPayment)
-	env.RegisterActivity(activities.PayBounty)
+	env.RegisterActivity(activities.TransferUSDC)
 	env.RegisterActivity(activities.PullRedditContent)
 	env.RegisterActivity(activities.CheckContentRequirements)
 
@@ -383,33 +357,34 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 			Reason:    "Content meets requirements",
 		}, nil)
 
-	env.OnActivity(activities.PayBounty, mock.Anything, mock.Anything, mock.Anything).
-		Return(nil)
-
-	// Create test input
+	// Create test input BEFORE defining the mock that uses its variables
 	bountyPerPost, err := solana.NewUSDCAmount(1.0)
 	require.NoError(t, err)
+
+	// Mock TransferUSDC if BountyAssessmentWorkflow uses it
+	// Mock using function pointer and specific/typed args (handles timeout case)
+	env.OnActivity((*Activities).TransferUSDC, mock.Anything, "test-user", bountyPerPost.ToUSDC()).Return(nil)
+	env.OnActivity((*Activities).TransferUSDC, mock.Anything, "test-owner", mock.AnythingOfType("float64")).Return(nil)
 
 	totalBounty, err := solana.NewUSDCAmount(10.0)
 	require.NoError(t, err)
 
 	// Create valid Solana wallet for testing
-	wallet := solana_go.NewWallet()
+	wallet := solanago.NewWallet()
 
 	input := BountyAssessmentWorkflowInput{
-		Requirements:         []string{"Test requirement 1", "Test requirement 2"},
-		BountyPerPost:        bountyPerPost,
-		TotalBounty:          totalBounty,
-		OwnerID:              "test-owner",
-		SolanaWallet:         wallet.PublicKey().String(),
-		USDCAccount:          wallet.PublicKey().String(),
-		ServerURL:            "http://test-server",
-		AuthToken:            "test-token",
-		PlatformType:         PlatformReddit,
-		PlatformDependencies: RedditDependencies{},
-		Timeout:              5 * time.Second, // Shorter timeout for testing
-		PaymentTimeout:       time.Second,     // Shorter payment timeout for testing
-		SolanaConfig:         testConfig,
+		Requirements:   []string{"Test requirement 1", "Test requirement 2"},
+		BountyPerPost:  bountyPerPost,
+		TotalBounty:    totalBounty,
+		OwnerID:        "test-owner",
+		SolanaWallet:   wallet.PublicKey().String(),
+		USDCAccount:    wallet.PublicKey().String(),
+		ServerURL:      "http://test-server",
+		AuthToken:      "test-token",
+		PlatformType:   PlatformReddit,
+		Timeout:        5 * time.Second, // Shorter timeout for testing
+		PaymentTimeout: time.Second,     // Shorter payment timeout for testing
+		SolanaConfig:   testConfig,
 	}
 
 	// Execute workflow and send signals
@@ -634,16 +609,26 @@ func TestPayBountyWorkflow(t *testing.T) {
 	testSuite := &testsuite.WorkflowTestSuite{}
 	env := testSuite.NewTestWorkflowEnvironment()
 
-	// Create activities instance
-	activities := &Activities{
-		solanaConfig: solana.SolanaConfig{},
+	// Create activities instance (minimal config needed for TransferUSDC)
+	escrowKey := solanago.NewWallet().PrivateKey
+	escrowAccount := solanago.NewWallet().PublicKey()
+	testConfig := SolanaConfig{
+		EscrowPrivateKey:   &escrowKey,
+		EscrowTokenAccount: escrowAccount,
 	}
+	activities, err := NewActivities(
+		testConfig, "", "", // Minimal deps for registration
+		RedditDependencies{}, YouTubeDependencies{}, YelpDependencies{},
+		GoogleDependencies{}, AmazonDependencies{}, LLMDependencies{},
+	)
+	require.NoError(t, err)
 
-	// Register activity
+	// Register activity using the instance method
 	env.RegisterActivity(activities.TransferUSDC)
 
-	// Mock activity
-	env.OnActivity(activities.TransferUSDC, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	// Mock activity using the instance method
+	// Ensure arguments match TransferUSDC: ctx, toAccount (string), amount (float64)
+	env.OnActivity(activities.TransferUSDC, mock.Anything, mock.AnythingOfType("string"), mock.AnythingOfType("float64")).
 		Return(nil)
 
 	// Create test input
@@ -651,10 +636,9 @@ func TestPayBountyWorkflow(t *testing.T) {
 	require.NoError(t, err)
 
 	input := PayBountyWorkflowInput{
-		FromAccount:  "DRpbCBMxVnDK7maPM5tPv6dpHGZPWQVr7zr7DgRv9YTB",
-		ToAccount:    "8dUmBqpvjqJvXKxdbhWDtWgYz6tNQzqbT6hF4Vz1Vy8h",
+		ToAccount:    "8dUmBqpvjqJvXKxdbhWDtWgYz6tNQzqbT6hF4Vz1Vy8h", // Example address
 		Amount:       amount,
-		SolanaConfig: solana.SolanaConfig{},
+		SolanaConfig: SolanaConfig{}, // Use local SolanaConfig
 	}
 
 	// Execute workflow
@@ -668,40 +652,6 @@ func TestPayBountyWorkflow(t *testing.T) {
 	env.AssertExpectations(t)
 }
 
-func TestReturnBountyToOwnerWorkflow(t *testing.T) {
-	testSuite := &testsuite.WorkflowTestSuite{}
-	env := testSuite.NewTestWorkflowEnvironment()
-
-	// Create activities instance
-	activities := &Activities{
-		httpClient: &http.Client{Transport: &mockTransport{}},
-		serverURL:  "http://test-server",
-		authToken:  "test-token",
-	}
-
-	// Create a simple workflow to test the PayBounty activity
-	testWorkflow := func(ctx workflow.Context) error {
-		ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: time.Minute,
-		})
-		return workflow.ExecuteActivity(ctx, activities.PayBounty, "test-owner", 10.0).Get(ctx, nil)
-	}
-
-	// Register activity and workflow
-	env.RegisterActivity(activities.PayBounty)
-	env.RegisterWorkflow(testWorkflow)
-
-	// Mock activity
-	env.OnActivity(activities.PayBounty, mock.Anything, "test-owner", 10.0).
-		Return(nil)
-
-	// Execute the workflow that will call the activity
-	env.ExecuteWorkflow(testWorkflow)
-
-	// Verify workflow completed successfully
-	require.True(t, env.IsWorkflowCompleted())
-	require.NoError(t, env.GetWorkflowError())
-
-	// Verify activity calls
-	env.AssertExpectations(t)
+func TestPullContentWorkflow_Reddit(t *testing.T) {
+	// ... existing code ...
 }

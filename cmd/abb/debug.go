@@ -353,39 +353,10 @@ func testPullContent(c *cli.Context) error {
 	}
 	defer tc.Close()
 
-	// Create platform-specific dependencies
+	// Create workflow input (only PlatformType and ContentID needed)
 	var input abb.PullContentWorkflowInput
 	input.PlatformType = platformType
 	input.ContentID = contentID
-
-	switch platformType {
-	case abb.PlatformReddit:
-		input.Dependencies = abb.RedditDependencies{
-			UserAgent:    c.String("reddit-user-agent"),
-			Username:     c.String("reddit-username"),
-			Password:     c.String("reddit-password"),
-			ClientID:     c.String("reddit-client-id"),
-			ClientSecret: c.String("reddit-client-secret"),
-		}
-	case abb.PlatformYouTube:
-		input.Dependencies = abb.YouTubeDependencies{
-			APIKey:          c.String("youtube-api-key"),
-			ApplicationName: c.String("youtube-app-name"),
-			MaxResults:      100, // Default value
-		}
-	case abb.PlatformYelp:
-		input.Dependencies = abb.YelpDependencies{
-			APIKey:   c.String("yelp-api-key"),
-			ClientID: c.String("yelp-client-id"),
-		}
-	case abb.PlatformGoogle:
-		input.Dependencies = abb.GoogleDependencies{
-			APIKey:         c.String("google-api-key"),
-			SearchEngineID: c.String("google-search-engine-id"),
-		}
-	default:
-		return fmt.Errorf("unsupported platform type: %s", platformType)
-	}
 
 	// Skip validating Solana configuration for content testing
 	workflowID := fmt.Sprintf("test-pull-content-%s-%s", platformStr, contentID)

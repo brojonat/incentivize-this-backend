@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,8 +13,9 @@ import (
 
 	"encoding/base64"
 
-	"github.com/brojonat/affiliate-bounty-board/solana"
+	solanautil "github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/jmespath/go-jmespath"
 	"go.temporal.io/sdk/activity"
 )
@@ -34,10 +36,18 @@ const (
 	PlatformAmazon PlatformType = "amazon"
 )
 
+// SolanaConfig holds the necessary configuration for Solana interactions.
+type SolanaConfig struct {
+	RPCEndpoint        string               `json:"rpc_endpoint"`
+	WSEndpoint         string               `json:"ws_endpoint"`
+	EscrowPrivateKey   *solanago.PrivateKey `json:"escrow_private_key"`
+	EscrowTokenAccount solanago.PublicKey   `json:"escrow_token_account"`
+	USDCMintAddress    string               `json:"usdc_mint_address"`
+}
+
 // Activities holds all activity implementations and their dependencies
 type Activities struct {
-	solanaConfig solana.SolanaConfig
-	solanaClient solana.SolanaClient
+	solanaConfig SolanaConfig
 	httpClient   *http.Client
 	serverURL    string
 	authToken    string
@@ -50,7 +60,7 @@ type Activities struct {
 }
 
 // NewActivities creates a new Activities instance
-func NewActivities(config solana.SolanaConfig, serverURL, authToken string,
+func NewActivities(config SolanaConfig, serverURL, authToken string,
 	redditDeps RedditDependencies,
 	youtubeDeps YouTubeDependencies,
 	yelpDeps YelpDependencies,
@@ -58,15 +68,8 @@ func NewActivities(config solana.SolanaConfig, serverURL, authToken string,
 	amazonDeps AmazonDependencies,
 	llmDeps LLMDependencies) (*Activities, error) {
 
-	// Create Solana client
-	solanaClient, err := solana.NewSolanaClient(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Solana client: %w", err)
-	}
-
 	return &Activities{
 		solanaConfig: config,
-		solanaClient: solanaClient,
 		httpClient:   &http.Client{Timeout: 10 * time.Second},
 		serverURL:    serverURL,
 		authToken:    authToken,
@@ -338,31 +341,85 @@ Evaluate strictly and conservatively. Only return true if ALL requirements are c
 	return result, nil
 }
 
-// TransferUSDC transfers USDC from one account to another
-func (a *Activities) TransferUSDC(ctx context.Context, from, to solanago.PublicKey, amount *solana.USDCAmount) error {
+// TransferUSDC pays a bounty to a user (represented by userID as a public key string)
+// by directly transferring USDC from the configured fee payer wallet.
+// Logic from the internal transferUSDC helper has been inlined.
+func (a *Activities) TransferUSDC(ctx context.Context, userID string, amount float64) error {
 	logger := activity.GetLogger(ctx)
-	logger.Info("Transferring USDC", "from", from.String(), "to", to.String(), "amount", amount.ToUSDC())
+	logger.Info("TransferUSDC activity started", "userID", userID, "amount", amount)
 
-	// Execute transfer
-	err := a.solanaClient.TransferUSDC(ctx, from, to, amount)
+	// Convert amount to USDCAmount
+	usdcAmount, err := solanautil.NewUSDCAmount(amount)
 	if err != nil {
-		return fmt.Errorf("failed to transfer USDC: %w", err)
+		logger.Error("Failed to create USDCAmount from input", "amount", amount, "error", err)
+		return fmt.Errorf("failed to convert amount %.6f to USDCAmount: %w", amount, err)
 	}
 
-	return nil
-}
-
-// ReleaseEscrow releases USDC from escrow to the specified account
-func (a *Activities) ReleaseEscrow(ctx context.Context, to solanago.PublicKey, amount *solana.USDCAmount) error {
-	logger := activity.GetLogger(ctx)
-	logger.Info("Releasing escrow", "to", to.String(), "amount", amount.ToUSDC())
-
-	// Execute release
-	err := a.solanaClient.ReleaseEscrow(ctx, to, amount)
+	// Convert user ID to a Solana wallet address
+	// Note: In a real system, you would look up the user's wallet address using the user ID
+	// For this example, we'll assume the userID is already a Solana public key string
+	recipientPublicKey, err := solanago.PublicKeyFromBase58(userID)
 	if err != nil {
-		return fmt.Errorf("failed to release escrow: %w", err)
+		logger.Error("Invalid user ID format, expected Solana public key string", "userID", userID, "error", err)
+		return fmt.Errorf("invalid user wallet address format '%s': %w", userID, err)
 	}
 
+	// 1. Initialize RPC Client
+	client := solanautil.NewRPCClient(a.solanaConfig.RPCEndpoint)
+	if err := solanautil.CheckRPCHealth(ctx, client); err != nil {
+		logger.Error("RPC health check failed", "error", err)
+		return fmt.Errorf("RPC health check failed: %w", err)
+	}
+
+	// 2. Load Keys and Addresses
+	if a.solanaConfig.EscrowPrivateKey == nil {
+		logger.Error("Escrow private key is missing in Solana configuration")
+		return fmt.Errorf("escrow private key missing in config")
+	}
+	senderPrivateKey := *a.solanaConfig.EscrowPrivateKey
+
+	usdcMintAddress, err := solanautil.PublicKeyFromBase58(a.solanaConfig.USDCMintAddress)
+	if err != nil {
+		logger.Error("Failed to parse USDC mint address from config", "mint", a.solanaConfig.USDCMintAddress, "error", err)
+		return fmt.Errorf("failed to parse usdc mint address '%s': %w", a.solanaConfig.USDCMintAddress, err)
+	}
+
+	// 3. Convert amount to uint64 base units
+	amountBaseUnits := usdcAmount.ToSmallestUnit().Uint64()
+	if amountBaseUnits == 0 {
+		logger.Warn("Transfer amount is zero, skipping transfer.")
+		// Consider if zero amount should be an error depending on requirements
+		return nil
+	}
+
+	// 4. Send USDC using the solana package function
+	logger.Info("Sending USDC transaction...", "sender", senderPrivateKey.PublicKey(), "recipient", recipientPublicKey, "amount_base_units", amountBaseUnits)
+	sig, err := solanautil.SendUSDC(
+		ctx,
+		client,
+		usdcMintAddress,
+		senderPrivateKey,
+		recipientPublicKey, // Use the already parsed recipient key
+		amountBaseUnits,
+	)
+	if err != nil {
+		logger.Error("Failed to send USDC transaction via solana package", "error", err)
+		// TODO: Check if the error indicates recipient ATA doesn't exist and provide a better error message or handle creation.
+		return fmt.Errorf("failed to send USDC: %w", err)
+	}
+	logger.Info("Transaction sent", "signature", sig.String())
+
+	// 5. Confirm the transaction
+	// The overall activity timeout should handle excessive confirmation waits.
+	logger.Info("Waiting for transaction confirmation...", "signature", sig.String())
+	err = solanautil.ConfirmTransaction(ctx, client, sig, rpc.CommitmentFinalized)
+	if err != nil {
+		logger.Error("Transaction confirmation failed", "signature", sig.String(), "error", err)
+		// Decide if confirmation failure should be a hard error for the activity
+		return fmt.Errorf("failed to confirm transaction %s: %w", sig, err)
+	}
+
+	logger.Info("TransferUSDC activity completed successfully", "userID", userID, "amount", amount, "signature", sig.String())
 	return nil
 }
 
@@ -376,41 +433,6 @@ type HTTPDependencies struct {
 	Client    *http.Client
 	ServerURL string
 	AuthToken string
-}
-
-// PayBountyRequest represents the request body for paying a bounty
-type PayBountyRequest struct {
-	UserID string  `json:"user_id"`
-	Amount float64 `json:"amount"`
-}
-
-// PayBounty pays a bounty to a user by directly transferring USDC
-func (a *Activities) PayBounty(ctx context.Context, userID string, amount float64) error {
-	logger := activity.GetLogger(ctx)
-	logger.Info("Paying bounty", "user_id", userID, "amount", amount)
-
-	// Convert amount to USDCAmount
-	usdcAmount, err := solana.NewUSDCAmount(amount)
-	if err != nil {
-		return fmt.Errorf("failed to convert amount to USDCAmount: %w", err)
-	}
-
-	// Convert user ID to a Solana wallet address
-	// Note: In a real system, you would look up the user's wallet address using the user ID
-	// For this example, we'll assume the userID is already a Solana public key
-	toAccount, err := solanago.PublicKeyFromBase58(userID)
-	if err != nil {
-		return fmt.Errorf("invalid user wallet address: %w", err)
-	}
-
-	// Transfer USDC directly from escrow to user
-	err = a.solanaClient.ReleaseEscrow(ctx, toAccount, usdcAmount)
-	if err != nil {
-		return fmt.Errorf("failed to release escrow: %w", err)
-	}
-
-	logger.Info("Successfully paid bounty", "user_id", userID, "amount", amount)
-	return nil
 }
 
 // RedditDependencies holds the dependencies for Reddit-related activities
@@ -1053,12 +1075,12 @@ func (a *Activities) PullAmazonContent(ctx context.Context, contentID string) (s
 // VerifyPaymentResult represents the result of verifying a payment
 type VerifyPaymentResult struct {
 	Verified bool
-	Amount   *solana.USDCAmount
+	Amount   *solanautil.USDCAmount
 	Error    string
 }
 
 // VerifyPayment verifies that payment has been received in the escrow account
-func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey, expectedAmount *solana.USDCAmount, timeout time.Duration) (*VerifyPaymentResult, error) {
+func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey, expectedAmount *solanautil.USDCAmount, timeout time.Duration) (*VerifyPaymentResult, error) {
 	logger := activity.GetLogger(ctx)
 	logger.Info("Verifying payment", "from", from.String(), "expected_amount", expectedAmount.ToUSDC(), "timeout", timeout)
 
@@ -1070,6 +1092,13 @@ func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey,
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// --- Need to implement GetUSDCBalance or similar using base solana-go ---
+	// The old `a.solanaClient.GetUSDCBalance` needs replacement.
+	// We'll use the rpc client directly.
+
+	rpcClient := solanautil.NewRPCClient(a.solanaConfig.RPCEndpoint)
+	tokenAccount := a.solanaConfig.EscrowTokenAccount
+
 	for {
 		select {
 		case <-timeoutCtx.Done():
@@ -1078,24 +1107,41 @@ func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey,
 				Error:    "payment verification timed out",
 			}, nil
 		case <-ticker.C:
-			// Get escrow account balance
-			balance, err := a.solanaClient.GetUSDCBalance(ctx, a.solanaConfig.EscrowTokenAccount)
+			// Get token account balance using rpc client
+			balanceResult, err := rpcClient.GetTokenAccountBalance(ctx, tokenAccount, rpc.CommitmentConfirmed)
 			if err != nil {
-				logger.Error("Failed to get escrow balance", "error", err)
+				logger.Error("Failed to get escrow balance", "account", tokenAccount.String(), "error", err)
+				// Don't return error immediately, maybe transient network issue
 				continue
 			}
 
+			if balanceResult == nil || balanceResult.Value == nil {
+				logger.Warn("Received nil balance result for escrow account", "account", tokenAccount.String())
+				continue
+			}
+
+			// Convert the balance string amount to USDCAmount
+			// Assuming the decimals match USDC_DECIMALS (6)
+			currentBalanceStr := balanceResult.Value.Amount
+			currentBalanceBigInt, ok := new(big.Int).SetString(currentBalanceStr, 10)
+			if !ok {
+				logger.Error("Failed to parse balance amount string from RPC", "amountStr", currentBalanceStr)
+				continue
+			}
+			currentBalance := &solanautil.USDCAmount{Value: currentBalanceBigInt}
+
 			// Check if we have received the expected amount
-			if balance.Cmp(expectedAmount) >= 0 {
+			if currentBalance.Cmp(expectedAmount) >= 0 {
+				logger.Info("Payment verified", "expected", expectedAmount.ToUSDC(), "current", currentBalance.ToUSDC())
 				return &VerifyPaymentResult{
 					Verified: true,
-					Amount:   balance,
+					Amount:   currentBalance,
 				}, nil
 			}
 
 			logger.Info("Waiting for payment",
 				"expected", expectedAmount.ToUSDC(),
-				"current", balance.ToUSDC())
+				"current", currentBalance.ToUSDC())
 		}
 	}
 }

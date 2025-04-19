@@ -2,9 +2,7 @@ package abb
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -28,19 +26,18 @@ type CancelBountySignal struct {
 
 // BountyAssessmentWorkflowInput represents the input parameters for the workflow
 type BountyAssessmentWorkflowInput struct {
-	Requirements         []string           `json:"requirements"`
-	BountyPerPost        *solana.USDCAmount `json:"bounty_per_post"`
-	TotalBounty          *solana.USDCAmount `json:"total_bounty"`
-	OwnerID              string             `json:"owner_id"`
-	SolanaWallet         string             `json:"solana_wallet"`
-	USDCAccount          string             `json:"usdc_account"`
-	ServerURL            string
-	AuthToken            string
-	PlatformType         PlatformType        // The platform type (Reddit, YouTube, etc.)
-	PlatformDependencies interface{}         // Platform-specific dependencies
-	Timeout              time.Duration       // How long the bounty should remain active
-	PaymentTimeout       time.Duration       // How long to wait for payment verification
-	SolanaConfig         solana.SolanaConfig // Solana configuration
+	Requirements   []string           `json:"requirements"`
+	BountyPerPost  *solana.USDCAmount `json:"bounty_per_post"`
+	TotalBounty    *solana.USDCAmount `json:"total_bounty"`
+	OwnerID        string             `json:"owner_id"`
+	SolanaWallet   string             `json:"solana_wallet"`
+	USDCAccount    string             `json:"usdc_account"`
+	ServerURL      string
+	AuthToken      string
+	PlatformType   PlatformType  // The platform type (Reddit, YouTube, etc.)
+	Timeout        time.Duration // How long the bounty should remain active
+	PaymentTimeout time.Duration // How long to wait for payment verification
+	SolanaConfig   SolanaConfig  // Use local abb.SolanaConfig
 }
 
 // BountyAssessmentWorkflow represents the workflow that manages bounty assessment
@@ -57,74 +54,6 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 
 	ctx = workflow.WithActivityOptions(ctx, options)
 
-	// Create activities instance
-	var redditDeps RedditDependencies
-	var youtubeDeps YouTubeDependencies
-	var yelpDeps YelpDependencies
-	var googleDeps GoogleDependencies
-	var amazonDeps AmazonDependencies
-
-	// Only cast to the specified platform type
-	switch input.PlatformType {
-	case PlatformReddit:
-		data, err := json.Marshal(input.PlatformDependencies)
-		if err != nil {
-			return fmt.Errorf("failed to marshal Reddit dependencies: %w", err)
-		}
-		if err := json.Unmarshal(data, &redditDeps); err != nil {
-			return fmt.Errorf("failed to unmarshal Reddit dependencies: %w", err)
-		}
-	case PlatformYouTube:
-		data, err := json.Marshal(input.PlatformDependencies)
-		if err != nil {
-			return fmt.Errorf("failed to marshal YouTube dependencies: %w", err)
-		}
-		if err := json.Unmarshal(data, &youtubeDeps); err != nil {
-			return fmt.Errorf("failed to unmarshal YouTube dependencies: %w", err)
-		}
-	case PlatformYelp:
-		data, err := json.Marshal(input.PlatformDependencies)
-		if err != nil {
-			return fmt.Errorf("failed to marshal Yelp dependencies: %w", err)
-		}
-		if err := json.Unmarshal(data, &yelpDeps); err != nil {
-			return fmt.Errorf("failed to unmarshal Yelp dependencies: %w", err)
-		}
-	case PlatformGoogle:
-		data, err := json.Marshal(input.PlatformDependencies)
-		if err != nil {
-			return fmt.Errorf("failed to marshal Google dependencies: %w", err)
-		}
-		if err := json.Unmarshal(data, &googleDeps); err != nil {
-			return fmt.Errorf("failed to unmarshal Google dependencies: %w", err)
-		}
-	case PlatformAmazon:
-		data, err := json.Marshal(input.PlatformDependencies)
-		if err != nil {
-			return fmt.Errorf("failed to marshal Amazon dependencies: %w", err)
-		}
-		if err := json.Unmarshal(data, &amazonDeps); err != nil {
-			return fmt.Errorf("failed to unmarshal Amazon dependencies: %w", err)
-		}
-	default:
-		return fmt.Errorf("unsupported platform type: %s", input.PlatformType)
-	}
-
-	activities, err := NewActivities(
-		input.SolanaConfig,
-		input.ServerURL,
-		input.AuthToken,
-		redditDeps,
-		youtubeDeps,
-		yelpDeps,
-		googleDeps,
-		amazonDeps,
-		LLMDependencies{},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create activities: %w", err)
-	}
-
 	// Convert wallet address to PublicKey
 	fromAccount, err := solanago.PublicKeyFromBase58(input.SolanaWallet)
 	if err != nil {
@@ -134,7 +63,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	// Verify payment has been received
 	workflow.GetLogger(ctx).Info("Waiting for payment verification")
 	var verifyResult *VerifyPaymentResult
-	err = workflow.ExecuteActivity(ctx, activities.VerifyPayment, fromAccount, input.TotalBounty, input.PaymentTimeout).Get(ctx, &verifyResult)
+	err = workflow.ExecuteActivity(ctx, (*Activities).VerifyPayment, fromAccount, input.TotalBounty, input.PaymentTimeout).Get(ctx, &verifyResult)
 	if err != nil {
 		return fmt.Errorf("failed to verify payment: %w", err)
 	}
@@ -180,7 +109,6 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 		contentInput := PullContentWorkflowInput{
 			PlatformType: assessmentSignal.Platform,
 			ContentID:    assessmentSignal.ContentID,
-			Dependencies: input.PlatformDependencies,
 			SolanaConfig: input.SolanaConfig,
 		}
 
@@ -193,7 +121,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 
 		// Check content requirements
 		var result CheckContentRequirementsResult
-		err = workflow.ExecuteActivity(ctx, activities.CheckContentRequirements, content, input.Requirements).Get(ctx, &result)
+		err = workflow.ExecuteActivity(ctx, (*Activities).CheckContentRequirements, content, input.Requirements).Get(ctx, &result)
 		if err != nil {
 			workflow.GetLogger(ctx).Error("Failed to check content requirements", "error", err)
 			return
@@ -201,7 +129,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 
 		// If requirements are met, pay the bounty
 		if result.Satisfies {
-			err := workflow.ExecuteActivity(ctx, activities.PayBounty, assessmentSignal.UserID, input.BountyPerPost.ToUSDC()).Get(ctx, nil)
+			err := workflow.ExecuteActivity(ctx, (*Activities).TransferUSDC, assessmentSignal.UserID, input.BountyPerPost.ToUSDC()).Get(ctx, nil)
 			if err != nil {
 				workflow.GetLogger(ctx).Error("Failed to pay bounty", "error", err)
 				return
@@ -235,7 +163,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 
 		// Return remaining bounty to owner
 		if !remainingBounty.IsZero() {
-			err := workflow.ExecuteActivity(ctx, activities.PayBounty, input.OwnerID, remainingBounty.ToUSDC()).Get(ctx, nil)
+			err := workflow.ExecuteActivity(ctx, (*Activities).TransferUSDC, input.OwnerID, remainingBounty.ToUSDC()).Get(ctx, nil)
 			if err != nil {
 				workflow.GetLogger(ctx).Error("Failed to return bounty to owner", "error", err)
 				return
@@ -256,16 +184,15 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	selector.AddFuture(timeoutFuture, func(f workflow.Future) {
 		_ = f.Get(ctx, nil)
 		if !remainingBounty.IsZero() {
-			err := workflow.ExecuteActivity(ctx, activities.PayBounty, input.OwnerID, remainingBounty.ToUSDC()).Get(ctx, nil)
+			err := workflow.ExecuteActivity(ctx, (*Activities).TransferUSDC, input.OwnerID, remainingBounty.ToUSDC()).Get(ctx, nil)
 			if err != nil {
 				workflow.GetLogger(ctx).Error("Failed to return remaining bounty to owner", "error", err)
-				return
+			} else {
+				// Log the timeout
+				workflow.GetLogger(ctx).Info("Bounty timed out and remaining funds returned to owner",
+					"owner_id", input.OwnerID,
+					"remaining_amount", remainingBounty.ToUSDC())
 			}
-
-			// Log the timeout
-			workflow.GetLogger(ctx).Info("Bounty timed out and remaining funds returned to owner",
-				"owner_id", input.OwnerID,
-				"remaining_amount", remainingBounty.ToUSDC())
 
 			// Set remaining bounty to zero to exit the loop
 			remainingBounty = solana.Zero()
@@ -292,17 +219,11 @@ type ContentProvider interface {
 	PullContent(ctx context.Context, contentID string) (string, error)
 }
 
-// RedditDependencies implements PlatformDependencies for Reddit
-func (deps RedditDependencies) Type() PlatformType {
-	return PlatformReddit
-}
-
 // PullContentWorkflowInput represents the input parameters for the workflow
 type PullContentWorkflowInput struct {
 	PlatformType PlatformType
 	ContentID    string
-	Dependencies interface{}         // Platform-specific dependencies (will be cast to the appropriate type)
-	SolanaConfig solana.SolanaConfig // Solana configuration
+	SolanaConfig SolanaConfig // Use local abb.SolanaConfig
 }
 
 // PullContentWorkflow represents the workflow that pulls content from a platform
@@ -319,55 +240,39 @@ func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) (
 
 	ctx = workflow.WithActivityOptions(ctx, options)
 
-	// Create activities instance
-	activities, err := NewActivities(
-		input.SolanaConfig,
-		os.Getenv("SERVER_URL"),
-		os.Getenv("AUTH_TOKEN"),
-		RedditDependencies{},
-		YouTubeDependencies{},
-		YelpDependencies{},
-		GoogleDependencies{},
-		AmazonDependencies{},
-		LLMDependencies{},
-	)
-	if err != nil {
-		return "", fmt.Errorf("failed to create activities: %w", err)
-	}
-
 	// Pull content based on platform type
 	switch input.PlatformType {
 	case PlatformReddit:
 		var redditContent *RedditContent
-		err = workflow.ExecuteActivity(ctx, activities.PullRedditContent, input.ContentID).Get(ctx, &redditContent)
+		err := workflow.ExecuteActivity(ctx, (*Activities).PullRedditContent, input.ContentID).Get(ctx, &redditContent)
 		if err != nil {
 			return "", fmt.Errorf("failed to pull Reddit content: %w", err)
 		}
 		return formatRedditContent(redditContent), nil
 	case PlatformYouTube:
 		var youtubeContent *YouTubeContent
-		err = workflow.ExecuteActivity(ctx, activities.PullYouTubeContent, input.ContentID).Get(ctx, &youtubeContent)
+		err := workflow.ExecuteActivity(ctx, (*Activities).PullYouTubeContent, input.ContentID).Get(ctx, &youtubeContent)
 		if err != nil {
 			return "", fmt.Errorf("failed to pull YouTube content: %w", err)
 		}
 		return formatYouTubeContent(youtubeContent), nil
 	case PlatformYelp:
 		var content string
-		err = workflow.ExecuteActivity(ctx, activities.PullYelpContent, input.ContentID).Get(ctx, &content)
+		err := workflow.ExecuteActivity(ctx, (*Activities).PullYelpContent, input.ContentID).Get(ctx, &content)
 		if err != nil {
 			return "", fmt.Errorf("failed to pull Yelp content: %w", err)
 		}
 		return content, nil
 	case PlatformGoogle:
 		var content string
-		err = workflow.ExecuteActivity(ctx, activities.PullGoogleContent, input.ContentID).Get(ctx, &content)
+		err := workflow.ExecuteActivity(ctx, (*Activities).PullGoogleContent, input.ContentID).Get(ctx, &content)
 		if err != nil {
 			return "", fmt.Errorf("failed to pull Google content: %w", err)
 		}
 		return content, nil
 	case PlatformAmazon:
 		var content string
-		err = workflow.ExecuteActivity(ctx, activities.PullAmazonContent, input.ContentID).Get(ctx, &content)
+		err := workflow.ExecuteActivity(ctx, (*Activities).PullAmazonContent, input.ContentID).Get(ctx, &content)
 		if err != nil {
 			return "", fmt.Errorf("failed to pull Amazon content: %w", err)
 		}
@@ -453,11 +358,8 @@ func CheckContentRequirementsWorkflow(ctx workflow.Context, content string, requ
 
 	ctx = workflow.WithActivityOptions(ctx, options)
 
-	// Create activities instance
-	activities := &Activities{}
-
 	var result CheckContentRequirementsResult
-	err := workflow.ExecuteActivity(ctx, activities.CheckContentRequirements, content, requirements).Get(ctx, &result)
+	err := workflow.ExecuteActivity(ctx, (*Activities).CheckContentRequirements, content, requirements).Get(ctx, &result)
 	if err != nil {
 		return CheckContentRequirementsResult{}, err
 	}
@@ -466,10 +368,9 @@ func CheckContentRequirementsWorkflow(ctx workflow.Context, content string, requ
 
 // PayBountyWorkflowInput represents the input parameters for the pay bounty workflow
 type PayBountyWorkflowInput struct {
-	FromAccount  string
 	ToAccount    string
 	Amount       *solana.USDCAmount
-	SolanaConfig solana.SolanaConfig
+	SolanaConfig SolanaConfig // Use local abb.SolanaConfig
 }
 
 // PayBountyWorkflow represents the workflow that pays a bounty
@@ -487,23 +388,13 @@ func PayBountyWorkflow(ctx workflow.Context, input PayBountyWorkflowInput) error
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	// Convert addresses to PublicKey
-	fromAccount, err := solanago.PublicKeyFromBase58(input.FromAccount)
-	if err != nil {
-		return fmt.Errorf("invalid from account: %w", err)
-	}
-
 	toAccount, err := solanago.PublicKeyFromBase58(input.ToAccount)
 	if err != nil {
 		return fmt.Errorf("invalid to account: %w", err)
 	}
 
-	// Create activities instance
-	activities := &Activities{
-		solanaConfig: input.SolanaConfig,
-	}
-
-	// Execute transfer activity
-	err = workflow.ExecuteActivity(ctx, activities.TransferUSDC, fromAccount, toAccount, input.Amount).Get(ctx, nil)
+	// Execute transfer activity using the function signature
+	err = workflow.ExecuteActivity(ctx, (*Activities).TransferUSDC, toAccount.String(), input.Amount.ToUSDC()).Get(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to transfer USDC: %w", err)
 	}

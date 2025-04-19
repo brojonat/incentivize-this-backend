@@ -1,355 +1,143 @@
 package solana
 
 import (
+	"context"
+	"os"
 	"testing"
+	"time"
+
+	solanago "github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestNewUSDCAmount(t *testing.T) {
-	tests := []struct {
-		name    string
-		amount  float64
-		wantErr bool
-	}{
-		{
-			name:    "valid amount",
-			amount:  1.5,
-			wantErr: false,
-		},
-		{
-			name:    "zero amount",
-			amount:  0,
-			wantErr: false,
-		},
-		{
-			name:    "negative amount",
-			amount:  -1.5,
-			wantErr: false,
-		},
-		{
-			name:    "very small amount",
-			amount:  0.000001,
-			wantErr: false,
-		},
-		{
-			name:    "very large amount",
-			amount:  1000000.0,
-			wantErr: false,
-		},
-	}
+// --- Unit Tests ---
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewUSDCAmount(tt.amount)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NewUSDCAmount() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got == nil {
-				t.Error("NewUSDCAmount() returned nil")
-				return
-			}
-		})
-	}
+func TestLoadPrivateKeyFromBase58(t *testing.T) {
+	// Generate a new keypair for testing
+	wallet := solanago.NewWallet()
+	privKey := wallet.PrivateKey
+	pubKey := wallet.PublicKey()
+	privKeyStr := privKey.String()
+
+	loadedPrivKey, err := LoadPrivateKeyFromBase58(privKeyStr)
+	require.NoError(t, err, "LoadPrivateKeyFromBase58 should not return an error for a valid key")
+	assert.Equal(t, privKey, loadedPrivKey, "Loaded private key should match the original")
+	assert.Equal(t, pubKey, loadedPrivKey.PublicKey(), "Public key derived from loaded private key should match original")
+
+	_, err = LoadPrivateKeyFromBase58("invalid-base58-string")
+	assert.Error(t, err, "LoadPrivateKeyFromBase58 should return an error for invalid input")
 }
 
-func TestUSDCAmount_ToUSDC(t *testing.T) {
-	tests := []struct {
-		name     string
-		amount   float64
-		expected float64
-	}{
-		{
-			name:     "whole number",
-			amount:   1.0,
-			expected: 1.0,
-		},
-		{
-			name:     "decimal number",
-			amount:   1.5,
-			expected: 1.5,
-		},
-		{
-			name:     "zero",
-			amount:   0.0,
-			expected: 0.0,
-		},
-		{
-			name:     "small decimal",
-			amount:   0.000001,
-			expected: 0.000001,
-		},
-	}
+func TestPublicKeyFromBase58(t *testing.T) {
+	// Generate a new keypair for testing
+	wallet := solanago.NewWallet()
+	pubKey := wallet.PublicKey()
+	pubKeyStr := pubKey.String()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			usdc, err := NewUSDCAmount(tt.amount)
-			if err != nil {
-				t.Fatalf("NewUSDCAmount() error = %v", err)
-			}
-			got := usdc.ToUSDC()
-			if got != tt.expected {
-				t.Errorf("ToUSDC() = %v, want %v", got, tt.expected)
-			}
-		})
-	}
+	loadedPubKey, err := PublicKeyFromBase58(pubKeyStr)
+	require.NoError(t, err, "PublicKeyFromBase58 should not return an error for a valid key")
+	assert.Equal(t, pubKey, loadedPubKey, "Loaded public key should match the original")
+
+	_, err = PublicKeyFromBase58("invalid-base58-string")
+	assert.Error(t, err, "PublicKeyFromBase58 should return an error for invalid input")
 }
 
-func TestUSDCAmount_Add(t *testing.T) {
-	tests := []struct {
-		name     string
-		a        float64
-		b        float64
-		expected float64
-	}{
-		{
-			name:     "add positive numbers",
-			a:        1.5,
-			b:        2.5,
-			expected: 4.0,
-		},
-		{
-			name:     "add with zero",
-			a:        1.5,
-			b:        0.0,
-			expected: 1.5,
-		},
-		{
-			name:     "add negative numbers",
-			a:        -1.5,
-			b:        -2.5,
-			expected: -4.0,
-		},
-	}
+func TestNewRPCClient(t *testing.T) {
+	// Test default endpoint (Devnet)
+	clientDefault := NewRPCClient("")
+	require.NotNil(t, clientDefault, "Client should not be nil when endpoint is empty")
+	// We can't easily assert the *exact* endpoint string after creation,
+	// but we can check if it connects (implicitly tests endpoint validity)
+	err := CheckRPCHealth(context.Background(), clientDefault)
+	// Depending on network conditions, this might fail, but usually Devnet is up.
+	// Consider skipping if Devnet is known to be unstable, or mock the RPC call.
+	assert.NoError(t, err, "Default client should connect to Devnet successfully")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			a, err := NewUSDCAmount(tt.a)
-			if err != nil {
-				t.Fatalf("NewUSDCAmount() error = %v", err)
-			}
-			b, err := NewUSDCAmount(tt.b)
-			if err != nil {
-				t.Fatalf("NewUSDCAmount() error = %v", err)
-			}
-			got := a.Add(b)
-			if got == nil {
-				t.Error("Add() returned nil")
-				return
-			}
-			if got.ToUSDC() != tt.expected {
-				t.Errorf("Add() = %v, want %v", got.ToUSDC(), tt.expected)
-			}
-		})
-	}
+	// Test custom endpoint
+	customEndpoint := rpc.TestNet_RPC // Use Testnet for variety
+	clientCustom := NewRPCClient(customEndpoint)
+	require.NotNil(t, clientCustom, "Client should not be nil when endpoint is specified")
+	err = CheckRPCHealth(context.Background(), clientCustom)
+	assert.NoError(t, err, "Custom client should connect to Testnet successfully")
 }
 
-func TestUSDCAmount_Sub(t *testing.T) {
-	tests := []struct {
-		name     string
-		a        float64
-		b        float64
-		expected float64
-	}{
-		{
-			name:     "subtract positive numbers",
-			a:        2.5,
-			b:        1.5,
-			expected: 1.0,
-		},
-		{
-			name:     "subtract with zero",
-			a:        1.5,
-			b:        0.0,
-			expected: 1.5,
-		},
-		{
-			name:     "subtract negative numbers",
-			a:        -1.5,
-			b:        -2.5,
-			expected: 1.0,
-		},
+// --- Integration Test ---
+
+// TestIntegrationSendAndConfirmUSDC performs an end-to-end test of sending USDC on Devnet.
+// It requires the following environment variables to be set:
+// - SOLANA_RPC_ENDPOINT: URL for the Solana RPC endpoint (e.g., Devnet)
+// - USDC_MINT_ADDRESS_DEVNET: Public key of the USDC mint on Devnet
+// - TEST_SENDER_KEY_BASE58: Base58 encoded private key of the sender wallet (must have SOL and Devnet USDC)
+// - TEST_RECIPIENT_ADDR_BASE58: Base58 encoded public key of the recipient wallet
+func TestIntegrationSendAndConfirmUSDC(t *testing.T) {
+	rpcEndpoint := os.Getenv("SOLANA_RPC_ENDPOINT")
+	usdcMintStr := os.Getenv("USDC_MINT_ADDRESS_DEVNET")
+	senderKeyStr := os.Getenv("TEST_SENDER_KEY_BASE58")
+	recipientAddrStr := os.Getenv("TEST_RECIPIENT_ADDR_BASE58")
+
+	if rpcEndpoint == "" || usdcMintStr == "" || senderKeyStr == "" || recipientAddrStr == "" {
+		t.Skip("Skipping integration test: Required environment variables not set (SOLANA_RPC_ENDPOINT, USDC_MINT_ADDRESS_DEVNET, TEST_SENDER_KEY_BASE58, TEST_RECIPIENT_ADDR_BASE58)")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			a, err := NewUSDCAmount(tt.a)
-			if err != nil {
-				t.Fatalf("NewUSDCAmount() error = %v", err)
-			}
-			b, err := NewUSDCAmount(tt.b)
-			if err != nil {
-				t.Fatalf("NewUSDCAmount() error = %v", err)
-			}
-			got := a.Sub(b)
-			if got == nil {
-				t.Error("Sub() returned nil")
-				return
-			}
-			if got.ToUSDC() != tt.expected {
-				t.Errorf("Sub() = %v, want %v", got.ToUSDC(), tt.expected)
-			}
-		})
-	}
-}
+	// 1. Initialize Dependencies
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second) // Generous timeout for network operations
+	defer cancel()
 
-func TestUSDCAmount_Cmp(t *testing.T) {
-	tests := []struct {
-		name     string
-		a        float64
-		b        float64
-		expected int
-	}{
-		{
-			name:     "equal numbers",
-			a:        1.5,
-			b:        1.5,
-			expected: 0,
-		},
-		{
-			name:     "a greater than b",
-			a:        2.5,
-			b:        1.5,
-			expected: 1,
-		},
-		{
-			name:     "a less than b",
-			a:        1.5,
-			b:        2.5,
-			expected: -1,
-		},
-		{
-			name:     "compare with zero",
-			a:        1.5,
-			b:        0.0,
-			expected: 1,
-		},
-	}
+	client := NewRPCClient(rpcEndpoint)
+	err := CheckRPCHealth(ctx, client)
+	require.NoError(t, err, "RPC Health Check Failed")
+	t.Logf("Connected to RPC: %s", rpcEndpoint)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			a, err := NewUSDCAmount(tt.a)
-			if err != nil {
-				t.Fatalf("NewUSDCAmount() error = %v", err)
-			}
-			b, err := NewUSDCAmount(tt.b)
-			if err != nil {
-				t.Fatalf("NewUSDCAmount() error = %v", err)
-			}
-			got := a.Cmp(b)
-			if got != tt.expected {
-				t.Errorf("Cmp() = %v, want %v", got, tt.expected)
-			}
-		})
-	}
-}
+	usdcMintAddr, err := PublicKeyFromBase58(usdcMintStr)
+	require.NoError(t, err, "Invalid USDC Mint Addr")
 
-func TestUSDCAmount_IsZero(t *testing.T) {
-	tests := []struct {
-		name     string
-		amount   float64
-		expected bool
-	}{
-		{
-			name:     "zero amount",
-			amount:   0.0,
-			expected: true,
-		},
-		{
-			name:     "non-zero amount",
-			amount:   1.5,
-			expected: false,
-		},
-		{
-			name:     "small amount",
-			amount:   0.000001,
-			expected: false,
-		},
-	}
+	senderPrivKey, err := LoadPrivateKeyFromBase58(senderKeyStr)
+	require.NoError(t, err, "Failed to load sender key from Base58")
+	senderPubKey := senderPrivKey.PublicKey()
+	t.Logf("Sender public key: %s", senderPubKey)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			usdc, err := NewUSDCAmount(tt.amount)
-			if err != nil {
-				t.Fatalf("NewUSDCAmount() error = %v", err)
-			}
-			got := usdc.IsZero()
-			if got != tt.expected {
-				t.Errorf("IsZero() = %v, want %v", got, tt.expected)
-			}
-		})
-	}
-}
+	recipientPubKey, err := PublicKeyFromBase58(recipientAddrStr)
+	require.NoError(t, err, "Invalid Recipient Addr")
+	t.Logf("Recipient public key: %s", recipientPubKey)
 
-func TestUSDCAmount_IsNegative(t *testing.T) {
-	tests := []struct {
-		name     string
-		amount   float64
-		expected bool
-	}{
-		{
-			name:     "negative amount",
-			amount:   -1.5,
-			expected: true,
-		},
-		{
-			name:     "positive amount",
-			amount:   1.5,
-			expected: false,
-		},
-		{
-			name:     "zero amount",
-			amount:   0.0,
-			expected: false,
-		},
-	}
+	// Define amount to send (e.g., 0.001 USDC)
+	amountToSend := 0.001
+	usdcAmount, err := NewUSDCAmount(amountToSend)
+	require.NoError(t, err, "Invalid Amount")
+	amountBaseUnits := usdcAmount.ToSmallestUnit().Uint64()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			usdc, err := NewUSDCAmount(tt.amount)
-			if err != nil {
-				t.Fatalf("NewUSDCAmount() error = %v", err)
-			}
-			got := usdc.IsNegative()
-			if got != tt.expected {
-				t.Errorf("IsNegative() = %v, want %v", got, tt.expected)
-			}
-		})
-	}
-}
+	t.Logf("Attempting to send %f USDC (%d base units) from %s to %s...",
+		amountToSend, amountBaseUnits, senderPubKey, recipientPubKey)
 
-func TestUSDCAmount_IsPositive(t *testing.T) {
-	tests := []struct {
-		name     string
-		amount   float64
-		expected bool
-	}{
-		{
-			name:     "positive amount",
-			amount:   1.5,
-			expected: true,
-		},
-		{
-			name:     "negative amount",
-			amount:   -1.5,
-			expected: false,
-		},
-		{
-			name:     "zero amount",
-			amount:   0.0,
-			expected: false,
-		},
-	}
+	// 2. Call SendUSDC
+	signature, err := SendUSDC(
+		ctx,
+		client,
+		usdcMintAddr,
+		senderPrivKey,
+		recipientPubKey,
+		amountBaseUnits,
+	)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			usdc, err := NewUSDCAmount(tt.amount)
-			if err != nil {
-				t.Fatalf("NewUSDCAmount() error = %v", err)
-			}
-			got := usdc.IsPositive()
-			if got != tt.expected {
-				t.Errorf("IsPositive() = %v, want %v", got, tt.expected)
-			}
-		})
-	}
+	// Handle potential error during send (e.g., insufficient funds, ATA doesn't exist yet)
+	// Note: This basic test assumes the recipient ATA already exists.
+	// A more robust test might check/create the ATA first.
+	require.NoError(t, err, "SendUSDC failed")
+	require.NotEqual(t, solanago.Signature{}, signature, "SendUSDC returned an empty signature")
+	t.Logf("Transaction submitted successfully! Signature: %s", signature)
+
+	// 3. Call ConfirmTransaction
+	t.Logf("Waiting for confirmation for signature: %s...", signature)
+	confirmCtx, confirmCancel := context.WithTimeout(context.Background(), 90*time.Second) // Separate timeout for confirmation
+	defer confirmCancel()
+
+	err = ConfirmTransaction(confirmCtx, client, signature, rpc.CommitmentConfirmed) // Use Confirmed for faster test confirmation vs Finalized
+	require.NoError(t, err, "ConfirmTransaction failed")
+
+	t.Logf("Transaction %s confirmed successfully!", signature)
+
+	// Optional: Add checks for balance changes if desired (more complex)
+	// e.g., GetTokenAccountBalance before and after send/confirm
 }

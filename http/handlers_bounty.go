@@ -122,7 +122,7 @@ func handlePayBounty(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			return
 		}
 
-		solanaConfig := solana.SolanaConfig{
+		solanaConfig := abb.SolanaConfig{
 			RPCEndpoint:        os.Getenv("SOLANA_RPC_ENDPOINT"),
 			WSEndpoint:         os.Getenv("SOLANA_WS_ENDPOINT"),
 			EscrowPrivateKey:   &escrowPrivateKey,
@@ -143,7 +143,6 @@ func handlePayBounty(l *slog.Logger, tc client.Client) http.HandlerFunc {
 		}
 
 		we, err := tc.ExecuteWorkflow(r.Context(), workflowOptions, abb.PayBountyWorkflow, abb.PayBountyWorkflowInput{
-			FromAccount:  sourceAccount,
 			ToAccount:    req.ToAccount,
 			Amount:       amount,
 			SolanaConfig: solanaConfig,

@@ -66,9 +66,8 @@ func TestHandlePayBounty(t *testing.T) {
 			mockClient.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.MatchedBy(func(input abb.PayBountyWorkflowInput) bool {
 				// Verify input parameters match our request
 				amountMatch := input.Amount.ToUSDC() == tc.request.Amount
-				fromMatch := input.FromAccount == tc.expectedSource
 				toMatch := input.ToAccount == tc.request.ToAccount
-				return amountMatch && fromMatch && toMatch
+				return amountMatch && toMatch
 			})).Return(mockWorkflowRun, nil).Once()
 
 			mockWorkflowRun.On("Get", mock.Anything, nil).Return(nil).Once()

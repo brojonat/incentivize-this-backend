@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 
 	"github.com/brojonat/affiliate-bounty-board/abb"
-	"github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
@@ -40,25 +38,28 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 	privateKeyStr := os.Getenv("SOLANA_ESCROW_PRIVATE_KEY")
 	keypairPath := os.Getenv("SOLANA_ESCROW_KEYPAIR")
 	tokenAccountStr := os.Getenv("SOLANA_ESCROW_TOKEN_ACCOUNT")
+	usdcMintStr := os.Getenv("USDC_MINT_ADDRESS")
 
-	var solanaConfig solana.SolanaConfig
+	var solanaConfig abb.SolanaConfig
 
 	// Check if Solana credentials are provided
-	if (privateKeyStr == "" && keypairPath == "") || tokenAccountStr == "" {
-		l.Warn("Solana credentials not provided. Solana functionality will be limited.",
+	if (privateKeyStr == "" && keypairPath == "") || tokenAccountStr == "" || usdcMintStr == "" {
+		l.Warn("Partial or no Solana credentials/config provided. Solana functionality will be limited.",
 			"private_key", privateKeyStr != "",
 			"keypair_file", keypairPath != "",
-			"token_account", tokenAccountStr != "")
+			"token_account", tokenAccountStr != "",
+			"usdc_mint", usdcMintStr != "")
 
 		// Use dummy values for fields that require non-nil values
 		dummyKey := solanago.NewWallet().PrivateKey
 		dummyAccount := dummyKey.PublicKey()
 
-		solanaConfig = solana.SolanaConfig{
+		solanaConfig = abb.SolanaConfig{
 			RPCEndpoint:        os.Getenv("SOLANA_RPC_ENDPOINT"),
 			WSEndpoint:         os.Getenv("SOLANA_WS_ENDPOINT"),
 			EscrowPrivateKey:   &dummyKey,
 			EscrowTokenAccount: dummyAccount,
+			USDCMintAddress:    "",
 		}
 	} else {
 		var escrowPrivateKey solanago.PrivateKey
@@ -71,37 +72,10 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 			}
 		} else {
 			// Otherwise, load from keypair file
-			keypairData, err := os.ReadFile(keypairPath)
+			escrowPrivateKey, err = solanago.PrivateKeyFromSolanaKeygenFile(keypairPath)
 			if err != nil {
-				return fmt.Errorf("failed to read keypair file: %w", err)
+				return fmt.Errorf("failed to load escrow private key from file %s: %w", keypairPath, err)
 			}
-
-			// Parse the keypair file (expected format: JSON array of numbers)
-			keypairStr := string(keypairData)
-			// Remove brackets, commas, and trailing characters
-			keypairStr = strings.ReplaceAll(keypairStr, "[", "")
-			keypairStr = strings.ReplaceAll(keypairStr, "]", "")
-			keypairStr = strings.ReplaceAll(keypairStr, ",", " ")
-			keypairStr = strings.SplitN(keypairStr, "%", 2)[0] // Remove trailing % if present
-
-			// Split into numbers and convert to bytes
-			var keypairBytes []byte
-			for _, numStr := range strings.Fields(keypairStr) {
-				num := 0
-				_, err := fmt.Sscanf(numStr, "%d", &num)
-				if err != nil {
-					return fmt.Errorf("failed to parse keypair data: %w", err)
-				}
-				keypairBytes = append(keypairBytes, byte(num))
-			}
-
-			// Use first 32 bytes as private key
-			if len(keypairBytes) < 32 {
-				return fmt.Errorf("invalid keypair data: too short")
-			}
-
-			// Create private key
-			escrowPrivateKey = solanago.PrivateKey(keypairBytes[:32])
 		}
 
 		escrowTokenAccount, err := solanago.PublicKeyFromBase58(tokenAccountStr)
@@ -110,11 +84,12 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 		}
 
 		// Create Solana config
-		solanaConfig = solana.SolanaConfig{
+		solanaConfig = abb.SolanaConfig{
 			RPCEndpoint:        os.Getenv("SOLANA_RPC_ENDPOINT"),
 			WSEndpoint:         os.Getenv("SOLANA_WS_ENDPOINT"),
 			EscrowPrivateKey:   &escrowPrivateKey,
 			EscrowTokenAccount: escrowTokenAccount,
+			USDCMintAddress:    usdcMintStr,
 		}
 	}
 
@@ -201,8 +176,6 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 	w.RegisterActivity(activities.CheckContentRequirements)
 	w.RegisterActivity(activities.VerifyPayment)
 	w.RegisterActivity(activities.TransferUSDC)
-	w.RegisterActivity(activities.ReleaseEscrow)
-	w.RegisterActivity(activities.PayBounty)
 
 	// Run the single worker
 	l.Info("Starting worker", "TaskQueue", os.Getenv("TASK_QUEUE"))

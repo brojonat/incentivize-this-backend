@@ -2,374 +2,306 @@ package solana
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
-	"math/big"
-	"strconv"
-	"strings"
+	"time"
 
-	"github.com/gagliardetto/solana-go"
+	// Solana Go SDK packages
+	solanago "github.com/gagliardetto/solana-go"
+
+	spltoken "github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
-	"github.com/gagliardetto/solana-go/rpc/ws"
 )
 
-// USDC token mint address on Solana mainnet
-const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+// SendUSDC sends a specified amount of USDC to a recipient's main wallet address.
+// Configuration (RPC endpoint, mint address, sender key) must be provided as arguments.
+//
+// NOTE: callers are responsible for confirming the transaction with ConfirmTransaction
+// using the signature returned by this function!
+//
+// Args:
+//   - ctx:            Context for cancellation and timeouts.
+//   - client:         An initialized Solana RPC client (*rpc.Client).
+//   - usdcMintAddress: The public key of the USDC token mint.
+//   - senderPrivateKey: The sender's private key.
+//   - recipientPublicKey: The recipient's main wallet address (as PublicKey).
+//   - amount:       The amount of USDC to send *in its smallest unit* (e.g., for 6 decimals, 1 USDC = 1,000,000 units).
+func SendUSDC(
+	ctx context.Context,
+	client *rpc.Client,
+	usdcMintAddress solanago.PublicKey,
+	senderPrivateKey solanago.PrivateKey,
+	recipientPublicKey solanago.PublicKey,
+	amount uint64,
+) (solanago.Signature, error) {
 
-// USDC constants
-const (
-	USDC_DECIMALS   = 6
-	USDC_MULTIPLIER = 1_000_000 // 10^6
-)
+	// Standard USDC typically has 6 decimal places.
+	// For production, you might want to fetch this dynamically from the mint account info,
+	// or pass it as an argument if supporting tokens with different decimals.
+	const usdcDecimals = 6
 
-// USDCAmount represents a USDC amount in its smallest unit
-type USDCAmount struct {
-	Value *big.Int
-}
+	senderPublicKey := senderPrivateKey.PublicKey()
 
-// NewUSDCAmount creates a new USDC amount from a float
-func NewUSDCAmount(amount float64) (*USDCAmount, error) {
-	// Convert to string with 6 decimal places to avoid floating point issues
-	str := fmt.Sprintf("%.6f", amount)
-
-	// Split into whole and decimal parts
-	parts := strings.Split(str, ".")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid amount format")
-	}
-
-	// Combine parts and convert to big.Int
-	combined := parts[0] + parts[1]
-	value := new(big.Int)
-	value.SetString(combined, 10)
-
-	return &USDCAmount{Value: value}, nil
-}
-
-// ToSmallestUnit returns the amount in micro-USDC
-func (a *USDCAmount) ToSmallestUnit() *big.Int {
-	return a.Value
-}
-
-// ToUSDC returns the amount as a float64 (for display only)
-func (a *USDCAmount) ToUSDC() float64 {
-	str := a.Value.String()
-	if len(str) <= USDC_DECIMALS {
-		str = strings.Repeat("0", USDC_DECIMALS-len(str)+1) + str
-	}
-	whole := str[:len(str)-USDC_DECIMALS]
-	decimal := str[len(str)-USDC_DECIMALS:]
-	result, _ := strconv.ParseFloat(whole+"."+decimal, 64)
-	return result
-}
-
-// Zero returns a new USDCAmount with value 0
-func Zero() *USDCAmount {
-	return &USDCAmount{Value: new(big.Int)}
-}
-
-// Add adds two USDC amounts
-func (a *USDCAmount) Add(b *USDCAmount) *USDCAmount {
-	if a == nil || b == nil {
-		return nil
-	}
-	result := new(big.Int)
-	result.Add(a.Value, b.Value)
-	return &USDCAmount{Value: result}
-}
-
-// Sub subtracts two USDC amounts
-func (a *USDCAmount) Sub(b *USDCAmount) *USDCAmount {
-	if a == nil || b == nil {
-		return nil
-	}
-	result := new(big.Int)
-	result.Sub(a.Value, b.Value)
-	return &USDCAmount{Value: result}
-}
-
-// Cmp compares two USDC amounts
-func (a *USDCAmount) Cmp(b *USDCAmount) int {
-	if a == nil || b == nil {
-		return 0
-	}
-	return a.Value.Cmp(b.Value)
-}
-
-// IsZero returns true if the amount is zero
-func (a *USDCAmount) IsZero() bool {
-	if a == nil || a.Value == nil {
-		return true
-	}
-	return a.Value.Sign() == 0
-}
-
-// IsNegative returns true if the amount is negative
-func (a *USDCAmount) IsNegative() bool {
-	if a == nil || a.Value == nil {
-		return false
-	}
-	return a.Value.Sign() < 0
-}
-
-// IsPositive returns true if the amount is positive
-func (a *USDCAmount) IsPositive() bool {
-	if a == nil || a.Value == nil {
-		return false
-	}
-	return a.Value.Sign() > 0
-}
-
-// SolanaConfig holds configuration for Solana operations
-type SolanaConfig struct {
-	RPCEndpoint        string
-	WSEndpoint         string
-	EscrowPrivateKey   *solana.PrivateKey
-	EscrowTokenAccount solana.PublicKey
-}
-
-// RPCClient interface defines the methods we need from the RPC client
-type RPCClient interface {
-	GetMinimumBalanceForRentExemption(ctx context.Context, size uint64, commitment rpc.CommitmentType) (uint64, error)
-	GetAccountInfo(ctx context.Context, account solana.PublicKey) (*rpc.GetAccountInfoResult, error)
-	SendTransaction(ctx context.Context, tx *solana.Transaction) (solana.Signature, error)
-}
-
-// WSClient interface defines the methods we need from the WS client
-type WSClient interface {
-	// No methods needed since we only use ws.Connect to create the client
-}
-
-// SolanaClient interface defines the methods for Solana blockchain operations
-type SolanaClient interface {
-	CreateTokenAccount(ctx context.Context, owner solana.PublicKey) (solana.PublicKey, error)
-	TransferUSDC(ctx context.Context, from, to solana.PublicKey, amount *USDCAmount) error
-	GetUSDCBalance(ctx context.Context, account solana.PublicKey) (*USDCAmount, error)
-	EscrowUSDC(ctx context.Context, from solana.PublicKey, amount *USDCAmount) error
-	ReleaseEscrow(ctx context.Context, to solana.PublicKey, amount *USDCAmount) error
-}
-
-// solanaClient implements the SolanaClient interface
-type solanaClient struct {
-	config SolanaConfig
-	rpc    RPCClient
-	ws     WSClient
-}
-
-// NewSolanaClient creates a new Solana client
-func NewSolanaClient(config SolanaConfig) (SolanaClient, error) {
-	if config.RPCEndpoint == "" {
-		return nil, fmt.Errorf("RPC endpoint is required")
-	}
-	if config.WSEndpoint == "" {
-		return nil, fmt.Errorf("WS endpoint is required")
-	}
-	if config.EscrowPrivateKey == nil {
-		return nil, fmt.Errorf("escrow private key is required")
-	}
-	if config.EscrowTokenAccount.IsZero() {
-		return nil, fmt.Errorf("escrow token account is required")
-	}
-
-	rpcClient := rpc.New(config.RPCEndpoint)
-	wsClient, err := ws.Connect(context.Background(), config.WSEndpoint)
+	// Sender's ATA for USDC
+	senderAtaAddress, _, err := solanago.FindAssociatedTokenAddress(
+		senderPublicKey, usdcMintAddress,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to Solana WS: %w", err)
+		return solanago.Signature{}, fmt.Errorf("failed to find sender ATA: %w", err)
 	}
 
-	return &solanaClient{
-		config: config,
-		rpc:    rpcClient,
-		ws:     wsClient,
-	}, nil
-}
-
-// CreateTokenAccount creates a new USDC token account for a user
-func (c *solanaClient) CreateTokenAccount(ctx context.Context, owner solana.PublicKey) (solana.PublicKey, error) {
-	if owner.IsZero() {
-		return solana.PublicKey{}, fmt.Errorf("owner address is required")
-	}
-
-	// Create a new account for the token account
-	account := solana.NewWallet()
-	rent, err := c.rpc.GetMinimumBalanceForRentExemption(ctx, 165, rpc.CommitmentFinalized)
+	// Recipient's ATA for USDC
+	recipientAtaAddress, _, err := solanago.FindAssociatedTokenAddress(
+		recipientPublicKey, usdcMintAddress,
+	)
 	if err != nil {
-		return solana.PublicKey{}, fmt.Errorf("failed to get rent: %w", err)
+		return solanago.Signature{}, fmt.Errorf("failed to find recipient ATA: %w", err)
 	}
 
-	// Convert rent to bytes
-	rentBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(rentBytes, rent)
+	// Optional Check: Does the recipient ATA exist? If not, it needs creation.
+	// This basic transfer assumes the recipient ATA already exists or will be
+	// created by another mechanism (like the recipient wallet auto-creating it).
+	// For robustness, check and potentially add a create ATA instruction.
+	_, err = client.GetAccountInfo(ctx, recipientAtaAddress)
+	if err != nil {
+		if err == rpc.ErrNotFound {
+			// Need to add associatedtokenaccount.NewCreateInstruction(...)
+			return solanago.Signature{}, fmt.Errorf("recipient ATA %s does not exist and creation is not implemented", recipientAtaAddress)
+		}
+		return solanago.Signature{}, fmt.Errorf("failed to check recipient ATA %s: %w", recipientAtaAddress, err)
+	}
 
-	// Create the token account instruction
-	instruction := solana.NewInstruction(
-		solana.TokenProgramID,
-		solana.AccountMetaSlice{
-			{PublicKey: account.PublicKey(), IsSigner: true, IsWritable: true},
-			{PublicKey: owner, IsSigner: false, IsWritable: false},
-			{PublicKey: solana.MustPublicKeyFromBase58(USDC_MINT), IsSigner: false, IsWritable: false},
+	// Build the Transaction
+	recentBlockhashResult, err := client.GetRecentBlockhash(ctx, rpc.CommitmentFinalized)
+	if err != nil {
+		return solanago.Signature{}, fmt.Errorf("failed to get recent blockhash: %w", err)
+	}
+	blockhash := recentBlockhashResult.Value.Blockhash
+
+	// Create the SPL Token Transfer instruction (Checked version handles decimals)
+	transferInstruction, err := spltoken.NewTransferCheckedInstruction(
+		amount,                 // Amount in base units
+		usdcDecimals,           // Decimals of the token mint
+		senderAtaAddress,       // Source ATA
+		usdcMintAddress,        // Token Mint address
+		recipientAtaAddress,    // Destination ATA
+		senderPublicKey,        // Authority (owner of source ATA)
+		[]solanago.PublicKey{}, // Additional signers (none needed here)
+	).ValidateAndBuild()
+	if err != nil {
+		return solanago.Signature{}, fmt.Errorf("failed to build SPL Token transfer instruction: %w", err)
+	}
+
+	// Create the transaction
+	tx, err := solanago.NewTransaction(
+		[]solanago.Instruction{transferInstruction},
+		blockhash,
+		solanago.TransactionPayer(senderPublicKey), // Sender pays the transaction fee
+	)
+	if err != nil {
+		return solanago.Signature{}, fmt.Errorf("failed to create new transaction: %w", err)
+	}
+
+	// Sign the Transaction
+	_, err = tx.Sign(
+		func(key solanago.PublicKey) *solanago.PrivateKey {
+			if senderPublicKey.Equals(key) {
+				return &senderPrivateKey // Provide the private key when requested
+			}
+			return nil
 		},
-		append([]byte{9}, rentBytes...), // Initialize account instruction with rent
-	)
-
-	// Create and send transaction
-	tx, err := solana.NewTransaction(
-		[]solana.Instruction{instruction},
-		solana.Hash{}, // Recent blockhash will be fetched
-		solana.TransactionPayer(owner),
 	)
 	if err != nil {
-		return solana.PublicKey{}, fmt.Errorf("failed to create transaction: %w", err)
+		return solanago.Signature{}, fmt.Errorf("failed to sign transaction: %w", err)
 	}
 
-	// Sign and send transaction
-	_, err = c.rpc.SendTransaction(ctx, tx)
+	// Send the Transaction
+	signature, err := client.SendTransactionWithOpts(ctx, tx, rpc.TransactionOpts{
+		SkipPreflight:       false,
+		PreflightCommitment: rpc.CommitmentFinalized,
+	})
 	if err != nil {
-		return solana.PublicKey{}, fmt.Errorf("failed to send transaction: %w", err)
+		// Consider attempting to parse the RPC error for more specific details
+		// e.g., using jsonrpc.RPCError or checking the error string
+		return solanago.Signature{}, fmt.Errorf("failed to send transaction: %w", err)
 	}
 
-	return account.PublicKey(), nil
+	return signature, nil // Return the signature upon successful submission
 }
 
-// TransferUSDC transfers USDC from one account to another
-func (c *solanaClient) TransferUSDC(ctx context.Context, from, to solana.PublicKey, amount *USDCAmount) error {
-	if from.IsZero() || to.IsZero() {
-		return fmt.Errorf("from and to addresses are required")
-	}
-	if amount == nil || amount.Value == nil {
-		return fmt.Errorf("amount is required")
-	}
-	if amount.Value.Sign() <= 0 {
-		return fmt.Errorf("amount must be greater than 0")
-	}
+// ConfirmTransaction waits for a transaction signature to reach a specified commitment level.
+// It's separated to allow callers to decide whether/how long to wait.
+func ConfirmTransaction(ctx context.Context, client *rpc.Client, sig solanago.Signature, desiredCommitment rpc.CommitmentType) error {
+	// Loop until confirmed or timeout/context cancellation
+	// Use a reasonable timeout, e.g., 60-90 seconds, managed by the caller via ctx.
+	ticker := time.NewTicker(3 * time.Second) // Check every 3 seconds
+	defer ticker.Stop()
 
-	// Convert amount to bytes (little-endian)
-	amountBytes := make([]byte, 8)
-	amount.Value.FillBytes(amountBytes)
-	// Reverse bytes for little-endian
-	for i, j := 0, len(amountBytes)-1; i < j; i, j = i+1, j-1 {
-		amountBytes[i], amountBytes[j] = amountBytes[j], amountBytes[i]
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled or timed out while waiting for confirmation: %w", ctx.Err())
+		case <-ticker.C:
+			// Try calling GetSignatureStatuses with a single signature, not a slice
+			searchHistory := false // Typically false unless searching old txs
+			statusResult, err := client.GetSignatureStatuses(ctx, searchHistory, sig)
+			if err != nil {
+				// Transient network errors are possible, log or potentially retry slightly?
+				// For now, we return the error.
+				return fmt.Errorf("failed to get signature status for %s: %w", sig, err)
+			}
+
+			if statusResult == nil || len(statusResult.Value) == 0 || statusResult.Value[0] == nil {
+				// Signature not yet found or processed, continue waiting
+				continue
+			}
+
+			status := statusResult.Value[0]
+			if status.Err != nil {
+				// Transaction failed
+				return fmt.Errorf("transaction %s failed: %v", sig, status.Err)
+			}
+
+			// Check commitment level
+			// Use ConfirmationStatus field for commitment and compare with desired level's string representation
+			currentCommitmentStatus := status.ConfirmationStatus
+			confirmed := false
+			switch desiredCommitment {
+			case rpc.CommitmentProcessed:
+				confirmed = string(currentCommitmentStatus) == string(rpc.CommitmentProcessed) ||
+					string(currentCommitmentStatus) == string(rpc.CommitmentConfirmed) ||
+					string(currentCommitmentStatus) == string(rpc.CommitmentFinalized)
+			case rpc.CommitmentConfirmed:
+				confirmed = string(currentCommitmentStatus) == string(rpc.CommitmentConfirmed) ||
+					string(currentCommitmentStatus) == string(rpc.CommitmentFinalized)
+			case rpc.CommitmentFinalized:
+				confirmed = string(currentCommitmentStatus) == string(rpc.CommitmentFinalized)
+			}
+
+			if confirmed {
+				return nil // Success! Transaction confirmed to the desired level.
+			}
+			// Otherwise, still waiting for desired commitment level, continue loop.
+		}
 	}
+}
 
-	// Create transfer instruction
-	instruction := solana.NewInstruction(
-		solana.TokenProgramID,
-		solana.AccountMetaSlice{
-			{PublicKey: from, IsSigner: true, IsWritable: true},
-			{PublicKey: to, IsSigner: false, IsWritable: true},
-			{PublicKey: solana.MustPublicKeyFromBase58(USDC_MINT), IsSigner: false, IsWritable: false},
-		},
-		append([]byte{3}, amountBytes...), // Transfer instruction
-	)
-
-	// Create and send transaction
-	tx, err := solana.NewTransaction(
-		[]solana.Instruction{instruction},
-		solana.Hash{}, // Recent blockhash will be fetched
-		solana.TransactionPayer(from),
-	)
+// Helper function to parse a Base58 private key string.
+// Externalized for the same reason as above.
+func LoadPrivateKeyFromBase58(keyStr string) (solanago.PrivateKey, error) {
+	privateKey, err := solanago.PrivateKeyFromBase58(keyStr)
 	if err != nil {
-		return fmt.Errorf("failed to create transaction: %w", err)
+		return solanago.PrivateKey{}, fmt.Errorf("failed to parse base58 private key: %w", err)
 	}
+	return privateKey, nil
+}
 
-	// Sign and send transaction
-	_, err = c.rpc.SendTransaction(ctx, tx)
+// Helper function to parse a Base58 public key string.
+func PublicKeyFromBase58(keyStr string) (solanago.PublicKey, error) {
+	pubKey, err := solanago.PublicKeyFromBase58(keyStr)
 	if err != nil {
-		return fmt.Errorf("failed to send transaction: %w", err)
+		return solanago.PublicKey{}, fmt.Errorf("invalid base58 public key string '%s': %w", keyStr, err)
 	}
+	return pubKey, nil
+}
 
+// Helper function to create an RPC client.
+func NewRPCClient(endpoint string) *rpc.Client {
+	// Default to Devnet if not specified or empty
+	if endpoint == "" {
+		endpoint = rpc.DevNet_RPC
+	}
+	return rpc.New(endpoint)
+}
+
+// Helper function to check RPC client health.
+func CheckRPCHealth(ctx context.Context, client *rpc.Client) error {
+	_, err := client.GetHealth(ctx)
+	if err != nil {
+		// Attempt to get the endpoint from the client for a better error message
+		endpoint := "unknown"
+		// Note: rpc.Client doesn't directly expose the endpoint easily after creation.
+		// If needed, wrap the client creation or store the endpoint alongside the client.
+		return fmt.Errorf("failed to connect to RPC endpoint %s: %w", endpoint, err)
+	}
 	return nil
 }
 
-// GetUSDCBalance gets the USDC balance of a token account
-func (c *solanaClient) GetUSDCBalance(ctx context.Context, account solana.PublicKey) (*USDCAmount, error) {
-	if account.IsZero() {
-		return nil, fmt.Errorf("account address is required")
-	}
+// == Example Usage (Conceptual) ==
+/*
+func main() {
+	// 1. Load Config (from env, file, secrets manager, etc.)
+	rpcEndpoint := os.Getenv("SOLANA_RPC_ENDPOINT") // Or load from config file
+	usdcMintStr := os.Getenv("USDC_MINT_ADDRESS")
+	senderKeyStr := os.Getenv("SOLANA_SENDER_PRIVATE_KEY") // Or use LoadPrivateKeyFromKeygenFile
+	recipientAddrStr := "RecipientWalletAddressHere" // e.g., from API request
+	amountToSend := 1.5 // User-friendly amount
 
-	// Get token account info
-	info, err := c.rpc.GetAccountInfo(ctx, account)
+	// 2. Initialize Dependencies
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second) // Example timeout
+	defer cancel()
+
+	client := solana.NewRPCClient(rpcEndpoint)
+	err := solana.CheckRPCHealth(ctx, client)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get account info: %w", err)
+		log.Fatalf("RPC Health Check Failed: %v", err)
 	}
+	log.Printf("Connected to RPC: %s", rpcEndpoint) // Log endpoint used
 
-	// Parse balance from account data
-	// Token account data layout: https://spl.solana.com/token#account
-	if len(info.GetBinary()) < 64 {
-		return nil, fmt.Errorf("invalid token account data length")
-	}
-
-	// Amount is stored as a 64-bit little-endian integer starting at offset 64
-	amountBytes := info.GetBinary()[64:72]
-	// Reverse bytes for big-endian
-	for i, j := 0, len(amountBytes)-1; i < j; i, j = i+1, j-1 {
-		amountBytes[i], amountBytes[j] = amountBytes[j], amountBytes[i]
-	}
-
-	value := new(big.Int)
-	value.SetBytes(amountBytes)
-	return &USDCAmount{Value: value}, nil
-}
-
-// EscrowUSDC escrows USDC from a user to the platform's escrow account
-func (c *solanaClient) EscrowUSDC(ctx context.Context, from solana.PublicKey, amount *USDCAmount) error {
-	if from.IsZero() {
-		return fmt.Errorf("from address is required")
-	}
-	if amount == nil || amount.Value == nil {
-		return fmt.Errorf("amount is required")
-	}
-	if amount.Value.Sign() <= 0 {
-		return fmt.Errorf("amount must be greater than 0")
-	}
-
-	// Transfer USDC to escrow account
-	return c.TransferUSDC(ctx, from, c.config.EscrowTokenAccount, amount)
-}
-
-// ReleaseEscrow releases USDC from the escrow account to a user
-func (c *solanaClient) ReleaseEscrow(ctx context.Context, to solana.PublicKey, amount *USDCAmount) error {
-	if to.IsZero() {
-		return fmt.Errorf("to address is required")
-	}
-	if amount == nil || amount.Value == nil {
-		return fmt.Errorf("amount is required")
-	}
-	if amount.Value.Sign() <= 0 {
-		return fmt.Errorf("amount must be greater than 0")
-	}
-
-	// Transfer USDC from escrow account to user
-	return c.TransferUSDC(ctx, c.config.EscrowTokenAccount, to, amount)
-}
-
-// ValidateWalletAddress validates a Solana wallet address
-func ValidateWalletAddress(address string) error {
-	if address == "" {
-		return fmt.Errorf("address is required")
-	}
-
-	// Try to decode the address
-	_, err := solana.PublicKeyFromBase58(address)
+	usdcMintAddr, err := solana.PublicKeyFromBase58(usdcMintStr)
 	if err != nil {
-		return fmt.Errorf("invalid Solana address: %w", err)
+		log.Fatalf("Invalid USDC Mint Addr: %v", err)
 	}
 
-	return nil
-}
-
-// ValidateTokenAccount validates a USDC token account
-func ValidateTokenAccount(ctx context.Context, account solana.PublicKey) error {
-	if account.IsZero() {
-		return fmt.Errorf("account address is required")
+	senderPrivKey, err := solana.LoadPrivateKeyFromBase58(senderKeyStr)
+	if err != nil {
+		// Try loading from file as fallback if needed
+		// senderKeyPath := os.Getenv("SOLANA_SENDER_KEYPAIR_PATH")
+		// senderPrivKey, err = solana.LoadPrivateKeyFromKeygenFile(senderKeyPath)
+		// if err != nil {
+		// 	 log.Fatalf("Failed to load sender key: %v", err)
+		// }
+		log.Fatalf("Failed to load sender key from Base58: %v", err)
 	}
 
-	// TODO: Implement proper token account validation
-	// This would involve checking:
-	// 1. The account exists
-	// 2. The account is owned by the Token Program
-	// 3. The account is associated with the USDC mint
-	// 4. The account has the correct number of decimals
+	recipientPubKey, err := solana.PublicKeyFromBase58(recipientAddrStr)
+	if err != nil {
+		log.Fatalf("Invalid Recipient Addr: %v", err)
+	}
 
-	return nil
+	// Convert float amount to smallest unit (micro-USDC)
+	usdcAmount, err := solana.NewUSDCAmount(amountToSend) // Assumes amount.go is in the same package or imported
+	if err != nil {
+		log.Fatalf("Invalid Amount: %v", err)
+	}
+	amountBaseUnits := usdcAmount.ToSmallestUnit().Uint64() // Use Uint64 for the API
+
+	log.Printf("Sending %f USDC (%d base units) from %s to %s via %s (Mint: %s)",
+		amountToSend, amountBaseUnits, senderPrivKey.PublicKey(), recipientPubKey, rpcEndpoint, usdcMintAddr)
+
+
+	// 3. Call the Refactored Function
+	signature, err := solana.SendUSDC(
+		ctx,
+		client,
+		usdcMintAddr,
+		senderPrivKey,
+		recipientPubKey,
+		amountBaseUnits,
+	)
+	if err != nil {
+		log.Fatalf("Failed to send USDC: %v", err)
+	}
+	log.Printf("Transaction submitted successfully! Signature: %s", signature)
+
+	// 4. Optionally Confirm Transaction
+	log.Println("Waiting for confirmation...")
+	err = solana.ConfirmTransaction(ctx, client, signature, rpc.CommitmentFinalized)
+	if err != nil {
+		// Log error but don't necessarily fail hard, tx might confirm later
+		log.Printf("Warning: Failed to confirm transaction %s: %v", signature, err)
+		log.Println("Check explorer for final status.")
+	} else {
+		log.Printf("Transaction %s confirmed!", signature)
+	}
 }
+*/
