@@ -16,6 +16,7 @@ import (
 const (
 	AssessmentSignalName = "assessment"
 	CancelSignalName     = "cancel"
+	PayoutTimeout        = 10 * time.Minute
 )
 
 // AssessContentSignal represents a signal to assess content against bounty requirements
@@ -97,8 +98,8 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 
 	// Initialize remaining bounty using the USER-PAYABLE total
 	remainingBounty := input.TotalBounty
-	// Initialize map to track paid content IDs for idempotency
-	paidContentIDs := make(map[string]bool)
+	// Initialize map to track processed content IDs for idempotency (prevents re-assessment)
+	processedContentIDs := make(map[string]bool)
 
 	// Create signal channels
 	assessmentChan := workflow.GetSignalChannel(ctx, AssessmentSignalName)
@@ -112,11 +113,10 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 		var assessmentSignal AssessContentSignal
 		c.Receive(ctx, &assessmentSignal)
 
-		// Idempotency Check FIRST: Has this content already been paid?
-		if paidContentIDs[assessmentSignal.ContentID] {
-			workflow.GetLogger(ctx).Debug("Content already paid, skipping duplicate signal processing",
-				"content_id", assessmentSignal.ContentID,
-				"payout_wallet", assessmentSignal.PayoutWallet)
+		// Idempotency Check FIRST: Has this content already been processed (paid or failed)?
+		if processedContentIDs[assessmentSignal.ContentID] {
+			workflow.GetLogger(ctx).Debug("Content already processed, skipping duplicate signal",
+				"content_id", assessmentSignal.ContentID)
 			return // Don't process this signal further
 		}
 
@@ -161,7 +161,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 		if result.Satisfies {
 			// Define specific options for the transfer activity
 			transferOptions := workflow.ActivityOptions{
-				StartToCloseTimeout: time.Minute, // Longer timeout for TX confirmation
+				StartToCloseTimeout: PayoutTimeout,
 				RetryPolicy: &temporal.RetryPolicy{
 					InitialInterval:    time.Second * 10,
 					BackoffCoefficient: 2.0,
@@ -173,12 +173,12 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 
 			err := workflow.ExecuteActivity(transferCtx, (*Activities).TransferUSDC, assessmentSignal.PayoutWallet, input.BountyPerPost.ToUSDC()).Get(transferCtx, nil)
 			if err != nil {
-				workflow.GetLogger(ctx).Error("Failed to pay bounty", "error", err)
+				workflow.GetLogger(ctx).Error("Failed to pay bounty. You may retry.", "error", err)
+				// Do NOT mark as processed if payment fails, allow retry on next signal
 				return
 			}
 
-			// Mark content as paid and update remaining bounty only AFTER successful transfer
-			paidContentIDs[assessmentSignal.ContentID] = true
+			// Update remaining bounty only AFTER successful transfer
 			remainingBounty = remainingBounty.Sub(input.BountyPerPost)
 
 			// Log the payment
@@ -188,9 +188,14 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 				"remaining", remainingBounty.ToUSDC())
 		} else {
 			workflow.GetLogger(ctx).Debug("Content did not meet requirements",
+				"content_id", assessmentSignal.ContentID,
 				"payout_wallet", assessmentSignal.PayoutWallet,
 				"reason", result.Reason)
 		}
+
+		// Mark content as processed (either paid or failed) AFTER assessment attempt
+		// unless payment failed (in which case we returned early).
+		processedContentIDs[assessmentSignal.ContentID] = true
 	})
 
 	// Add cancellation signal handler
@@ -198,26 +203,36 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 		var cancelSignal CancelBountySignal
 		c.Receive(ctx, &cancelSignal)
 
-		// Verify the owner wallet matches
 		if cancelSignal.BountyOwnerWallet != input.BountyOwnerWallet {
 			workflow.GetLogger(ctx).Error("Invalid owner wallet in cancellation signal")
 			return
 		}
 
-		// Return remaining bounty to owner
 		if !remainingBounty.IsZero() {
-			err := workflow.ExecuteActivity(ctx, (*Activities).TransferUSDC, input.BountyOwnerWallet, remainingBounty.ToUSDC()).Get(ctx, nil)
-			if err != nil {
-				workflow.GetLogger(ctx).Error("Failed to return bounty to owner", "error", err)
-				return
+			refundOptions := workflow.ActivityOptions{
+				StartToCloseTimeout: 10 * time.Minute,
+				RetryPolicy: &temporal.RetryPolicy{
+					InitialInterval:    time.Second * 10,
+					BackoffCoefficient: 2.0,
+					MaximumInterval:    time.Minute,
+					MaximumAttempts:    3,
+				},
 			}
+			refundCtx := workflow.WithActivityOptions(ctx, refundOptions)
 
-			// Log the cancellation
-			workflow.GetLogger(ctx).Info("Bounty cancelled and remaining funds returned to owner",
-				"bounty_owner_wallet", input.BountyOwnerWallet,
-				"remaining_amount", remainingBounty.ToUSDC())
-
-			// Set remaining bounty to zero to exit the loop
+			err := workflow.ExecuteActivity(refundCtx, (*Activities).TransferUSDC, input.BountyOwnerWallet, remainingBounty.ToUSDC()).Get(refundCtx, nil)
+			if err != nil {
+				workflow.GetLogger(ctx).Error("Failed to return bounty to owner on cancellation", "error", err)
+				// Do not set remainingBounty to zero if refund fails
+			} else {
+				workflow.GetLogger(ctx).Info("Bounty cancelled and remaining funds returned to owner",
+					"bounty_owner_wallet", input.BountyOwnerWallet,
+					"remaining_amount", remainingBounty.ToUSDC())
+				// Set remaining bounty to zero ONLY after successful return
+				remainingBounty = solana.Zero()
+			}
+		} else {
+			// Bounty already zero, ensure loop condition is met
 			remainingBounty = solana.Zero()
 		}
 	})
@@ -225,28 +240,43 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	// Create a timeout future
 	timeoutFuture := workflow.NewTimer(ctx, input.Timeout)
 	selector.AddFuture(timeoutFuture, func(f workflow.Future) {
-		_ = f.Get(ctx, nil)
+		_ = f.Get(ctx, nil) // Wait for timer to fire
+
 		if !remainingBounty.IsZero() {
-			err := workflow.ExecuteActivity(ctx, (*Activities).TransferUSDC, input.BountyOwnerWallet, remainingBounty.ToUSDC()).Get(ctx, nil)
+			refundOptions := workflow.ActivityOptions{
+				StartToCloseTimeout: 10 * time.Minute,
+				RetryPolicy: &temporal.RetryPolicy{
+					InitialInterval:    time.Second * 10,
+					BackoffCoefficient: 2.0,
+					MaximumInterval:    time.Minute,
+					MaximumAttempts:    3,
+				},
+			}
+			refundCtx := workflow.WithActivityOptions(ctx, refundOptions)
+
+			err := workflow.ExecuteActivity(refundCtx, (*Activities).TransferUSDC, input.BountyOwnerWallet, remainingBounty.ToUSDC()).Get(refundCtx, nil)
 			if err != nil {
-				workflow.GetLogger(ctx).Error("Failed to return remaining bounty to owner", "error", err)
+				workflow.GetLogger(ctx).Error("Failed to return remaining bounty to owner on timeout", "error", err)
+				// Do not set remainingBounty to zero if refund fails
 			} else {
-				// Log the timeout
 				workflow.GetLogger(ctx).Info("Bounty timed out and remaining funds returned to owner",
 					"bounty_owner_wallet", input.BountyOwnerWallet,
 					"remaining_amount", remainingBounty.ToUSDC())
+				// Set remaining bounty to zero ONLY after successful return
+				remainingBounty = solana.Zero()
 			}
-
-			// Set remaining bounty to zero to exit the loop
-			remainingBounty = solana.Zero()
 		}
+		// If bounty was already zero, the loop condition will handle termination.
 	})
 
-	// Wait for signals until remaining bounty is zero
+	// Wait for signals until remaining bounty is zero (set by handlers on success)
 	for !remainingBounty.IsZero() {
 		selector.Select(ctx)
 	}
 
+	// If loop exited but refund failed previously, remainingBounty might still be non-zero.
+	// This seems unlikely given the logic sets it to zero on success, but maybe return error?
+	// For now, assume success if loop terminates.
 	return nil
 }
 
@@ -371,7 +401,7 @@ type PayBountyWorkflowInput struct {
 // PayBountyWorkflow represents the workflow that pays a bounty
 func PayBountyWorkflow(ctx workflow.Context, input PayBountyWorkflowInput) error {
 	options := workflow.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
+		StartToCloseTimeout: PayoutTimeout,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:    time.Second,
 			BackoffCoefficient: 2.0,
@@ -383,7 +413,7 @@ func PayBountyWorkflow(ctx workflow.Context, input PayBountyWorkflowInput) error
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	// Convert wallet address to PublicKey
-	walletAddr, err := solanago.PublicKeyFromBase58(input.Wallet) // Renamed from input.ToAccount
+	walletAddr, err := solanago.PublicKeyFromBase58(input.Wallet)
 	if err != nil {
 		return fmt.Errorf("invalid wallet address: %w", err)
 	}

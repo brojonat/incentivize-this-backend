@@ -199,15 +199,27 @@ func payBounty(ctx *cli.Context) error {
 }
 
 func assessContent(ctx *cli.Context) error {
-	// Get and validate the payout wallet
+	// Get flags
 	payoutWalletStr := ctx.String("payout-wallet")
+	platform := ctx.String("platform")
+	kind := ctx.String("kind")
+	contentID := ctx.String("content-id")
 
-	// Create a map for the request
+	// Prepend prefix based on platform and kind for Reddit
+	if platform == "reddit" {
+		if kind == "post" && !strings.HasPrefix(contentID, "t3_") {
+			contentID = "t3_" + contentID
+		} else if kind == "comment" && !strings.HasPrefix(contentID, "t1_") {
+			contentID = "t1_" + contentID
+		}
+	}
+
+	// Create a map for the request (without kind)
 	req := map[string]interface{}{
 		"bounty_id":     ctx.String("bounty-id"),
-		"content_id":    ctx.String("content-id"),
-		"payout_wallet": payoutWalletStr, // Use the validated wallet string
-		"platform":      ctx.String("platform"),
+		"content_id":    contentID,
+		"payout_wallet": payoutWalletStr,
+		"platform":      platform,
 	}
 
 	// Marshal to JSON
@@ -522,6 +534,11 @@ func adminCommands() []*cli.Command {
 							Required: true,
 							Usage:    "Platform type (reddit, youtube, yelp, google)",
 							Value:    "reddit",
+						},
+						&cli.StringFlag{
+							Name:  "kind",
+							Usage: "Kind of content (e.g., post, comment, clip) (optional, depends on platform)",
+							Value: "",
 						},
 					},
 					Action: assessContent,

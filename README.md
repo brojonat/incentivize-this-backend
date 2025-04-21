@@ -111,7 +111,25 @@ This flow demonstrates how to create a bounty, fund it using the CLI utility (si
 5.  **Observe Verification (in the tmux Worker pane):**
     The worker logs (`logs/worker.log`) should show the `VerifyPayment` activity polling for transactions. Once it finds the funding transaction matching the amount and the workflow ID in the memo, it will log `Matching payment transaction found` and `Payment verified successfully`, allowing the workflow to proceed.
 
-    This process allows you to test the full bounty lifecycle, including the crucial payment verification step, in your local development environment.
+6.  **(Optional) Trigger Assessment (CLI pane):**
+    Use the `assess` command to signal the workflow to check specific content.
+
+    ```bash
+    # Example for Reddit content
+    # Replace {bounty_workflow_id}, {user_wallet}, {content_id}
+    ./bin/abb admin bounty assess --bounty-id {bounty_workflow_id} --payout-wallet {user_wallet} --content-id t3_{content_id} --platform reddit
+    ```
+
+7.  **(Optional) Directly Pay a Bounty (Debug - CLI pane):**
+    Use the `pay-bounty` command under the `debug` group. This bypasses the normal assessment workflow and directly calls the payment endpoint. Useful for testing the payment activity independently.
+
+    ```bash
+    # Example
+    # Replace {user_wallet}
+    ./bin/abb debug pay-bounty --amount 0.01 --wallet {user_wallet}
+    ```
+
+This process allows you to test the full bounty lifecycle, including the crucial payment verification step, in your local development environment.
 
 ### Key Makefile Targets
 
