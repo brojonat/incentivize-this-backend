@@ -97,6 +97,8 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 
 	// Initialize remaining bounty using the USER-PAYABLE total
 	remainingBounty := input.TotalBounty
+	// Initialize map to track paid content IDs for idempotency
+	paidContentIDs := make(map[string]bool)
 
 	// Create signal channels
 	assessmentChan := workflow.GetSignalChannel(ctx, AssessmentSignalName)
@@ -109,6 +111,14 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	selector.AddReceive(assessmentChan, func(c workflow.ReceiveChannel, more bool) {
 		var assessmentSignal AssessContentSignal
 		c.Receive(ctx, &assessmentSignal)
+
+		// Idempotency Check FIRST: Has this content already been paid?
+		if paidContentIDs[assessmentSignal.ContentID] {
+			workflow.GetLogger(ctx).Debug("Content already paid, skipping duplicate signal processing",
+				"content_id", assessmentSignal.ContentID,
+				"payout_wallet", assessmentSignal.PayoutWallet)
+			return // Don't process this signal further
+		}
 
 		// Check if we have enough remaining bounty
 		if remainingBounty.Cmp(input.BountyPerPost) < 0 {
@@ -149,13 +159,26 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 
 		// If requirements are met, pay the bounty
 		if result.Satisfies {
-			err := workflow.ExecuteActivity(ctx, (*Activities).TransferUSDC, assessmentSignal.PayoutWallet, input.BountyPerPost.ToUSDC()).Get(ctx, nil)
+			// Define specific options for the transfer activity
+			transferOptions := workflow.ActivityOptions{
+				StartToCloseTimeout: time.Minute, // Longer timeout for TX confirmation
+				RetryPolicy: &temporal.RetryPolicy{
+					InitialInterval:    time.Second * 10,
+					BackoffCoefficient: 2.0,
+					MaximumInterval:    time.Minute,
+					MaximumAttempts:    3, // Still retry a few times for transient issues
+				},
+			}
+			transferCtx := workflow.WithActivityOptions(ctx, transferOptions)
+
+			err := workflow.ExecuteActivity(transferCtx, (*Activities).TransferUSDC, assessmentSignal.PayoutWallet, input.BountyPerPost.ToUSDC()).Get(transferCtx, nil)
 			if err != nil {
 				workflow.GetLogger(ctx).Error("Failed to pay bounty", "error", err)
 				return
 			}
 
-			// Update remaining bounty
+			// Mark content as paid and update remaining bounty only AFTER successful transfer
+			paidContentIDs[assessmentSignal.ContentID] = true
 			remainingBounty = remainingBounty.Sub(input.BountyPerPost)
 
 			// Log the payment
@@ -164,7 +187,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 				"amount", input.BountyPerPost.ToUSDC(),
 				"remaining", remainingBounty.ToUSDC())
 		} else {
-			workflow.GetLogger(ctx).Info("Content did not meet requirements",
+			workflow.GetLogger(ctx).Debug("Content did not meet requirements",
 				"payout_wallet", assessmentSignal.PayoutWallet,
 				"reason", result.Reason)
 		}
