@@ -215,6 +215,37 @@ func debugCommands() []*cli.Command {
 			},
 			Action: testCheckContentRequirements,
 		},
+		{
+			Name:        "pay-bounty",
+			Usage:       "Pay a bounty directly",
+			Description: "Pays a bounty to a wallet via the /bounties/pay endpoint. Intended for debugging and/or initial funding.",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:    "endpoint",
+					Aliases: []string{"end", "e"},
+					Value:   "http://localhost:8080",
+					Usage:   "Server endpoint",
+					EnvVars: []string{EnvServerEndpoint},
+				},
+				&cli.StringFlag{
+					Name:     "token",
+					Required: true,
+					Usage:    "Authorization token",
+					EnvVars:  []string{EnvAuthToken},
+				},
+				&cli.Float64Flag{
+					Name:     "amount",
+					Required: true,
+					Usage:    "Amount to pay (in USDC)",
+				},
+				&cli.StringFlag{
+					Name:     "wallet",
+					Required: true,
+					Usage:    "Solana wallet to pay out to",
+				},
+			},
+			Action: payBounty,
+		},
 	}
 }
 

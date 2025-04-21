@@ -485,37 +485,6 @@ func adminCommands() []*cli.Command {
 					Action: createBounty,
 				},
 				{
-					Name:        "pay",
-					Usage:       "Pay a bounty",
-					Description: "Pays a bounty to a wallet",
-					Flags: []cli.Flag{
-						&cli.StringFlag{
-							Name:    "endpoint",
-							Aliases: []string{"end", "e"},
-							Value:   "http://localhost:8080",
-							Usage:   "Server endpoint",
-							EnvVars: []string{EnvServerEndpoint},
-						},
-						&cli.StringFlag{
-							Name:     "token",
-							Required: true,
-							Usage:    "Authorization token",
-							EnvVars:  []string{EnvAuthToken},
-						},
-						&cli.Float64Flag{
-							Name:     "amount",
-							Required: true,
-							Usage:    "Amount to pay (in USDC)",
-						},
-						&cli.StringFlag{
-							Name:     "wallet",
-							Required: true,
-							Usage:    "Destination wallet address",
-						},
-					},
-					Action: payBounty,
-				},
-				{
 					Name:        "assess",
 					Usage:       "Signal to assess content against bounty requirements",
 					Description: "Sends a signal to assess content against bounty requirements",
