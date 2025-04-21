@@ -21,10 +21,8 @@ import (
 
 // PayBountyRequest represents the request body for paying a bounty
 type PayBountyRequest struct {
-	UserID      string  `json:"user_id,omitempty"`      // Optional user ID (for tracking)
-	Amount      float64 `json:"amount"`                 // Amount to pay in USDC
-	ToAccount   string  `json:"to_account"`             // Destination wallet address
-	FromAccount string  `json:"from_account,omitempty"` // Source account (defaults to escrow if empty)
+	Amount float64 `json:"amount"` // Amount to pay in USDC
+	Wallet string  `json:"wallet"` // Destination wallet address
 }
 
 // ReturnBountyToOwnerRequest represents the request body for returning a bounty to the owner
@@ -65,10 +63,10 @@ type BountyLister interface {
 
 // AssessContentRequest represents the request body for assessing content against requirements
 type AssessContentRequest struct {
-	BountyID  string           `json:"bounty_id"`
-	ContentID string           `json:"content_id"`
-	UserID    string           `json:"user_id"`
-	Platform  abb.PlatformType `json:"platform"`
+	BountyID     string           `json:"bounty_id"`
+	ContentID    string           `json:"content_id"`
+	PayoutWallet string           `json:"payout_wallet"`
+	Platform     abb.PlatformType `json:"platform"`
 }
 
 // AssessContentResponse represents the response from content assessment
@@ -86,9 +84,14 @@ func handlePayBounty(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			return
 		}
 
-		// Validate required fields
-		if req.ToAccount == "" {
-			writeBadRequestError(w, fmt.Errorf("invalid request: to_account is required"))
+		// Validate required field: wallet
+		if req.Wallet == "" {
+			writeBadRequestError(w, fmt.Errorf("invalid request: wallet is required"))
+			return
+		}
+		// Also validate Wallet is a valid Solana address
+		if _, err := solanago.PublicKeyFromBase58(req.Wallet); err != nil {
+			writeBadRequestError(w, fmt.Errorf("invalid wallet address '%s': %w", req.Wallet, err))
 			return
 		}
 
@@ -99,7 +102,7 @@ func handlePayBounty(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			return
 		}
 
-		// Create Solana config
+		// Create Solana config (Assuming default escrow account is used for sending)
 		privateKeyStr := os.Getenv("SOLANA_ESCROW_PRIVATE_KEY")
 		tokenAccountStr := os.Getenv("SOLANA_ESCROW_TOKEN_ACCOUNT")
 
@@ -131,12 +134,6 @@ func handlePayBounty(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			EscrowWallet:     escrowTokenAccount,
 		}
 
-		// If FromAccount is not specified, use the escrow account
-		sourceAccount := req.FromAccount
-		if sourceAccount == "" {
-			sourceAccount = tokenAccountStr
-		}
-
 		// Execute workflow
 		workflowID := fmt.Sprintf("pay-bounty-%s", uuid.New().String())
 		workflowOptions := client.StartWorkflowOptions{
@@ -144,8 +141,9 @@ func handlePayBounty(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			TaskQueue: os.Getenv("TASK_QUEUE"),
 		}
 
+		// Pass req.Wallet to the workflow input field (assuming it's named ToAccount there)
 		we, err := tc.ExecuteWorkflow(r.Context(), workflowOptions, abb.PayBountyWorkflow, abb.PayBountyWorkflowInput{
-			ToAccount:    req.ToAccount,
+			Wallet:       req.Wallet,
 			Amount:       amount,
 			SolanaConfig: solanaConfig,
 		})
@@ -161,8 +159,8 @@ func handlePayBounty(l *slog.Logger, tc client.Client) http.HandlerFunc {
 		}
 
 		writeJSONResponse(w, DefaultJSONResponse{
-			Message: fmt.Sprintf("Successfully executed payment of %v USDC from %s to %s",
-				amount.ToUSDC(), sourceAccount, req.ToAccount),
+			Message: fmt.Sprintf("Successfully executed payment of %v USDC to %s",
+				amount.ToUSDC(), req.Wallet),
 		}, http.StatusOK)
 	}
 }
@@ -326,17 +324,14 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 // handleListBounties handles listing all bounties
 func handleListBounties(l *slog.Logger, tc client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeMethodNotAllowedError(w)
-			return
-		}
 
 		// List workflows of type BountyAssessmentWorkflow
 		// Use a background context for listing, as it might take time
 		listCtx, listCancel := context.WithTimeout(context.Background(), 30*time.Second) // Timeout for the whole list operation
 		defer listCancel()
 
-		query := fmt.Sprintf(`WorkflowType = '%s'`, "BountyAssessmentWorkflow")
+		// Combine WorkflowType and ExecutionStatus for the query
+		query := fmt.Sprintf(`WorkflowType = '%s' AND ExecutionStatus = 'Running'`, "BountyAssessmentWorkflow")
 		executions, err := tc.ListWorkflow(listCtx, &workflowservice.ListWorkflowExecutionsRequest{
 			Query: query,
 		})
@@ -421,16 +416,22 @@ func handleAssessContent(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			return
 		}
 
-		if req.BountyID == "" || req.ContentID == "" || req.UserID == "" || req.Platform == "" {
-			writeBadRequestError(w, fmt.Errorf("invalid request: missing required fields: %v", req))
+		if req.BountyID == "" || req.ContentID == "" || req.PayoutWallet == "" || req.Platform == "" {
+			writeBadRequestError(w, fmt.Errorf("invalid request: missing required fields: bounty_id, content_id, payout_wallet, platform: %v", req))
+			return
+		}
+
+		// Validate that PayoutWallet is a valid Solana address
+		if _, err := solanago.PublicKeyFromBase58(req.PayoutWallet); err != nil {
+			writeBadRequestError(w, fmt.Errorf("invalid payout_wallet address '%s': %w", req.PayoutWallet, err))
 			return
 		}
 
 		// Signal the workflow
-		err := tc.SignalWorkflow(r.Context(), req.BountyID, "", "assess_content", abb.AssessContentSignal{
-			ContentID: req.ContentID,
-			UserID:    req.UserID,
-			Platform:  req.Platform,
+		err := tc.SignalWorkflow(r.Context(), req.BountyID, "", abb.AssessmentSignalName, abb.AssessContentSignal{
+			ContentID:    req.ContentID,
+			PayoutWallet: req.PayoutWallet,
+			Platform:     req.Platform,
 		})
 		if err != nil {
 			writeInternalError(l, w, fmt.Errorf("failed to signal workflow: %w", err))

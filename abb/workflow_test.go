@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"testing"
@@ -76,13 +77,13 @@ func TestWorkflow(t *testing.T) {
 		toWallet := solanago.NewWallet()
 
 		payInput := PayBountyWorkflowInput{
-			ToAccount:    toWallet.PublicKey().String(),
+			Wallet:       toWallet.PublicKey().String(),
 			Amount:       amount,
 			SolanaConfig: testConfig,
 		}
 
-		// Mock activity calls using the instance
-		env.OnActivity(activities.TransferUSDC, mock.Anything, payInput.ToAccount, payInput.Amount.ToUSDC()).Return(nil)
+		// Mock activity calls using the instance - expect context, string, float64
+		env.OnActivity(activities.TransferUSDC, mock.Anything, payInput.Wallet, payInput.Amount.ToUSDC()).Return(nil)
 
 		env.ExecuteWorkflow(PayBountyWorkflow, payInput)
 		assert.NoError(t, env.GetWorkflowError())
@@ -166,8 +167,8 @@ func TestWorkflow(t *testing.T) {
 				Reason:    "Content meets requirements",
 			}, nil)
 
-		// Mock TransferUSDC call for returning bounty to owner
-		env.OnActivity((*Activities).TransferUSDC, mock.Anything, "test-owner", mock.AnythingOfType("float64")).Return(nil)
+		// Mock TransferUSDC call for returning bounty to owner - expect context, string, float64
+		env.OnActivity(activities.TransferUSDC, mock.Anything, "test-owner", mock.AnythingOfType("float64")).Return(nil)
 
 		// Just verify the activity registration is successful
 		assert.NoError(t, err)
@@ -247,16 +248,17 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	bountyPerPost, err := solana.NewUSDCAmount(1.0)
 	require.NoError(t, err)
 
+	// Create valid Solana wallet for testing
+	wallet := solanago.NewWallet()
+
 	// Mock TransferUSDC if BountyAssessmentWorkflow uses it
-	// Mock using function pointer and specific/typed args
-	env.OnActivity((*Activities).TransferUSDC, mock.Anything, "test-user", bountyPerPost.ToUSDC()).Return(nil)
-	env.OnActivity((*Activities).TransferUSDC, mock.Anything, "test-owner", mock.AnythingOfType("float64")).Return(nil)
+	// Mock using instance method and specific/typed args - expect context, string, float64
+	// Use activities instance for mocking
+	env.OnActivity(activities.TransferUSDC, mock.Anything, wallet.PublicKey().String(), bountyPerPost.ToUSDC()).Return(nil)
+	env.OnActivity(activities.TransferUSDC, mock.Anything, "test-owner", mock.AnythingOfType("float64")).Return(nil)
 
 	totalBounty, err := solana.NewUSDCAmount(10.0)
 	require.NoError(t, err)
-
-	// Create valid Solana wallet for testing
-	wallet := solanago.NewWallet()
 
 	input := BountyAssessmentWorkflowInput{
 		Requirements:       []string{"Test requirement 1", "Test requirement 2"},
@@ -273,9 +275,9 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	// Execute workflow and send signals
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow("assessment", AssessContentSignal{
-			ContentID: "test-content",
-			UserID:    "test-user",
-			Platform:  PlatformReddit,
+			ContentID:    "test-content",
+			PayoutWallet: wallet.PublicKey().String(),
+			Platform:     PlatformReddit,
 		})
 	}, time.Second)
 
@@ -358,16 +360,18 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	bountyPerPost, err := solana.NewUSDCAmount(1.0)
 	require.NoError(t, err)
 
+	// Create valid Solana wallet for testing
+	wallet := solanago.NewWallet()
+
 	// Mock TransferUSDC if BountyAssessmentWorkflow uses it
-	// Mock using function pointer and specific/typed args (handles timeout case)
-	env.OnActivity((*Activities).TransferUSDC, mock.Anything, "test-user", bountyPerPost.ToUSDC()).Return(nil)
-	env.OnActivity((*Activities).TransferUSDC, mock.Anything, "test-owner", mock.AnythingOfType("float64")).Return(nil)
+	// Mock using instance method and specific/typed args (handles timeout case) - expect context, string, float64
+	// Define a payout wallet for the signal in this test scope
+	payoutWallet := wallet.PublicKey().String()
+	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet, bountyPerPost.ToUSDC()).Return(nil)         // Mock for successful payout
+	env.OnActivity(activities.TransferUSDC, mock.Anything, "test-owner", mock.AnythingOfType("float64")).Return(nil) // Mock for timeout/cancellation return
 
 	totalBounty, err := solana.NewUSDCAmount(10.0)
 	require.NoError(t, err)
-
-	// Create valid Solana wallet for testing
-	wallet := solanago.NewWallet()
 
 	input := BountyAssessmentWorkflowInput{
 		Requirements:       []string{"Test requirement 1", "Test requirement 2"},
@@ -384,9 +388,9 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	// Execute workflow and send signals
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow("assessment", AssessContentSignal{
-			ContentID: "test-content",
-			UserID:    "test-user",
-			Platform:  PlatformReddit,
+			ContentID:    "test-content",
+			PayoutWallet: payoutWallet, // Changed from UserID
+			Platform:     PlatformReddit,
 		})
 	}, time.Second)
 
@@ -408,8 +412,8 @@ func TestPlatformActivities(t *testing.T) {
 		// Register activity
 		env.RegisterActivity(activities.PullRedditContent)
 
-		// Mock activity
-		env.OnActivity(activities.PullRedditContent, "reddit-content-id").
+		// Mock activity - include mock.Anything for context
+		env.OnActivity(activities.PullRedditContent, mock.Anything, "reddit-content-id").
 			Return(&RedditContent{
 				ID:        "reddit-content-id",
 				Author:    "testuser",
@@ -428,7 +432,12 @@ func TestPlatformActivities(t *testing.T) {
 			if err != nil {
 				return "", err
 			}
-			return FormatRedditContent(redditContent), nil
+			// We removed FormatRedditContent, marshal to JSON instead
+			jsonBytes, err := json.Marshal(redditContent)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal Reddit content in test: %w", err)
+			}
+			return string(jsonBytes), nil
 		})
 
 		// Verify workflow completed successfully
@@ -630,7 +639,7 @@ func TestPayBountyWorkflow(t *testing.T) {
 	require.NoError(t, err)
 
 	input := PayBountyWorkflowInput{
-		ToAccount:    "8dUmBqpvjqJvXKxdbhWDtWgYz6tNQzqbT6hF4Vz1Vy8h", // Example address
+		Wallet:       "8dUmBqpvjqJvXKxdbhWDtWgYz6tNQzqbT6hF4Vz1Vy8h", // Example address
 		Amount:       amount,
 		SolanaConfig: SolanaConfig{}, // Use local SolanaConfig
 	}

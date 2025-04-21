@@ -637,7 +637,20 @@ OPENAI_MODEL=gpt-4  # or preferred model
 
 ## Solana Wallet Management
 
-These steps outline how to generate a new Solana keypair, fund it on devnet/testnet, and retrieve its private key using the `abb` CLI.
+**IMPORTANT:** The `solana` and `spl-token` commands connect to the network specified in your Solana CLI configuration. For these instructions, ensure your configuration points to Devnet, like the example shown below:
+
+```bash
+ »  solana config get
+Config File: /Users/brojonat/.config/solana/cli/config.yml
+RPC URL: https://api.devnet.solana.com
+WebSocket URL: wss://api.devnet.solana.com/ (computed)
+Keypair Path: /Users/brojonat/.config/solana/id.json
+Commitment: confirmed
+```
+
+On Solana, your main wallet address (like the one derived from your keypair) doesn't directly hold SPL Tokens such as USDC. Instead, you need a separate Associated Token Account (ATA) specifically for USDC that is owned by your main wallet; this ATA's address is automatically derived from your main wallet address and the USDC mint address. We pay the (inexpensive) rent fee for creating this account if it doesn't exist.
+
+These steps outline how to generate a new Solana keypair, fund it on devnet, and retrieve its private key using the `abb` CLI. It also delves into some USDC ATA commands.
 
 ### 1. Generate a New Keypair
 
@@ -705,6 +718,12 @@ spl-token address --token Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr --owner A
 
 # Example for Wrapped Devnet USDC (4zMMC...):
 spl-token address --token 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU --owner AuQiyiWqPVHYhv9emCGfZm6oWaic4ojBHzqK4cv6Np4V
+
+# Example leveraging envs
+spl-token address --owner $SOLANA_TEST_CREATOR_WALLET --token $SOLANA_USDC_MINT_ADDRESS --verbose
+
+# You can create this account if it doesn't exist
+spl-token create-account $SOLANA_USDC_MINT_ADDRESS --owner $SOLANA_TEST_CREATOR_WALLET --fee-payer ~/.config/solana/id.json
 ```
 
 This command prints the derived ATA address.
@@ -717,10 +736,40 @@ Once you know the address of a specific token account (like an ATA), you can che
 # Replace <TOKEN_ACCOUNT_ADDRESS> with the ATA address you found
 # Replace <RPC_ENDPOINT> with your Devnet RPC URL (e.g., https://api.devnet.solana.com)
 
-spl-token balance --address <TOKEN_ACCOUNT_ADDRESS> --url <RPC_ENDPOINT>
+spl-token balance --address <TOKEN_ACCOUNT_ADDRESS>
 
 # Example checking the wrapped USDC ATA derived above:
-spl-token balance --address 5U7XDWrusNB6zTGZ8dazJsu67MDzWMco3WGKFYkiLjt1 --url https://api.devnet.solana.com
+spl-token balance --address 5U7XDWrusNB6zTGZ8dazJsu67MDzWMco3WGKFYkiLjt1
 ```
 
 This command shows the balance of the specific SPL Token held by that account address. Remember that the ATA itself usually holds 0 SOL; its SOL balance is irrelevant.
+
+**Put it all Together: Host a Bounty:**
+
+```bash
+# First let's inspect a hypothentical creator's USDC balance:
+export SOLANA_TEST_CREATOR_USDC_ACA=$(spl-token address --owner $SOLANA_TEST_CREATOR_WALLET --token $SOLANA_USDC_MINT_ADDRESS -v --output json | jq -r '.associatedTokenAddress')
+# This account may or may not actually exist. The payment process is robust to this,
+# but just note that if you try to check the balance and it doesn't exist, you'll
+# get a "not found" error. If you want, you can create the wallet with the
+# following command, but it's not necessary
+spl-token create-account $SOLANA_USDC_MINT_ADDRESS --owner $SOLANA_TEST_CREATOR_WALLET --fee-payer ~/.config/solana/id.json
+# And now check the balance (you should see 0)
+spl-token balance --address $SOLANA_TEST_CREATOR_USDC_ACA
+# Ok, now, pretend a hypothetical advertiser creates a bounty. This will use SOLANA_TEST_FUNDER_WALLET by default
+./bin/abb admin bounty create -r "write a post in r/orangecounty that is about microcenter and has at least 100 comments" --total 1 --per-post 0.05 --platform reddit --payment-timeout 10m
+# Now fund the bounty escrow within the timeout window. This will use the
+# SOLANA_TEST_FUNDER_WALLET and SOLANA_TEST_FUNDER_PRIVATE_KEY by default
+./bin/abb admin util fund-escrow -a 1.0 -w bounty-some-uuid
+# Ok, the bounty loop is now "hot" and handling requests to asseess and payout.
+# Give it something to assess. This will pay out to SOLANA_TEST_CREATOR_WALLET
+# by default if the content meets specfication
+./bin/abb admin bounty assess --content-id 1k3hp5k --platform reddit --bounty bounty-some-uuid
+# This should have triggered. You should be able to check the creator wallet and
+# see that it got a bounty payout. You can of course also check the Temporal UI.
+spl-token balance --address $SOLANA_TEST_CREATOR_USDC_ACA
+
+# The bounty will run until it either runs out of funds or times out.
+# If it times out, it will send the remaining funds back to the
+# bounty owner ($SOLANA_TEST_OWNER_WALLET by default).
+```

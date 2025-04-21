@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	abbhttp "github.com/brojonat/affiliate-bounty-board/http"
 	"github.com/brojonat/affiliate-bounty-board/http/api"
 	solanautil "github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
@@ -164,12 +163,10 @@ func createBounty(ctx *cli.Context) error {
 }
 
 func payBounty(ctx *cli.Context) error {
-	// Create the request
-	req := abbhttp.PayBountyRequest{
-		UserID:      ctx.String("user-id"),
-		Amount:      ctx.Float64("amount"),
-		ToAccount:   ctx.String("to-account"),
-		FromAccount: ctx.String("from-account"),
+	// Create the request using a map for flexibility
+	req := map[string]interface{}{
+		"amount": ctx.Float64("amount"),
+		"wallet": ctx.String("wallet"),
 	}
 
 	// Marshal to JSON
@@ -190,7 +187,7 @@ func payBounty(ctx *cli.Context) error {
 
 	// Set headers
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+ctx.String("token"))
+	httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", ctx.String("token")))
 
 	// Execute the request
 	res, err := http.DefaultClient.Do(httpReq)
@@ -202,12 +199,15 @@ func payBounty(ctx *cli.Context) error {
 }
 
 func assessContent(ctx *cli.Context) error {
-	// Create a map for the request to avoid type conversion issues
+	// Get and validate the payout wallet
+	payoutWalletStr := ctx.String("payout-wallet")
+
+	// Create a map for the request
 	req := map[string]interface{}{
-		"bounty_id":  ctx.String("bounty-id"),
-		"content_id": ctx.String("content-id"),
-		"user_id":    ctx.String("user-id"),
-		"platform":   ctx.String("platform"),
+		"bounty_id":     ctx.String("bounty-id"),
+		"content_id":    ctx.String("content-id"),
+		"payout_wallet": payoutWalletStr, // Use the validated wallet string
+		"platform":      ctx.String("platform"),
 	}
 
 	// Marshal to JSON
@@ -483,7 +483,7 @@ func adminCommands() []*cli.Command {
 				{
 					Name:        "pay",
 					Usage:       "Pay a bounty",
-					Description: "Pays a bounty to a user",
+					Description: "Pays a bounty to a wallet",
 					Flags: []cli.Flag{
 						&cli.StringFlag{
 							Name:    "endpoint",
@@ -498,23 +498,15 @@ func adminCommands() []*cli.Command {
 							Usage:    "Authorization token",
 							EnvVars:  []string{EnvAuthToken},
 						},
-						&cli.StringFlag{
-							Name:  "user-id",
-							Usage: "ID of the user receiving the bounty (optional)",
-						},
 						&cli.Float64Flag{
 							Name:     "amount",
 							Required: true,
 							Usage:    "Amount to pay (in USDC)",
 						},
 						&cli.StringFlag{
-							Name:     "to-account",
+							Name:     "wallet",
 							Required: true,
 							Usage:    "Destination wallet address",
-						},
-						&cli.StringFlag{
-							Name:  "from-account",
-							Usage: "Source account (defaults to escrow if empty)",
 						},
 					},
 					Action: payBounty,
@@ -543,14 +535,14 @@ func adminCommands() []*cli.Command {
 							Usage:    "ID of the bounty",
 						},
 						&cli.StringFlag{
+							Name:     "payout-wallet",
+							Required: true,
+							Usage:    "Public key of the wallet to receive the payout",
+						},
+						&cli.StringFlag{
 							Name:     "content-id",
 							Required: true,
 							Usage:    "ID of the content to assess",
-						},
-						&cli.StringFlag{
-							Name:     "user-id",
-							Required: true,
-							Usage:    "ID of the user who created the content",
 						},
 						&cli.StringFlag{
 							Name:     "platform",

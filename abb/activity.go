@@ -187,7 +187,7 @@ func (r *RedditContent) UnmarshalJSON(data []byte) error {
 }
 
 // PullRedditContent pulls content from Reddit
-func (a *Activities) PullRedditContent(contentID string) (*RedditContent, error) {
+func (a *Activities) PullRedditContent(ctx context.Context, contentID string) (*RedditContent, error) {
 	// Create HTTP client for this activity
 	client := &http.Client{
 		Timeout: 10 * time.Second,
@@ -228,7 +228,7 @@ func (a *Activities) PullRedditContent(contentID string) (*RedditContent, error)
 	}
 
 	// Log the raw response for debugging
-	activity.GetLogger(context.Background()).Debug("Reddit API Response", "response", string(body))
+	activity.GetLogger(ctx).Debug("Reddit API Response", "response", string(body))
 
 	// Check status code
 	if resp.StatusCode != http.StatusOK {
@@ -259,7 +259,7 @@ func (a *Activities) PullRedditContent(contentID string) (*RedditContent, error)
 	}
 
 	// Log the extracted data for debugging
-	activity.GetLogger(context.Background()).Debug("Extracted Reddit Data", "data", string(resultJSON))
+	activity.GetLogger(ctx).Debug("Extracted Reddit Data", "data", string(resultJSON))
 
 	var content RedditContent
 	if err := json.Unmarshal(resultJSON, &content); err != nil {
@@ -276,16 +276,19 @@ func (a *Activities) PullRedditContent(contentID string) (*RedditContent, error)
 // CheckContentRequirements checks if the content satisfies the requirements
 func (a *Activities) CheckContentRequirements(ctx context.Context, content string, requirements []string) (CheckContentRequirementsResult, error) {
 	logger := activity.GetLogger(ctx)
-	logger.Info("Starting content requirements check",
+	logger.Debug("Starting content requirements check",
 		"content_length", len(content),
 		"requirements_count", len(requirements))
 
+	// Updated prompt to handle JSON input
 	prompt := fmt.Sprintf(`You are a content verification system. Your task is to determine if the given content satisfies the specified requirements.
+
+The content to evaluate is provided as a JSON object below.
 
 Requirements:
 %s
 
-Content to evaluate:
+Content (JSON):
 %s
 
 You must respond with a valid JSON object in exactly this format:
@@ -295,7 +298,11 @@ You must respond with a valid JSON object in exactly this format:
 }
 
 Do not include any text before or after the JSON object. The response must be valid JSON that can be parsed by a JSON parser.
-Evaluate strictly and conservatively. Only return true if ALL requirements are clearly met.`, strings.Join(requirements, "\n"), content)
+Evaluate strictly and conservatively. Only return true if ALL requirements are clearly met by the data within the provided JSON content.`, strings.Join(requirements, "\n"), content)
+
+	// Log estimated token count (approx 4 chars/token)
+	estimatedTokens := len(prompt) / 4
+	logger.Info("Sending prompt to LLM", "estimated_tokens", estimatedTokens, "prompt_length_chars", len(prompt))
 
 	// Call the LLM service using the provider
 	resp, err := a.llmDeps.Provider.Complete(ctx, prompt)
@@ -333,11 +340,6 @@ Evaluate strictly and conservatively. Only return true if ALL requirements are c
 			"response_bytes", []byte(resp))
 		return CheckContentRequirementsResult{}, fmt.Errorf("failed to parse LLM response: %w", err)
 	}
-
-	// Log the reason for observability
-	logger.Info("Content evaluation result",
-		"satisfies", result.Satisfies,
-		"reason", result.Reason)
 
 	return result, nil
 }

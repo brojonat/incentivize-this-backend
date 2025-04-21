@@ -29,46 +29,38 @@ func TestHandlePayBounty(t *testing.T) {
 	// Create logger
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	// Create mock temporal client
-	mockClient := &mocks.Client{}
-	mockWorkflowRun := &mocks.WorkflowRun{}
-
-	// Test both with and without FromAccount specified
+	// Test cases now only need amount and wallet
 	testCases := []struct {
-		name           string
-		request        PayBountyRequest
-		expectedSource string
+		name    string
+		request PayBountyRequest
 	}{
 		{
-			name: "with_from_account_specified",
+			name: "valid payment request",
 			request: PayBountyRequest{
-				UserID:      "test-user",
-				FromAccount: "8jJYwDLBx9fPNcKbj6cJoNXeGMWKPhDxcnf7ahrtHX2Z", // Custom source account
-				ToAccount:   "8dUmBqpvjqJvXKxdbhWDtWgYz6tNQzqbT6hF4Vz1Vy8h",
-				Amount:      10.0,
+				Amount: 10.0,
+				Wallet: "8dUmBqpvjqJvXKxdbhWDtWgYz6tNQzqbT6hF4Vz1Vy8h",
 			},
-			expectedSource: "8jJYwDLBx9fPNcKbj6cJoNXeGMWKPhDxcnf7ahrtHX2Z",
 		},
-		{
-			name: "without_from_account",
-			request: PayBountyRequest{
-				UserID:    "test-user",
-				ToAccount: "8dUmBqpvjqJvXKxdbhWDtWgYz6tNQzqbT6hF4Vz1Vy8h",
-				Amount:    10.0,
-			},
-			expectedSource: escrowTokenAccount, // Should default to escrow account
-		},
+		// Add more cases if needed, e.g., invalid wallet, zero amount (handled by handler validation)
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			// Reset mocks for each test case if necessary (using testify/mock)
+			mockClient := &mocks.Client{}
+			mockWorkflowRun := &mocks.WorkflowRun{}
+
 			// Set up expectations
-			mockClient.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.MatchedBy(func(input abb.PayBountyWorkflowInput) bool {
-				// Verify input parameters match our request
-				amountMatch := input.Amount.ToUSDC() == tc.request.Amount
-				toMatch := input.ToAccount == tc.request.ToAccount
-				return amountMatch && toMatch
-			})).Return(mockWorkflowRun, nil).Once()
+			mockClient.On("ExecuteWorkflow",
+				mock.Anything, // context
+				mock.Anything, // options
+				mock.AnythingOfType("func(internal.Context, abb.PayBountyWorkflowInput) error"), // workflow func type
+				mock.MatchedBy(func(input abb.PayBountyWorkflowInput) bool { // input
+					// Verify input parameters match our request
+					amountMatch := input.Amount.ToUSDC() == tc.request.Amount
+					walletMatch := input.Wallet == tc.request.Wallet
+					return amountMatch && walletMatch
+				})).Return(mockWorkflowRun, nil).Once()
 
 			mockWorkflowRun.On("Get", mock.Anything, nil).Return(nil).Once()
 
@@ -101,12 +93,14 @@ func TestHandlePayBounty(t *testing.T) {
 			// Verify the message contains expected elements
 			assert.Contains(t, resp.Message, "Successfully executed payment")
 			assert.Contains(t, resp.Message, "10 USDC")
-			assert.Contains(t, resp.Message, tc.expectedSource)
-			assert.Contains(t, resp.Message, tc.request.ToAccount)
+			// Removed check for source account
+			assert.Contains(t, resp.Message, tc.request.Wallet)
+
+			// Verify mock expectations were met for this test case
+			mockClient.AssertExpectations(t)
+			mockWorkflowRun.AssertExpectations(t)
 		})
 	}
 
-	// Verify mock expectations were met
-	mockClient.AssertExpectations(t)
-	mockWorkflowRun.AssertExpectations(t)
+	// No overall AssertExpectations needed here as mocks are created per test case
 }

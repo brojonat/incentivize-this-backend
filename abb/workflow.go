@@ -2,8 +2,8 @@ package abb
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/solana"
@@ -12,11 +12,17 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
+// Signal Name Constants
+const (
+	AssessmentSignalName = "assessment"
+	CancelSignalName     = "cancel"
+)
+
 // AssessContentSignal represents a signal to assess content against bounty requirements
 type AssessContentSignal struct {
-	ContentID string       `json:"content_id"`
-	UserID    string       `json:"user_id"`
-	Platform  PlatformType `json:"platform"`
+	ContentID    string       `json:"content_id"`
+	PayoutWallet string       `json:"payout_wallet"`
+	Platform     PlatformType `json:"platform"`
 }
 
 // CancelBountySignal represents the signal to cancel the bounty and return remaining funds
@@ -93,8 +99,8 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	remainingBounty := input.TotalBounty
 
 	// Create signal channels
-	assessmentChan := workflow.GetSignalChannel(ctx, "assessment")
-	cancelChan := workflow.GetSignalChannel(ctx, "cancel")
+	assessmentChan := workflow.GetSignalChannel(ctx, AssessmentSignalName)
+	cancelChan := workflow.GetSignalChannel(ctx, CancelSignalName)
 
 	// Create selector for handling signals
 	selector := workflow.NewSelector(ctx)
@@ -143,7 +149,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 
 		// If requirements are met, pay the bounty
 		if result.Satisfies {
-			err := workflow.ExecuteActivity(ctx, (*Activities).TransferUSDC, assessmentSignal.UserID, input.BountyPerPost.ToUSDC()).Get(ctx, nil)
+			err := workflow.ExecuteActivity(ctx, (*Activities).TransferUSDC, assessmentSignal.PayoutWallet, input.BountyPerPost.ToUSDC()).Get(ctx, nil)
 			if err != nil {
 				workflow.GetLogger(ctx).Error("Failed to pay bounty", "error", err)
 				return
@@ -154,12 +160,12 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 
 			// Log the payment
 			workflow.GetLogger(ctx).Info("Bounty paid successfully",
-				"user_id", assessmentSignal.UserID,
+				"payout_wallet", assessmentSignal.PayoutWallet,
 				"amount", input.BountyPerPost.ToUSDC(),
 				"remaining", remainingBounty.ToUSDC())
 		} else {
 			workflow.GetLogger(ctx).Info("Content did not meet requirements",
-				"user_id", assessmentSignal.UserID,
+				"payout_wallet", assessmentSignal.PayoutWallet,
 				"reason", result.Reason)
 		}
 	})
@@ -262,14 +268,22 @@ func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) (
 		if err != nil {
 			return "", fmt.Errorf("failed to pull Reddit content: %w", err)
 		}
-		return formatRedditContent(redditContent), nil
+		jsonBytes, err := json.Marshal(redditContent) // Marshal to JSON
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal Reddit content: %w", err)
+		}
+		return string(jsonBytes), nil
 	case PlatformYouTube:
 		var youtubeContent *YouTubeContent
 		err := workflow.ExecuteActivity(ctx, (*Activities).PullYouTubeContent, input.ContentID).Get(ctx, &youtubeContent)
 		if err != nil {
 			return "", fmt.Errorf("failed to pull YouTube content: %w", err)
 		}
-		return formatYouTubeContent(youtubeContent), nil
+		jsonBytes, err := json.Marshal(youtubeContent) // Marshal to JSON
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal YouTube content: %w", err)
+		}
+		return string(jsonBytes), nil
 	case PlatformYelp:
 		var content string
 		err := workflow.ExecuteActivity(ctx, (*Activities).PullYelpContent, input.ContentID).Get(ctx, &content)
@@ -294,62 +308,6 @@ func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) (
 	default:
 		return "", fmt.Errorf("unsupported platform type: %s", input.PlatformType)
 	}
-}
-
-// formatRedditContent formats a RedditContent struct into a string
-func formatRedditContent(content *RedditContent) string {
-	if content == nil {
-		return ""
-	}
-
-	var parts []string
-	if content.Title != "" {
-		parts = append(parts, fmt.Sprintf("Title: %s", content.Title))
-	}
-	if content.Selftext != "" {
-		parts = append(parts, fmt.Sprintf("Content: %s", content.Selftext))
-	}
-	if content.Body != "" {
-		parts = append(parts, fmt.Sprintf("Body: %s", content.Body))
-	}
-	if content.Author != "" {
-		parts = append(parts, fmt.Sprintf("Author: %s", content.Author))
-	}
-	if content.Subreddit != "" {
-		parts = append(parts, fmt.Sprintf("Subreddit: %s", content.Subreddit))
-	}
-	if content.URL != "" {
-		parts = append(parts, fmt.Sprintf("URL: %s", content.URL))
-	}
-
-	return strings.Join(parts, "\n")
-}
-
-// formatYouTubeContent formats a YouTubeContent struct into a string
-func formatYouTubeContent(content *YouTubeContent) string {
-	if content == nil {
-		return ""
-	}
-
-	var parts []string
-	if content.Title != "" {
-		parts = append(parts, fmt.Sprintf("Title: %s", content.Title))
-	}
-	if content.Description != "" {
-		parts = append(parts, fmt.Sprintf("Description: %s", content.Description))
-	}
-	if content.ChannelTitle != "" {
-		parts = append(parts, fmt.Sprintf("Channel: %s", content.ChannelTitle))
-	}
-
-	// Add captions if available
-	for _, caption := range content.Captions {
-		if caption.Content != "" {
-			parts = append(parts, fmt.Sprintf("Caption (%s): %s", caption.Language, caption.Content))
-		}
-	}
-
-	return strings.Join(parts, "\n")
 }
 
 // CheckContentRequirementsResult represents the result of checking content requirements
@@ -382,7 +340,7 @@ func CheckContentRequirementsWorkflow(ctx workflow.Context, content string, requ
 
 // PayBountyWorkflowInput represents the input parameters for the pay bounty workflow
 type PayBountyWorkflowInput struct {
-	ToAccount    string
+	Wallet       string // Renamed from ToAccount
 	Amount       *solana.USDCAmount
 	SolanaConfig SolanaConfig // Use local abb.SolanaConfig
 }
@@ -401,14 +359,14 @@ func PayBountyWorkflow(ctx workflow.Context, input PayBountyWorkflowInput) error
 
 	ctx = workflow.WithActivityOptions(ctx, options)
 
-	// Convert addresses to PublicKey
-	toAccount, err := solanago.PublicKeyFromBase58(input.ToAccount)
+	// Convert wallet address to PublicKey
+	walletAddr, err := solanago.PublicKeyFromBase58(input.Wallet) // Renamed from input.ToAccount
 	if err != nil {
-		return fmt.Errorf("invalid to account: %w", err)
+		return fmt.Errorf("invalid wallet address: %w", err)
 	}
 
 	// Execute transfer activity using the function signature
-	err = workflow.ExecuteActivity(ctx, (*Activities).TransferUSDC, toAccount.String(), input.Amount.ToUSDC()).Get(ctx, nil)
+	err = workflow.ExecuteActivity(ctx, (*Activities).TransferUSDC, walletAddr.String(), input.Amount.ToUSDC()).Get(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to transfer USDC: %w", err)
 	}
