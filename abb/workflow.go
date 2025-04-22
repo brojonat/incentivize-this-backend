@@ -16,7 +16,7 @@ import (
 const (
 	AssessmentSignalName = "assessment"
 	CancelSignalName     = "cancel"
-	PayoutTimeout        = 10 * time.Minute
+	DefaultPayoutTimeout = 10 * time.Minute
 )
 
 // AssessContentSignal represents a signal to assess content against bounty requirements
@@ -161,7 +161,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 		if result.Satisfies {
 			// Define specific options for the transfer activity
 			transferOptions := workflow.ActivityOptions{
-				StartToCloseTimeout: PayoutTimeout,
+				StartToCloseTimeout: DefaultPayoutTimeout,
 				RetryPolicy: &temporal.RetryPolicy{
 					InitialInterval:    time.Second * 10,
 					BackoffCoefficient: 2.0,
@@ -401,7 +401,7 @@ type PayBountyWorkflowInput struct {
 // PayBountyWorkflow represents the workflow that pays a bounty
 func PayBountyWorkflow(ctx workflow.Context, input PayBountyWorkflowInput) error {
 	options := workflow.ActivityOptions{
-		StartToCloseTimeout: PayoutTimeout,
+		StartToCloseTimeout: DefaultPayoutTimeout,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:    time.Second,
 			BackoffCoefficient: 2.0,
