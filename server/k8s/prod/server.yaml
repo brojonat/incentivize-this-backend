@@ -33,8 +33,14 @@ spec:
         envFrom:
         - secretRef:
             name: abb-secret-server-envs
-        command: ["./cli"]
-        args: ["run", "server"]
+        command: ["/abb"]
+        args:
+        - run
+        - http-server
+        - --temporal-address
+        - $(TEMPORAL_ADDRESS)
+        - --temporal-namespace
+        - $(TEMPORAL_NAMESPACE)
         resources:
           requests:
             cpu: "200m"
@@ -44,13 +50,13 @@ spec:
             memory: "1Gi"
         readinessProbe:
           httpGet:
-            path: /health
+            path: /ping
             port: 8080
           initialDelaySeconds: 5
           periodSeconds: 10
         livenessProbe:
           httpGet:
-            path: /health
+            path: /ping
             port: 8080
           initialDelaySeconds: 15
           periodSeconds: 20

@@ -4,4 +4,4 @@ resources:
 secretGenerator:
 - name: abb-secret-server-envs
   envs:
-  - ../../.env.server.prod
+  - ../../../.env.server.prod

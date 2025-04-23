@@ -42,7 +42,6 @@ build-cli:
 
 build-push-cli:
 	$(call setup_env, .env.server.prod)
-	CGO_ENABLED=0 GOOS=linux go build -o ./bin/abb cmd/abb/*.go
 	docker build -f Dockerfile -t ${CLI_IMG_TAG} .
 	docker push ${CLI_IMG_TAG}
 
@@ -86,7 +85,7 @@ deploy-server:
 deploy-worker:
 	$(call setup_env, .env.worker.prod)
 	@$(MAKE) build-push-cli
-	kustomize build --load-restrictor=LoadRestrictionsNone worker/k8s | \
+	kustomize build --load-restrictor=LoadRestrictionsNone worker/k8s/prod | \
 	sed -e "s;{{DOCKER_REPO}};$(DOCKER_REPO);g" \
 		-e "s;{{CLI_IMG_TAG}};$(CLI_IMG_TAG);g" | \
 		kubectl apply -f -
@@ -103,7 +102,7 @@ delete-server:
 
 # Delete worker component
 delete-worker:
-	kubectl delete -f worker/k8s/worker.yaml || true
+	kubectl delete -f worker/k8s/prod/worker.yaml || true
 	kubectl delete secret affiliate-bounty-board-secret-worker-envs || true
 
 # Delete all components
@@ -140,12 +139,12 @@ status:
 
 update-secrets-server:
 	kubectl create secret generic abb-secret-server-envs \
-		--from-env-file=server/.env.server.prod \
+		--from-env-file=.env.server.prod \
 		--dry-run=client -o yaml | kubectl apply -f -
 
 update-secrets-worker:
 	kubectl create secret generic affiliate-bounty-board-secret-worker-envs \
-		--from-env-file=worker/.env.prod \
+		--from-env-file=.env.worker.prod \
 		--dry-run=client -o yaml | kubectl apply -f -
 
 # Restart deployments

@@ -1,6 +1,0 @@
-resources:
-- worker.yaml
-secretGenerator:
-- name: affiliate-bounty-board-secret-worker-envs
-  envs:
-  - ../../../.env.worker.prod

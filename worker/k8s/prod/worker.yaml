@@ -24,8 +24,14 @@ spec:
         envFrom:
         - secretRef:
             name: affiliate-bounty-board-secret-worker-envs
-        command: ["./cli"]
-        args: ["run", "worker"]
+        command: ["/abb"]
+        args:
+        - run
+        - worker
+        - --temporal-address
+        - $(TEMPORAL_ADDRESS)
+        - --temporal-namespace
+        - $(TEMPORAL_NAMESPACE)
         resources:
           requests:
             cpu: "100m"
@@ -36,19 +42,19 @@ spec:
         readinessProbe:
           exec:
             command:
-            - ./cli
+            - /abb
             - run
             - worker
-            - --health-check
+            - --check-connection
           initialDelaySeconds: 5
           periodSeconds: 10
         livenessProbe:
           exec:
             command:
-            - ./cli
+            - /abb
             - run
             - worker
-            - --health-check
+            - --check-connection
           initialDelaySeconds: 15
           periodSeconds: 20
       restartPolicy: Always

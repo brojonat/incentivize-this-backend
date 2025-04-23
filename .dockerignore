@@ -1,0 +1,57 @@
+# Version Control
+.git
+.gitignore
+
+# Docker Files
+Dockerfile
+.dockerignore
+
+# Build Artifacts / Binaries (from local Makefile builds)
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.o
+*.a
+
+# Logs and Coverage Data
+logs/
+*.log
+coverage.*
+*.out
+
+# Environment Files (Handle secrets via build args or runtime env vars)
+.env*
+*.local
+
+# Secrets
+keypair.json
+
+# OS Specific Files
+.DS_Store
+Thumbs.db
+
+# IDE/Editor Files
+.idea/
+.vscode/
+*.swp
+
+# Python Virtual Environment & Cache
+.venv/
+__pycache__/
+*.py[cod]
+.python-version
+
+# Go Test Files (Not needed for build)
+*_test.go
+
+# Documentation & Project Files (Not needed for build)
+README.md
+Makefile
+docs/
+
+# Temporary Files
+*~
+*.tmp
