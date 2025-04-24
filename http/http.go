@@ -3,7 +3,6 @@ package http
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -106,15 +105,8 @@ func writeJSONResponse(w http.ResponseWriter, resp interface{}, code int) {
 // RunServer starts the HTTP server with the given configuration
 func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port string) error {
 	mux := http.NewServeMux()
-
-	// max body size
 	maxBytes := int64(1048576)
-
-	// Get CORS config from context
 	headers, methods, origins := GetCORSConfig(ctx)
-	if headers == nil || methods == nil || origins == nil {
-		return fmt.Errorf("CORS configuration missing from context")
-	}
 
 	// Add routes
 	mux.HandleFunc("GET /ping", stools.AdaptHandler(
@@ -130,7 +122,6 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
-	// Add bounty routes with explicit dependencies
 	mux.HandleFunc("GET /bounties", stools.AdaptHandler(
 		handleListBounties(logger, tc),
 		withLogging(logger),
@@ -159,6 +150,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
+	// Start server
 	server := &http.Server{
 		Addr:    ":" + port,
 		Handler: mux,

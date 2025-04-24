@@ -96,6 +96,63 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	workflow.GetLogger(ctx).Info("Payment verified successfully",
 		"amount", verifyResult.Amount.ToUSDC())
 
+	// --- Start Fee Transfer Logic ---
+	// Check preconditions for fee transfer
+	if input.SolanaConfig.TreasuryWallet == "" {
+		workflow.GetLogger(ctx).Error("TreasuryWallet not configured in SolanaConfig")
+		return fmt.Errorf("treasury wallet not configured")
+	}
+	if input.OriginalTotalBounty == nil {
+		workflow.GetLogger(ctx).Error("OriginalTotalBounty is nil in workflow input")
+		return fmt.Errorf("original total bounty not provided")
+	}
+	if input.TotalBounty == nil {
+		workflow.GetLogger(ctx).Error("TotalBounty is nil in workflow input")
+		return fmt.Errorf("total bounty not provided")
+	}
+
+	// Calculate fee amount
+	feeAmount := input.OriginalTotalBounty.Sub(input.TotalBounty)
+
+	// Check if fee is positive
+	if feeAmount.IsZero() || feeAmount.Cmp(solana.Zero()) < 0 { // Check if fee <= 0
+		workflow.GetLogger(ctx).Error("Calculated fee amount is zero or negative, indicating potential config error",
+			"original_total", input.OriginalTotalBounty.ToUSDC(),
+			"user_total", input.TotalBounty.ToUSDC())
+		return fmt.Errorf("calculated fee is zero or negative (original: %f, user_payable: %f)",
+			input.OriginalTotalBounty.ToUSDC(), input.TotalBounty.ToUSDC())
+	}
+
+	// Fee is positive and configuration is present, proceed with transfer
+	treasuryWalletAddr, err := solanago.PublicKeyFromBase58(input.SolanaConfig.TreasuryWallet)
+	if err != nil {
+		workflow.GetLogger(ctx).Error("Invalid TreasuryWallet address in config", "address", input.SolanaConfig.TreasuryWallet, "error", err)
+		return fmt.Errorf("invalid treasury wallet address '%s': %w", input.SolanaConfig.TreasuryWallet, err)
+	}
+
+	workflow.GetLogger(ctx).Info("Attempting to transfer platform fee",
+		"fee_amount", feeAmount.ToUSDC(),
+		"treasury_wallet", treasuryWalletAddr.String())
+
+	feeTransferOptions := workflow.ActivityOptions{
+		StartToCloseTimeout: input.PaymentTimeout,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    time.Second * 5,
+			BackoffCoefficient: 1.5,
+			MaximumInterval:    time.Minute,
+			MaximumAttempts:    5,
+		},
+	}
+	feeTransferCtx := workflow.WithActivityOptions(ctx, feeTransferOptions)
+
+	err = workflow.ExecuteActivity(feeTransferCtx, (*Activities).TransferUSDC, treasuryWalletAddr.String(), feeAmount.ToUSDC()).Get(feeTransferCtx, nil)
+	if err != nil {
+		workflow.GetLogger(ctx).Error("Failed to transfer platform fee to treasury wallet", "error", err)
+		return fmt.Errorf("failed to transfer platform fee: %w", err)
+	}
+	workflow.GetLogger(ctx).Info("Platform fee transferred successfully")
+	// --- End Fee Transfer Logic ---
+
 	// Initialize remaining bounty using the USER-PAYABLE total
 	remainingBounty := input.TotalBounty
 	// Initialize map to track processed content IDs for idempotency (prevents re-assessment)
@@ -287,6 +344,10 @@ type PlatformDependencies interface {
 }
 
 // ContentProvider is an interface for retrieving content from a platform
+// FIXME/TODO: this interface MUST also accept a ContentKind to indicate the type of content to pull
+// for the platform (comment, post, review, etc.). Right now we just infer the content kind before
+// supplying the ID but this isn't a viable long-term solution. This will become abundantly clear
+// when we more explicitly implement this as a graph based agentic workflow.
 type ContentProvider interface {
 	// PullContent pulls content from a platform given a content ID
 	PullContent(ctx context.Context, contentID string) (string, error)

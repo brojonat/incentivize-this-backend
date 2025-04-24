@@ -14,6 +14,16 @@ import (
 	"go.temporal.io/sdk/client"
 )
 
+const (
+	ServerEnvSolanaTreasuryWallet = "SOLANA_TREASURY_WALLET"
+	EnvServerPort                 = "SERVER_PORT"
+	EnvTemporalAddress            = "TEMPORAL_ADDRESS"
+	EnvTemporalNamespace          = "TEMPORAL_NAMESPACE"
+	EnvCORSHaders                 = "CORS_HEADERS"
+	EnvCORSMethods                = "CORS_METHODS"
+	EnvCORSOrigins                = "CORS_ORIGINS"
+)
+
 func serverCommands() []*cli.Command {
 	return []*cli.Command{
 		{
@@ -24,20 +34,20 @@ func serverCommands() []*cli.Command {
 					Name:    "port",
 					Aliases: []string{"p"},
 					Usage:   "Port to listen on",
-					EnvVars: []string{"SERVER_PORT"},
+					EnvVars: []string{EnvServerPort},
 				},
 				&cli.StringFlag{
 					Name:    "temporal-address",
 					Aliases: []string{"ta"},
 					Usage:   "Temporal server address",
-					EnvVars: []string{"TEMPORAL_ADDRESS"},
+					EnvVars: []string{EnvTemporalAddress},
 					Value:   "localhost:7233",
 				},
 				&cli.StringFlag{
 					Name:    "temporal-namespace",
 					Aliases: []string{"tn"},
 					Usage:   "Temporal namespace",
-					EnvVars: []string{"TEMPORAL_NAMESPACE"},
+					EnvVars: []string{EnvTemporalNamespace},
 					Value:   "default",
 				},
 			},
@@ -81,9 +91,9 @@ func run_server(c *cli.Context) error {
 		return params
 	}
 
-	headers := normalizeCORSParams(os.Getenv("CORS_HEADERS"))
-	methods := normalizeCORSParams(os.Getenv("CORS_METHODS"))
-	origins := normalizeCORSParams(os.Getenv("CORS_ORIGINS"))
+	headers := normalizeCORSParams(os.Getenv(EnvCORSHaders))
+	methods := normalizeCORSParams(os.Getenv(EnvCORSMethods))
+	origins := normalizeCORSParams(os.Getenv(EnvCORSOrigins))
 
 	// Add CORS config to context
 	ctx = http.WithCORSConfig(ctx, headers, methods, origins)
@@ -93,5 +103,6 @@ func run_server(c *cli.Context) error {
 	if port == "" {
 		port = "8080"
 	}
+	// Pass Solana config values to RunServer (signature still needs update in http.go)
 	return http.RunServer(ctx, logger, tc, port)
 }

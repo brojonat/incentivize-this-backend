@@ -43,6 +43,7 @@ type SolanaConfig struct {
 	WSEndpoint       string               `json:"ws_endpoint"`
 	EscrowPrivateKey *solanago.PrivateKey `json:"escrow_private_key"`
 	EscrowWallet     solanago.PublicKey   `json:"escrow_token_account"`
+	TreasuryWallet   string               `json:"treasury_wallet"`
 	USDCMintAddress  string               `json:"usdc_mint_address"`
 }
 

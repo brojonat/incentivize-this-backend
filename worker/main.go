@@ -12,6 +12,37 @@ import (
 	"go.temporal.io/sdk/worker"
 )
 
+var (
+	TaskQueueName = os.Getenv("TASK_QUEUE")
+
+	// Solana configuration keys from environment
+	EnvSolanaRPCEndpoint    = "SOLANA_RPC_ENDPOINT"
+	EnvSolanaWSEndpoint     = "SOLANA_WS_ENDPOINT"
+	EnvSolanaPrivateKey     = "SOLANA_PRIVATE_KEY"     // Escrow Private Key
+	EnvSolanaEscrowWallet   = "SOLANA_ESCROW_WALLET"   // Escrow Token Account Public Key
+	EnvSolanaTreasuryWallet = "SOLANA_TREASURY_WALLET" // Treasury Wallet Public Key
+	EnvSolanaUSDCMint       = "SOLANA_USDC_MINT_ADDRESS"
+
+	// Platform API keys from environment
+	EnvRedditUserAgent      = "REDDIT_USER_AGENT"
+	EnvRedditUsername       = "REDDIT_USERNAME"
+	EnvRedditPassword       = "REDDIT_PASSWORD"
+	EnvRedditClientID       = "REDDIT_CLIENT_ID"
+	EnvRedditClientSecret   = "REDDIT_CLIENT_SECRET"
+	EnvYouTubeAPIKey        = "YOUTUBE_API_KEY"
+	EnvYouTubeAppName       = "YOUTUBE_APP_NAME"
+	EnvYelpAPIKey           = "YELP_API_KEY"
+	EnvYelpClientID         = "YELP_CLIENT_ID"
+	EnvGoogleAPIKey         = "GOOGLE_API_KEY"
+	EnvGoogleSearchEngineID = "GOOGLE_SEARCH_ENGINE_ID"
+	EnvAmazonAPIKey         = "AMAZON_API_KEY"
+	EnvAmazonAPISecret      = "AMAZON_API_SECRET"
+	EnvAmazonAssociateTag   = "AMAZON_ASSOCIATE_TAG"
+	EnvAmazonMarketplaceID  = "AMAZON_MARKETPLACE_ID"
+	EnvOpenAIApiKey         = "OPENAI_API_KEY"
+	EnvOpenAIModel          = "OPENAI_MODEL"
+)
+
 func RunWorker(ctx context.Context, l *slog.Logger, thp, tns string) error {
 	return RunWorkerWithOptions(ctx, l, thp, tns, false)
 }
@@ -35,21 +66,22 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 	defer c.Close()
 
 	// Get Solana escrow details from environment
-	escrowPrivateKeyStr := os.Getenv("SOLANA_ESCROW_PRIVATE_KEY")
-	escrowWalletStr := os.Getenv("SOLANA_ESCROW_WALLET")
-	usdcMintStr := os.Getenv("SOLANA_USDC_MINT_ADDRESS")
+	escrowPrivateKeyStr := os.Getenv(EnvSolanaPrivateKey)
+	escrowWalletStr := os.Getenv(EnvSolanaEscrowWallet)
+	treasuryWalletStr := os.Getenv(EnvSolanaTreasuryWallet)
+	usdcMintStr := os.Getenv(EnvSolanaUSDCMint)
 
 	var solanaConfig abb.SolanaConfig
 
 	// Parse and validate provided credentials
 	escrowPrivateKey, err := solanago.PrivateKeyFromBase58(escrowPrivateKeyStr)
 	if err != nil {
-		return fmt.Errorf("failed to parse escrow private key from ESCROW_PRIVATE_KEY_STR: %w", err)
+		return fmt.Errorf("failed to parse escrow private key from %s: %w", EnvSolanaPrivateKey, err)
 	}
 
 	escrowWallet, err := solanago.PublicKeyFromBase58(escrowWalletStr)
 	if err != nil {
-		return fmt.Errorf("failed to parse escrow wallet address from ESCROW_WALLET_STR: %w", err)
+		return fmt.Errorf("failed to parse escrow wallet address from %s: %w", EnvSolanaEscrowWallet, err)
 	}
 
 	// Validate that the private key corresponds to the wallet address
@@ -57,20 +89,32 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 		return fmt.Errorf("escrow private key does not match escrow wallet address")
 	}
 
+	// Validate treasury wallet address if provided
+	if treasuryWalletStr != "" {
+		if _, err := solanago.PublicKeyFromBase58(treasuryWalletStr); err != nil {
+			return fmt.Errorf("failed to parse treasury wallet address from %s: %w", EnvSolanaTreasuryWallet, err)
+		}
+	} else {
+		// Decide policy: error out, or just warn?
+		// For now, let's warn, as fee transfer logic in workflow already checks.
+		l.Warn("Treasury wallet not set in environment", "env_var", EnvSolanaTreasuryWallet)
+	}
+
 	// Create Solana config with validated credentials
 	solanaConfig = abb.SolanaConfig{
-		RPCEndpoint:      os.Getenv("SOLANA_RPC_ENDPOINT"),
-		WSEndpoint:       os.Getenv("SOLANA_WS_ENDPOINT"),
+		RPCEndpoint:      os.Getenv(EnvSolanaRPCEndpoint),
+		WSEndpoint:       os.Getenv(EnvSolanaWSEndpoint),
 		EscrowPrivateKey: &escrowPrivateKey,
 		EscrowWallet:     escrowWallet,
+		TreasuryWallet:   treasuryWalletStr,
 		USDCMintAddress:  usdcMintStr,
 	}
 
 	// Create LLM provider
 	llmConfig := abb.LLMConfig{
 		Provider:    "openai",
-		APIKey:      os.Getenv("OPENAI_API_KEY"),
-		Model:       os.Getenv("OPENAI_MODEL"),
+		APIKey:      os.Getenv(EnvOpenAIApiKey),
+		Model:       os.Getenv(EnvOpenAIModel),
 		MaxTokens:   1000,
 		Temperature: 0.7,
 	}
@@ -81,34 +125,34 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 
 	// Create dependencies for each platform
 	redditDeps := abb.RedditDependencies{
-		UserAgent:    os.Getenv("REDDIT_USER_AGENT"),
-		Username:     os.Getenv("REDDIT_USERNAME"),
-		Password:     os.Getenv("REDDIT_PASSWORD"),
-		ClientID:     os.Getenv("REDDIT_CLIENT_ID"),
-		ClientSecret: os.Getenv("REDDIT_CLIENT_SECRET"),
+		UserAgent:    os.Getenv(EnvRedditUserAgent),
+		Username:     os.Getenv(EnvRedditUsername),
+		Password:     os.Getenv(EnvRedditPassword),
+		ClientID:     os.Getenv(EnvRedditClientID),
+		ClientSecret: os.Getenv(EnvRedditClientSecret),
 	}
 
 	youtubeDeps := abb.YouTubeDependencies{
-		APIKey:          os.Getenv("YOUTUBE_API_KEY"),
-		ApplicationName: os.Getenv("YOUTUBE_APP_NAME"),
+		APIKey:          os.Getenv(EnvYouTubeAPIKey),
+		ApplicationName: os.Getenv(EnvYouTubeAppName),
 		MaxResults:      100, // Default value, can be adjusted
 	}
 
 	yelpDeps := abb.YelpDependencies{
-		APIKey:   os.Getenv("YELP_API_KEY"),
-		ClientID: os.Getenv("YELP_CLIENT_ID"),
+		APIKey:   os.Getenv(EnvYelpAPIKey),
+		ClientID: os.Getenv(EnvYelpClientID),
 	}
 
 	googleDeps := abb.GoogleDependencies{
-		APIKey:         os.Getenv("GOOGLE_API_KEY"),
-		SearchEngineID: os.Getenv("GOOGLE_SEARCH_ENGINE_ID"),
+		APIKey:         os.Getenv(EnvGoogleAPIKey),
+		SearchEngineID: os.Getenv(EnvGoogleSearchEngineID),
 	}
 
 	amazonDeps := abb.AmazonDependencies{
-		APIKey:        os.Getenv("AMAZON_API_KEY"),
-		APISecret:     os.Getenv("AMAZON_API_SECRET"),
-		AssociateTag:  os.Getenv("AMAZON_ASSOCIATE_TAG"),
-		MarketplaceID: os.Getenv("AMAZON_MARKETPLACE_ID"),
+		APIKey:        os.Getenv(EnvAmazonAPIKey),
+		APISecret:     os.Getenv(EnvAmazonAPISecret),
+		AssociateTag:  os.Getenv(EnvAmazonAssociateTag),
+		MarketplaceID: os.Getenv(EnvAmazonMarketplaceID),
 	}
 
 	llmDeps := abb.LLMDependencies{
