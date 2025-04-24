@@ -9,13 +9,13 @@ How to add new cursor rules to the project
 1. Always place rule files in PROJECT_ROOT/.cursor/rules/:
     ```
     .cursor/rules/
-    ├── your-rule-name.mdc
-    ├── another-rule.mdc
+    ├── your_rule_name.mdc
+    ├── another_rule.mdc
     └── ...
     ```
 
 2. Follow the naming convention:
-    - Use kebab-case for filenames
+    - Use snake_case for filenames
     - Always use .mdc extension
     - Make names descriptive of the rule's purpose
 
@@ -24,7 +24,7 @@ How to add new cursor rules to the project
     PROJECT_ROOT/
     ├── .cursor/
     │   └── rules/
-    │       ├── your-rule-name.mdc
+    │       ├── your_rule_name.mdc
     │       └── ...
     └── ...
     ```
