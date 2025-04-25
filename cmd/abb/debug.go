@@ -405,7 +405,7 @@ func testPullContent(c *cli.Context) error {
 	}
 
 	// Wait for workflow completion
-	var content string
+	var content []byte
 	if err := run.Get(c.Context, &content); err != nil {
 		return fmt.Errorf("workflow execution failed: %w", err)
 	}
@@ -414,7 +414,7 @@ func testPullContent(c *cli.Context) error {
 	output := struct {
 		Platform  abb.PlatformType `json:"platform"`
 		ContentID string           `json:"content_id"`
-		Content   string           `json:"content"`
+		Content   json.RawMessage  `json:"content"`
 	}{
 		Platform:  platformType,
 		ContentID: contentID,

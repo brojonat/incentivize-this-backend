@@ -109,7 +109,7 @@ type PlatformDependencies interface {
 // when we more explicitly implement this as a graph based agentic workflow.
 type ContentProvider interface {
 	// PullContent pulls content from a platform given a content ID
-	PullContent(ctx context.Context, contentID string) (string, error)
+	PullContent(ctx context.Context, contentID string) ([]byte, error)
 }
 
 // PullContentWorkflowInput represents the input parameters for the workflow
@@ -120,7 +120,7 @@ type PullContentWorkflowInput struct {
 }
 
 // PullContentWorkflow represents the workflow that pulls content from a platform
-func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) (string, error) {
+func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) ([]byte, error) {
 	options := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
@@ -139,47 +139,26 @@ func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) (
 		var redditContent *RedditContent
 		err := workflow.ExecuteActivity(ctx, (*Activities).PullRedditContent, input.ContentID).Get(ctx, &redditContent)
 		if err != nil {
-			return "", fmt.Errorf("failed to pull Reddit content: %w", err)
+			return nil, fmt.Errorf("failed to pull Reddit content: %w", err)
 		}
-		jsonBytes, err := json.Marshal(redditContent) // Marshal to JSON
+		jsonBytes, err := json.Marshal(redditContent)
 		if err != nil {
-			return "", fmt.Errorf("failed to marshal Reddit content: %w", err)
+			return nil, fmt.Errorf("failed to marshal Reddit content: %w", err)
 		}
-		return string(jsonBytes), nil
+		return jsonBytes, nil
 	case PlatformYouTube:
 		var youtubeContent *YouTubeContent
 		err := workflow.ExecuteActivity(ctx, (*Activities).PullYouTubeContent, input.ContentID).Get(ctx, &youtubeContent)
 		if err != nil {
-			return "", fmt.Errorf("failed to pull YouTube content: %w", err)
+			return nil, fmt.Errorf("failed to pull YouTube content: %w", err)
 		}
-		jsonBytes, err := json.Marshal(youtubeContent) // Marshal to JSON
+		jsonBytes, err := json.Marshal(youtubeContent)
 		if err != nil {
-			return "", fmt.Errorf("failed to marshal YouTube content: %w", err)
+			return nil, fmt.Errorf("failed to marshal YouTube content: %w", err)
 		}
-		return string(jsonBytes), nil
-	case PlatformYelp:
-		var content string
-		err := workflow.ExecuteActivity(ctx, (*Activities).PullYelpContent, input.ContentID).Get(ctx, &content)
-		if err != nil {
-			return "", fmt.Errorf("failed to pull Yelp content: %w", err)
-		}
-		return content, nil
-	case PlatformGoogle:
-		var content string
-		err := workflow.ExecuteActivity(ctx, (*Activities).PullGoogleContent, input.ContentID).Get(ctx, &content)
-		if err != nil {
-			return "", fmt.Errorf("failed to pull Google content: %w", err)
-		}
-		return content, nil
-	case PlatformAmazon:
-		var content string
-		err := workflow.ExecuteActivity(ctx, (*Activities).PullAmazonContent, input.ContentID).Get(ctx, &content)
-		if err != nil {
-			return "", fmt.Errorf("failed to pull Amazon content: %w", err)
-		}
-		return content, nil
+		return jsonBytes, nil
 	default:
-		return "", fmt.Errorf("unsupported platform type: %s", input.PlatformType)
+		return nil, fmt.Errorf("unsupported platform type: %s", input.PlatformType)
 	}
 }
 
@@ -190,7 +169,7 @@ type CheckContentRequirementsResult struct {
 }
 
 // CheckContentRequirementsWorkflow represents the workflow that checks if content satisfies requirements
-func CheckContentRequirementsWorkflow(ctx workflow.Context, content string, requirements []string) (CheckContentRequirementsResult, error) {
+func CheckContentRequirementsWorkflow(ctx workflow.Context, content []byte, requirements []string) (CheckContentRequirementsResult, error) {
 	options := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
@@ -419,7 +398,7 @@ func awaitLoopUntilEmptyOrTimeout(
 			SolanaConfig: solanaConfig,
 		}
 
-		var content string
+		var content []byte
 		err := workflow.ExecuteChildWorkflow(ctx, PullContentWorkflow, contentInput).Get(ctx, &content)
 		if err != nil {
 			workflow.GetLogger(ctx).Error("Failed to pull content", "error", err)

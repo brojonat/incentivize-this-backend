@@ -18,9 +18,9 @@ var (
 	// Solana configuration keys from environment
 	EnvSolanaRPCEndpoint    = "SOLANA_RPC_ENDPOINT"
 	EnvSolanaWSEndpoint     = "SOLANA_WS_ENDPOINT"
-	EnvSolanaPrivateKey     = "SOLANA_PRIVATE_KEY"     // Escrow Private Key
-	EnvSolanaEscrowWallet   = "SOLANA_ESCROW_WALLET"   // Escrow Token Account Public Key
-	EnvSolanaTreasuryWallet = "SOLANA_TREASURY_WALLET" // Treasury Wallet Public Key
+	EnvSolanaPrivateKey     = "SOLANA_ESCROW_PRIVATE_KEY"
+	EnvSolanaEscrowWallet   = "SOLANA_ESCROW_WALLET"
+	EnvSolanaTreasuryWallet = "SOLANA_TREASURY_WALLET"
 	EnvSolanaUSDCMint       = "SOLANA_USDC_MINT_ADDRESS"
 
 	// Platform API keys from environment
