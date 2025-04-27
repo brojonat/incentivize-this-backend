@@ -14,6 +14,7 @@ The server provides several API endpoints:
   - `POST /bounties` - Create a new bounty
   - `POST /bounties/pay` - Pay a bounty
   - `POST /bounties/return` - Return a bounty to owner
+  - `GET /bounties/paid` - List all paid bounties
 - **Submission Handling**: Process and verify Reddit content submissions
 
 ### Middleware

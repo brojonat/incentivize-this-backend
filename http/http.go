@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/brojonat/affiliate-bounty-board/http/api"
 	"github.com/brojonat/affiliate-bounty-board/internal/stools"
+	solanago "github.com/gagliardetto/solana-go"
+	solanarpc "github.com/gagliardetto/solana-go/rpc"
 	"go.temporal.io/sdk/client"
 )
 
@@ -121,6 +124,34 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	maxBytes := int64(1048576)
 	headers, methods, origins := GetCORSConfig(ctx)
 
+	rpcEndpoint := os.Getenv(EnvSolanaRPCEndpoint)
+	if rpcEndpoint == "" {
+		return fmt.Errorf("server startup error: %s not set", EnvSolanaRPCEndpoint)
+	}
+	escrowWalletStr := os.Getenv(EnvSolanaEscrowWallet)
+	if escrowWalletStr == "" {
+		return fmt.Errorf("server startup error: %s not set", EnvSolanaEscrowWallet)
+	}
+	escrowWallet, err := solanago.PublicKeyFromBase58(escrowWalletStr)
+	if err != nil {
+		return fmt.Errorf("server startup error: failed to parse escrow wallet public key '%s': %w", escrowWalletStr, err)
+	}
+	usdcMintAddressStr := os.Getenv(EnvSolanaUSDCMintAddress)
+	if usdcMintAddressStr == "" {
+		return fmt.Errorf("server startup error: %s not set", EnvSolanaUSDCMintAddress)
+	}
+	usdcMintAddress, err := solanago.PublicKeyFromBase58(usdcMintAddressStr)
+	if err != nil {
+		return fmt.Errorf("server startup error: failed to parse USDC mint address '%s': %w", usdcMintAddressStr, err)
+	}
+
+	rpcClient := solanarpc.New(rpcEndpoint)
+	_, err = rpcClient.GetHealth(ctx)
+	if err != nil {
+		return fmt.Errorf("server startup error: Solana RPC health check failed for %s: %w", rpcEndpoint, err)
+	}
+	logger.Debug("Successfully connected to Solana RPC", "endpoint", rpcEndpoint)
+
 	// Add routes
 	mux.HandleFunc("GET /ping", stools.AdaptHandler(
 		handlePing(),
@@ -137,6 +168,13 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 
 	mux.HandleFunc("GET /bounties", stools.AdaptHandler(
 		handleListBounties(logger, tc),
+		withLogging(logger),
+		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		apiMode(logger, maxBytes, headers, methods, origins),
+	))
+
+	mux.HandleFunc("GET /bounties/paid", stools.AdaptHandler(
+		handleListPaidBounties(logger, rpcClient, escrowWallet, usdcMintAddress),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
 		apiMode(logger, maxBytes, headers, methods, origins),

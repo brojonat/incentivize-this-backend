@@ -189,7 +189,22 @@ func PayBountyWorkflow(ctx workflow.Context, input PayBountyWorkflowInput) error
 		},
 	}
 	ctx = workflow.WithActivityOptions(ctx, options)
-	err := workflow.ExecuteActivity(ctx, (*Activities).TransferUSDC, input.Wallet, input.Amount.ToUSDC()).Get(ctx, nil)
+
+	// --- Create Memo for Direct Payment --- //
+	type DirectPaymentMemo struct {
+		WorkflowID string `json:"workflow_id"`
+	}
+	memoData := DirectPaymentMemo{WorkflowID: workflow.GetInfo(ctx).WorkflowExecution.ID}
+	memoBytes, err := json.Marshal(memoData)
+	if err != nil {
+		// Log error, but maybe proceed without memo?
+		workflow.GetLogger(ctx).Error("Failed to marshal direct payment memo", "error", err)
+		memoBytes = []byte("{}") // Send empty JSON object as memo
+	}
+	memoString := string(memoBytes)
+	// --- End Memo Creation --- //
+
+	err = workflow.ExecuteActivity(ctx, (*Activities).TransferUSDC, input.Wallet, input.Amount.ToUSDC(), memoString).Get(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to transfer USDC: %w", err)
 	}
@@ -310,6 +325,7 @@ func awaitLoopUntilEmptyOrTimeout(
 	input BountyAssessmentWorkflowInput,
 ) error {
 	logger := workflow.GetLogger(ctx)
+	workflowID := workflow.GetInfo(ctx).WorkflowExecution.ID
 	remainingBounty, err := solana.NewUSDCAmount(input.TotalBounty.ToUSDC())
 	if err != nil {
 		logger.Error("Failed to create mutable copy of remaining bounty", "error", err)
@@ -348,8 +364,21 @@ func awaitLoopUntilEmptyOrTimeout(
 				// Use a context that won't be immediately cancelled by the timer completing
 				refundCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{StartToCloseTimeout: DefaultPayoutTimeout})
 
-				// Call TransferUSDC activity
-				refundErr := workflow.ExecuteActivity(refundCtx, (*Activities).TransferUSDC, input.BountyOwnerWallet, amountToRefund.ToUSDC()).Get(refundCtx, nil)
+				// --- Create Memo for Timeout Refund --- //
+				type RefundMemo struct {
+					WorkflowID string `json:"workflow_id"`
+				}
+				memoData := RefundMemo{WorkflowID: workflowID}
+				memoBytes, mErr := json.Marshal(memoData)
+				if mErr != nil {
+					logger.Error("Failed to marshal refund memo", "error", mErr)
+					memoBytes = []byte("{}")
+				}
+				memoString := string(memoBytes)
+				// --- End Memo Creation --- //
+
+				// Call TransferUSDC activity with memo
+				refundErr := workflow.ExecuteActivity(refundCtx, (*Activities).TransferUSDC, input.BountyOwnerWallet, amountToRefund.ToUSDC(), memoString).Get(refundCtx, nil)
 				if refundErr != nil {
 					// Log error but don't fail the workflow, timeout already happened
 					logger.Error("Failed to return remaining bounty to owner on timeout", "owner_wallet", input.BountyOwnerWallet, "amount", amountToRefund.ToUSDC(), "error", refundErr)
@@ -438,12 +467,31 @@ func awaitLoopUntilEmptyOrTimeout(
 
 				if !payoutAmount.IsZero() {
 					payOpts := workflow.ActivityOptions{StartToCloseTimeout: DefaultPayoutTimeout}
-					// Call TransferUSDC without passing SolanaConfig
+					// --- Create Memo for Payout --- //
+					type PayoutMemo struct {
+						WorkflowID  string `json:"workflow_id"`
+						ContentID   string `json:"content_id"`
+						ContentKind string `json:"content_kind,omitempty"` // Placeholder for future use
+					}
+					memoData := PayoutMemo{
+						WorkflowID: workflowID,
+						ContentID:  signal.ContentID,
+						// ContentKind: nil, // FIXME Explicitly null or omit until we introduce, but this would come from the workflow input
+					}
+					memoBytes, mErr := json.Marshal(memoData)
+					if mErr != nil {
+						logger.Error("Failed to marshal payout memo", "error", mErr)
+						memoBytes = []byte("{}")
+					}
+					memoString := string(memoBytes)
+					// --- End Memo Creation --- //
+
 					payErr := workflow.ExecuteActivity(
 						workflow.WithActivityOptions(ctx, payOpts),
 						(*Activities).TransferUSDC,
 						signal.PayoutWallet,
-						payoutAmount.ToUSDC()).Get(loopCtx, nil)
+						payoutAmount.ToUSDC(),
+						memoString).Get(loopCtx, nil)
 					if payErr != nil {
 						logger.Error("Failed to pay bounty", "ContentID", signal.ContentID, "Wallet", signal.PayoutWallet, "Amount", payoutAmount.ToUSDC(), "error", payErr)
 					} else {
@@ -484,7 +532,19 @@ func awaitLoopUntilEmptyOrTimeout(
 				amountToRefund := remainingBounty
 				logger.Info("Attempting to return remaining bounty to owner", "owner_wallet", input.BountyOwnerWallet, "amount", amountToRefund.ToUSDC())
 				cancelOpts := workflow.ActivityOptions{StartToCloseTimeout: DefaultPayoutTimeout}
-				refundErr := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, cancelOpts), (*Activities).TransferUSDC, input.BountyOwnerWallet, amountToRefund.ToUSDC()).Get(ctx, nil)
+				// --- Create Memo for Cancellation Refund --- //
+				type CancelRefundMemo struct {
+					WorkflowID string `json:"workflow_id"`
+				}
+				memoData := CancelRefundMemo{WorkflowID: workflowID}
+				memoBytes, mErr := json.Marshal(memoData)
+				if mErr != nil {
+					logger.Error("Failed to marshal cancel refund memo", "error", mErr)
+					memoBytes = []byte("{}")
+				}
+				memoString := string(memoBytes)
+				// --- End Memo Creation --- //
+				refundErr := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, cancelOpts), (*Activities).TransferUSDC, input.BountyOwnerWallet, amountToRefund.ToUSDC(), memoString).Get(ctx, nil)
 				if refundErr != nil {
 					logger.Error("Failed to return remaining bounty to owner", "owner_wallet", input.BountyOwnerWallet, "amount", amountToRefund.ToUSDC(), "error", refundErr)
 				} else {

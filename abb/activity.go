@@ -279,107 +279,113 @@ func (a *Activities) CheckContentRequirements(ctx context.Context, content []byt
 	return result, nil
 }
 
-// TransferUSDC pays a bounty to a user (represented by userID as a public key string)
-// by directly transferring USDC from the configured fee payer wallet.
-// Logic from the internal transferUSDC helper has been inlined.
-func (a *Activities) TransferUSDC(ctx context.Context, userID string, amount float64) error {
+// TransferUSDC is an activity that transfers USDC from the escrow account to a user's account
+// It now accepts an optional memo field.
+// func (a *Activities) TransferUSDC(ctx context.Context, userID string, amount float64) error {
+func (a *Activities) TransferUSDC(ctx context.Context, recipientWallet string, amount float64, memo string) error {
 	logger := activity.GetLogger(ctx)
-
-	// Get fresh config
+	// Get configuration from context
 	cfg, err := getConfiguration(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get configuration in TransferUSDC: %w", err)
+		logger.Error("Failed to get configuration", "error", err)
+		return fmt.Errorf("failed to get configuration: %w", err)
 	}
-	solCfg := cfg.SolanaConfig
 
-	logger.Info("TransferUSDC activity started", "userID", userID, "amount", amount)
+	logger.Info("Starting TransferUSDC activity", "recipientWallet", recipientWallet, "amount", amount, "memo", memo)
 
-	// Convert amount to USDCAmount
+	// Validate inputs
+	if recipientWallet == "" {
+		logger.Error("Recipient wallet address is required")
+		return fmt.Errorf("recipient wallet address is required")
+	}
+	recipientPubKey, err := solanago.PublicKeyFromBase58(recipientWallet)
+	if err != nil {
+		logger.Error("Invalid recipient wallet address", "address", recipientWallet, "error", err)
+		return fmt.Errorf("invalid recipient wallet address '%s': %w", recipientWallet, err)
+	}
+	if amount <= 0 {
+		logger.Error("Transfer amount must be positive", "amount", amount)
+		return fmt.Errorf("transfer amount must be positive")
+	}
+	// Ensure Solana config is properly loaded
+	if cfg.SolanaConfig.EscrowPrivateKey == nil {
+		logger.Error("Escrow private key not configured")
+		return fmt.Errorf("escrow private key not configured")
+	}
+	if cfg.SolanaConfig.USDCMintAddress == "" {
+		logger.Error("USDC Mint Address not configured")
+		return fmt.Errorf("usdc mint address not configured")
+	}
+	usdcMint, err := solanago.PublicKeyFromBase58(cfg.SolanaConfig.USDCMintAddress)
+	if err != nil {
+		logger.Error("Invalid USDC Mint Address", "address", cfg.SolanaConfig.USDCMintAddress, "error", err)
+		return fmt.Errorf("invalid usdc mint address '%s': %w", cfg.SolanaConfig.USDCMintAddress, err)
+	}
+
+	// Convert amount to lamports
 	usdcAmount, err := solanautil.NewUSDCAmount(amount)
 	if err != nil {
-		logger.Error("Failed to create USDCAmount from input", "amount", amount, "error", err)
-		return fmt.Errorf("failed to convert amount %.6f to USDCAmount: %w", amount, err)
+		logger.Error("Invalid USDC amount", "amount", amount, "error", err)
+		return fmt.Errorf("invalid usdc amount: %w", err)
 	}
+	lamports := usdcAmount.ToSmallestUnit().Uint64()
 
-	// Convert user ID to a Solana wallet address
-	recipientPublicKey, err := solanago.PublicKeyFromBase58(userID)
-	if err != nil {
-		logger.Error("Invalid user ID format, expected Solana public key string", "userID", userID, "error", err)
-		return fmt.Errorf("invalid user wallet address format '%s': %w", userID, err)
-	}
+	logger.Debug("Transfer details", "from_escrow", cfg.SolanaConfig.EscrowWallet.String(), "to_recipient", recipientPubKey.String(), "mint", usdcMint.String(), "lamports", lamports)
 
-	// 1. Initialize RPC Client
-	client := solanautil.NewRPCClient(solCfg.RPCEndpoint)
-	if err := solanautil.CheckRPCHealth(ctx, client); err != nil {
-		logger.Error("RPC health check failed", "error", err)
-		return fmt.Errorf("RPC health check failed: %w", err)
-	}
+	// Create RPC Client (using config)
+	rpcClient := solanautil.NewRPCClient(cfg.SolanaConfig.RPCEndpoint)
 
-	// 2. Load Keys and Addresses
-	if solCfg.EscrowPrivateKey == nil {
-		logger.Error("Escrow private key is missing in Solana configuration")
-		return fmt.Errorf("escrow private key missing in config")
-	}
-	senderPrivateKey := *solCfg.EscrowPrivateKey
-
-	// Get the Owner wallet address (the escrow wallet)
-	escrowWalletOwner := solCfg.EscrowWallet
-
-	// Parse the USDC mint address
-	usdcMint, err := solanago.PublicKeyFromBase58(solCfg.USDCMintAddress)
-	if err != nil {
-		// This is a config error, likely fatal for this activity
-		logger.Error("Failed to parse USDC mint address from config", "mint", solCfg.USDCMintAddress, "error", err)
-		return fmt.Errorf("invalid USDC mint address in config: %w", err)
-	}
-
-	// Find the Associated Token Account (ATA) for the escrow wallet and USDC mint
-	escrowAtaAddress, _, err := solanago.FindAssociatedTokenAddress(escrowWalletOwner, usdcMint)
-	if err != nil {
-		// ATA derivation should not fail unless inputs are wrong, treat as fatal
-		logger.Error("Failed to derive ATA for escrow wallet", "owner", escrowWalletOwner, "mint", usdcMint, "error", err)
-		return fmt.Errorf("failed to find ATA for escrow wallet: %w", err)
-	}
-	logger.Info("Checking balance for derived Escrow USDC ATA", "ata_address", escrowAtaAddress.String())
-
-	// 3. Convert amount to uint64 base units
-	amountBaseUnits := usdcAmount.ToSmallestUnit().Uint64()
-	if amountBaseUnits == 0 {
-		logger.Warn("Transfer amount is zero, skipping transfer.")
-		// Consider if zero amount should be an error depending on requirements
-		return nil
-	}
-
-	// 4. Send USDC using the solana package function
-	logger.Info("Sending USDC transaction...", "sender", senderPrivateKey.PublicKey(), "recipient", recipientPublicKey, "amount_base_units", amountBaseUnits)
-	sig, err := solanautil.SendUSDC(
-		ctx,
-		client,
+	// Perform the transfer with memo
+	txSig, err := solanautil.SendUSDCWithMemo(
+		ctx, // Use activity context
+		rpcClient,
 		usdcMint,
-		senderPrivateKey,
-		recipientPublicKey, // Use the already parsed recipient key
-		amountBaseUnits,
+		*cfg.SolanaConfig.EscrowPrivateKey, // Use configured private key
+		recipientPubKey,
+		lamports,
+		memo, // Pass the memo here
 	)
 	if err != nil {
-		logger.Error("Failed to send USDC transaction via solana package", "error", err)
-		// TODO: Check if the error indicates recipient ATA doesn't exist and provide a better error message or handle creation.
-		return fmt.Errorf("failed to send USDC: %w", err)
+		logger.Error("Failed to send USDC transfer", "error", err)
+		return fmt.Errorf("failed to send usdc: %w", err)
 	}
-	logger.Info("Transaction sent", "signature", sig.String())
 
-	// 5. Confirm the transaction
-	// The overall activity timeout should handle excessive confirmation waits.
-	logger.Info("Waiting for transaction confirmation...", "signature", sig.String())
-	err = solanautil.ConfirmTransaction(ctx, client, sig, rpc.CommitmentFinalized)
+	logger.Info("USDC transfer submitted", "signature", txSig.String())
+
+	// Optionally wait for confirmation (consider timeout)
+	confirmCtx, cancel := context.WithTimeout(ctx, 60*time.Second) // Example timeout
+	defer cancel()
+	err = solanautil.ConfirmTransaction(confirmCtx, rpcClient, txSig, rpc.CommitmentFinalized)
 	if err != nil {
-		logger.Error("Transaction confirmation failed", "signature", sig.String(), "error", err)
-		// Decide if confirmation failure should be a hard error for the activity
-		return fmt.Errorf("failed to confirm transaction %s: %w", sig, err)
+		// Log warning but maybe don't fail the activity entirely?
+		// The transfer might still succeed even if confirmation times out here.
+		logger.Warn("Failed to confirm transaction within timeout, but proceeding", "signature", txSig.String(), "error", err)
+	} else {
+		logger.Info("USDC transfer confirmed", "signature", txSig.String())
 	}
 
-	logger.Info("TransferUSDC activity completed successfully", "userID", userID, "amount", amount, "signature", sig.String())
 	return nil
 }
+
+// Define the structure for the payout memo
+// type PayoutMemoData struct {
+// 	WorkflowID  string `json:"workflow_id"`
+// 	ContentID   string `json:"content_id"`
+// 	ContentKind string `json:"content_kind,omitempty"` // Initially null
+// }
+
+// RefundMemoData defines the structure for the refund memo
+// type RefundMemoData struct {
+// 	WorkflowID string `json:"workflow_id"`
+// }
+
+// DirectPaymentMemoData defines the structure for direct payment memos
+// type DirectPaymentMemoData struct {
+// 	WorkflowID string `json:"workflow_id"`
+// }
+
+// VerifyPayment is an activity that checks if a specific payment has been received.
+// It polls the Solana network for transactions matching the criteria.
 
 // LLMDependencies holds the dependencies for LLM-related activities
 type LLMDependencies struct {

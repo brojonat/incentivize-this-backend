@@ -73,8 +73,8 @@ func TestWorkflow(t *testing.T) {
 			// SolanaConfig: testConfig,
 		}
 
-		// Mock activity calls using the instance - expect context, string, float64
-		env.OnActivity(activities.TransferUSDC, mock.Anything, payInput.Wallet, payInput.Amount.ToUSDC()).Return(nil)
+		// Mock activity calls using the instance - expect context, recipientWallet string, amount float64, memo string
+		env.OnActivity(activities.TransferUSDC, mock.Anything, payInput.Wallet, payInput.Amount.ToUSDC(), mock.AnythingOfType("string")).Return(nil)
 
 		env.ExecuteWorkflow(PayBountyWorkflow, payInput)
 		assert.NoError(t, env.GetWorkflowError())
@@ -140,8 +140,8 @@ func TestWorkflow(t *testing.T) {
 				Reason:    "Content meets requirements",
 			}, nil)
 
-		// Mock TransferUSDC call for returning bounty to owner - expect context, string, float64
-		env.OnActivity(activities.TransferUSDC, mock.Anything, "test-owner", mock.AnythingOfType("float64")).Return(nil)
+		// Mock TransferUSDC call for returning bounty to owner - expect context, recipientWallet string, amount float64, memo string
+		env.OnActivity(activities.TransferUSDC, mock.Anything, "test-owner", mock.AnythingOfType("float64"), mock.AnythingOfType("string")).Return(nil)
 
 		// Just verify the activity registration is successful
 		assert.NoError(t, err)
@@ -228,14 +228,14 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 		}, nil)
 
 	// Set up mock expectations
-	// Payout mock (assuming one signal is sent)
-	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC()).Return(nil).Once()
+	// Payout mock (assuming one signal is sent) - Expect memo
+	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Once()
 
 	// Refund mock - Expect remaining amount (totalBounty = 9.0)
-	// After one payout of 1.0, remaining should be 8.0
+	// After one payout of 1.0, remaining should be 8.0 - Expect memo
 	remainingBounty, err := solana.NewUSDCAmount(8.0)
 	require.NoError(t, err)
-	env.OnActivity(activities.TransferUSDC, mock.Anything, ownerWallet.PublicKey().String(), remainingBounty.ToUSDC()).
+	env.OnActivity(activities.TransferUSDC, mock.Anything, ownerWallet.PublicKey().String(), remainingBounty.ToUSDC(), mock.AnythingOfType("string")).
 		Run(func(args mock.Arguments) {
 			// t.Logf("Refund Mock .Run() called: owner=%s, amount=%v (type: %T)", args.String(1), args.Get(2), args.Get(2))
 		}).
@@ -332,18 +332,8 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 		mock.Anything,                               // Context
 		ownerWallet.PublicKey().String(),            // Owner wallet
 		originalTotalBounty.Sub(feeAmount).ToUSDC(), // Expect the full user-payable amount (totalBounty = 9.0) on timeout refund
-	).Run(func(args mock.Arguments) { // Add Run back for logging and signaling
-		// owner := args.String(1)
-		// amountArg := args.Get(2)
-		// t.Logf("Refund Mock .Run() called: owner=%s, amount=%v (type: %T)", owner, amountArg, amountArg)
-		// Non-blocking send to signal execution for manual verification
-		// select {
-		// case mockCalled <- struct{}{}:
-		// 	t.Logf("Successfully signaled refundCalled channel")
-		// default:
-		// 	t.Logf("Could not signal refundCalled channel (already full or no receiver?)")
-		// }
-	}).Return(nil).Maybe() // Use Maybe() to indicate this call might or might not happen
+		mock.AnythingOfType("string"),               // Expect memo
+	).Return(nil).Maybe() // Simplified: Removed .Run()
 
 	// Create test input
 	input := BountyAssessmentWorkflowInput{
@@ -412,12 +402,12 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 	env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.AnythingOfType("[]uint8"), mock.AnythingOfType("[]string")).
 		Return(CheckContentRequirementsResult{Satisfies: true, Reason: "OK"}, nil).Once()
 
-	// Mock TransferUSDC (Payout) - Called Once for the specific payout
-	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC()).Return(nil).Once()
+	// Mock TransferUSDC (Payout) - Called Once for the specific payout - Expect memo
+	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Once()
 
-	// Mock TransferUSDC (Return to Owner upon Timeout)
+	// Mock TransferUSDC (Return to Owner upon Timeout) - Expect memo
 	cancelRefundAmount := totalBounty.Sub(bountyPerPost)
-	env.OnActivity(activities.TransferUSDC, mock.Anything, ownerWallet.PublicKey().String(), cancelRefundAmount.ToUSDC()).Return(nil).Once()
+	env.OnActivity(activities.TransferUSDC, mock.Anything, ownerWallet.PublicKey().String(), cancelRefundAmount.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Once()
 
 	input := BountyAssessmentWorkflowInput{
 		Requirements:        []string{"Idempotency Test"},
@@ -502,14 +492,15 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 	env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.AnythingOfType("[]uint8"), mock.AnythingOfType("[]string")).Return(CheckContentRequirementsResult{Satisfies: false, Reason: "Did not meet criteria"}, nil).Once()
 
 	// Expect NO payout transfer
-	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC()).Return(nil).Never()
+	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Never()
 
 	// Expect refund transfer to the owner for the full remaining USER PAYABLE bounty.
-	// Use Sub method here as well
+	// Use Sub method here as well - Expect memo
 	env.OnActivity(activities.TransferUSDC,
 		mock.Anything,
 		ownerWallet.PublicKey().String(),
 		totalBounty.ToUSDC(),
+		mock.AnythingOfType("string"), // Expect memo argument
 	).Run(func(args mock.Arguments) { // Add Run back for logging and signaling
 		// owner := args.String(1)
 		// amountArg := args.Get(2)
@@ -770,7 +761,7 @@ func TestPayBountyWorkflow(t *testing.T) {
 
 	// Mock activity using the instance method
 	// Ensure arguments match TransferUSDC: ctx, toAccount (string), amount (float64)
-	env.OnActivity(activities.TransferUSDC, mock.Anything, mock.AnythingOfType("string"), mock.AnythingOfType("float64")).
+	env.OnActivity(activities.TransferUSDC, mock.Anything, mock.AnythingOfType("string"), mock.AnythingOfType("float64"), mock.AnythingOfType("string")).
 		Return(nil)
 
 	// Create test input

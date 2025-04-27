@@ -4,13 +4,17 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/abb"
 	"github.com/brojonat/affiliate-bounty-board/internal/stools"
 	"github.com/brojonat/affiliate-bounty-board/solana"
+	solanagrpc "github.com/gagliardetto/solana-go/rpc"
+
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
 	"go.temporal.io/api/enums/v1"
@@ -54,6 +58,20 @@ type BountyListItem struct {
 	BountyOwnerWallet string           `json:"bounty_owner_wallet"`
 	PlatformType      abb.PlatformType `json:"platform_type"`
 	CreatedAt         time.Time        `json:"created_at"`
+}
+
+// PaidBountyItem represents a single paid bounty in the list response
+type PaidBountyItem struct {
+	Signature            string    `json:"signature"`
+	Timestamp            time.Time `json:"timestamp"`
+	RecipientOwnerWallet string    `json:"recipient_owner_wallet"`
+	Amount               float64   `json:"amount"`         // Amount in USDC
+	Memo                 string    `json:"memo,omitempty"` // Transaction memo, if any
+}
+
+// lamportsToUSDC converts lamports (uint64) to USDC (float64) assuming 6 decimal places.
+func lamportsToUSDC(lamports uint64) float64 {
+	return float64(lamports) / math.Pow10(6)
 }
 
 // BountyLister defines the interface for listing bounties
@@ -426,5 +444,113 @@ func handleAssessContent(l *slog.Logger, tc client.Client) http.HandlerFunc {
 		writeJSONResponse(w, DefaultJSONResponse{
 			Message: "Content assessment initiated",
 		}, http.StatusOK)
+	}
+}
+
+// handleListPaidBounties handles listing all paid bounties
+func handleListPaidBounties(l *slog.Logger, rpcClient *solanagrpc.Client, escrowWallet solanago.PublicKey, usdcMintAddress solanago.PublicKey) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+
+		// Derive the Associated Token Account (ATA) for the escrow wallet
+		escrowATA, _, err := solanago.FindAssociatedTokenAddress(escrowWallet, usdcMintAddress)
+		if err != nil {
+			writeInternalError(l, w, fmt.Errorf("failed to find escrow ATA: %w", err))
+			return
+		}
+
+		// Fetch recent transaction signatures for the escrow ATA
+		limit := 100 // Limit the number of signatures to fetch
+		signatures, err := rpcClient.GetSignaturesForAddressWithOpts(r.Context(), escrowATA, &solanagrpc.GetSignaturesForAddressOpts{
+			Limit:      &limit,
+			Commitment: solanagrpc.CommitmentFinalized,
+		})
+		if err != nil {
+			writeInternalError(l, w, fmt.Errorf("failed to get signatures for escrow ATA %s: %w", escrowATA, err))
+			return
+		}
+
+		paidBounties := make([]PaidBountyItem, 0, len(signatures))
+		for _, sigInfo := range signatures {
+			if sigInfo.Err != nil {
+				l.Warn("Skipping signature with error", "signature", sigInfo.Signature.String(), "error", sigInfo.Err)
+				continue
+			}
+
+			tx, err := rpcClient.GetTransaction(r.Context(), sigInfo.Signature, &solanagrpc.GetTransactionOpts{
+				Encoding:   solanago.EncodingBase64, // Use Base64 for easier parsing if needed, or JSONParsed if available/preferred
+				Commitment: solanagrpc.CommitmentFinalized,
+			})
+			if err != nil {
+				l.Error("Failed to get transaction details", "signature", sigInfo.Signature.String(), "error", err)
+				continue
+			}
+			if tx == nil || tx.Meta == nil {
+				l.Warn("Skipping transaction without metadata", "signature", sigInfo.Signature.String())
+				continue
+			}
+
+			// Find the outgoing USDC transfer from the escrow ATA
+			var recipientOwnerWallet string
+			var transferAmountLamports uint64
+
+			// Check pre/post token balances for the transfer
+			for i, preBal := range tx.Meta.PreTokenBalances {
+				if i >= len(tx.Meta.PostTokenBalances) {
+					break // Avoid index out of bounds
+				}
+				postBal := tx.Meta.PostTokenBalances[i]
+
+				// Check if this balance is for the escrow ATA and the correct mint
+				if preBal.Mint.Equals(usdcMintAddress) && preBal.Owner.Equals(escrowWallet) {
+					// Check if the balance decreased (indicating an outgoing transfer)
+					preAmount, _ := strconv.ParseUint(preBal.UiTokenAmount.Amount, 10, 64)
+					postAmount, _ := strconv.ParseUint(postBal.UiTokenAmount.Amount, 10, 64)
+
+					if postAmount < preAmount {
+						transferAmountLamports = preAmount - postAmount
+						l.Debug("Potential outgoing transfer found in balances", "signature", sigInfo.Signature.String(), "fromATA", escrowATA.String(), "amountLamports", transferAmountLamports)
+
+						// Now find the recipient by looking for the account with the increased balance
+						for j, destPreBal := range tx.Meta.PreTokenBalances {
+							if j >= len(tx.Meta.PostTokenBalances) {
+								break
+							}
+							destPostBal := tx.Meta.PostTokenBalances[j]
+							if destPreBal.Mint.Equals(usdcMintAddress) {
+								destPreAmount, _ := strconv.ParseUint(destPreBal.UiTokenAmount.Amount, 10, 64)
+								destPostAmount, _ := strconv.ParseUint(destPostBal.UiTokenAmount.Amount, 10, 64)
+								if destPostAmount > destPreAmount && (destPostAmount-destPreAmount) == transferAmountLamports {
+									recipientOwnerWallet = destPostBal.Owner.String() // Get the *owner* of the destination ATA
+									l.Debug("Recipient found in balances", "signature", sigInfo.Signature.String(), "recipientOwner", recipientOwnerWallet, "recipientATAIndex", destPostBal.AccountIndex)
+									break // Found recipient
+								}
+							}
+						}
+						break // Found the outgoing transfer from escrow
+					}
+				}
+			}
+
+			// If we found a valid outgoing transfer from escrow ATA via token balances
+			if recipientOwnerWallet != "" && transferAmountLamports > 0 {
+				amountUSDC := lamportsToUSDC(transferAmountLamports)
+
+				paidBounty := PaidBountyItem{
+					Signature:            sigInfo.Signature.String(),
+					Timestamp:            time.Unix(int64(*sigInfo.BlockTime), 0).UTC(),
+					RecipientOwnerWallet: recipientOwnerWallet,
+					Amount:               amountUSDC,
+				}
+				if sigInfo.Memo != nil {
+					paidBounty.Memo = *sigInfo.Memo
+				}
+				paidBounties = append(paidBounties, paidBounty)
+			} else {
+				l.Debug("No outgoing USDC transfer from escrow ATA found in transaction", "signature", sigInfo.Signature.String())
+			}
+		}
+
+		l.Info("Finished processing signatures", "found_payments", len(paidBounties))
+		writeJSONResponse(w, paidBounties, http.StatusOK)
 	}
 }
