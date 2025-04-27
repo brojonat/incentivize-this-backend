@@ -365,10 +365,6 @@ func testPullContent(c *cli.Context) error {
 		platformType = abb.PlatformReddit
 	case "youtube":
 		platformType = abb.PlatformYouTube
-	case "yelp":
-		platformType = abb.PlatformYelp
-	case "google":
-		platformType = abb.PlatformGoogle
 	default:
 		return fmt.Errorf("unsupported platform: %s. Supported platforms: reddit, youtube, yelp, google", platformStr)
 	}

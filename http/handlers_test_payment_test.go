@@ -19,12 +19,13 @@ import (
 func TestHandlePayBounty(t *testing.T) {
 	// Set up environment variables
 	escrowPrivateKey := "4rQanLjnJBqLfvK1yQXWFohkXY6tCTnoCWVbQfRKEBQAQYmMYHR6eGUNzFQ8hbLuGZJA1PLHUMkwtRhXpNigmz7M"
-	escrowTokenAccount := "DRpbCBMxVnDK7maPM5tPv6dpHGZPWQVr7zr7DgRv9YTB"
+	escrowWallet := "DRpbCBMxVnDK7maPM5tPv6dpHGZPWQVr7zr7DgRv9YTB"
 
-	os.Setenv("SOLANA_ESCROW_PRIVATE_KEY", escrowPrivateKey)
-	os.Setenv("SOLANA_ESCROW_TOKEN_ACCOUNT", escrowTokenAccount)
-	os.Setenv("SOLANA_RPC_ENDPOINT", "https://api.testnet.solana.com")
-	os.Setenv("SOLANA_WS_ENDPOINT", "wss://api.testnet.solana.com")
+	os.Setenv(EnvSolanaEscrowPrivateKey, escrowPrivateKey)
+	os.Setenv(EnvSolanaEscrowWallet, escrowWallet)
+	os.Setenv(EnvSolanaRPCEndpoint, "https://api.testnet.solana.com")
+	os.Setenv(EnvSolanaWSEndpoint, "wss://api.testnet.solana.com")
+	os.Setenv(EnvSolanaUSDCMintAddress, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
 
 	// Create logger
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))

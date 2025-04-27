@@ -50,9 +50,9 @@ func TestDefaultPayoutCalculator(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Setup environment if needed
 			if tc.shouldSetEnvVar {
-				oldVal := os.Getenv("USER_REVENUE_SHARE_PCT")
-				os.Setenv("USER_REVENUE_SHARE_PCT", tc.envValue)
-				defer os.Setenv("USER_REVENUE_SHARE_PCT", oldVal)
+				oldVal := os.Getenv(EnvUserRevenueSharePct)
+				os.Setenv(EnvUserRevenueSharePct, tc.envValue)
+				defer os.Setenv(EnvUserRevenueSharePct, oldVal)
 			}
 
 			// Create calculator and test
@@ -85,8 +85,8 @@ func TestPayoutCalculatorIntegration(t *testing.T) {
 	}
 
 	// Test with 100% share (no fee)
-	os.Setenv("USER_REVENUE_SHARE_PCT", "100")
-	defer os.Setenv("USER_REVENUE_SHARE_PCT", "")
+	os.Setenv(EnvUserRevenueSharePct, "100")
+	defer os.Setenv(EnvUserRevenueSharePct, "")
 	noFeeCalc := DefaultPayoutCalculator()
 
 	userBountyPerPost = noFeeCalc(originalBountyPerPost)

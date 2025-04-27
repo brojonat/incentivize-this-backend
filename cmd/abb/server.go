@@ -15,13 +15,12 @@ import (
 )
 
 const (
-	ServerEnvSolanaTreasuryWallet = "SOLANA_TREASURY_WALLET"
-	EnvServerPort                 = "SERVER_PORT"
-	EnvTemporalAddress            = "TEMPORAL_ADDRESS"
-	EnvTemporalNamespace          = "TEMPORAL_NAMESPACE"
-	EnvCORSHaders                 = "CORS_HEADERS"
-	EnvCORSMethods                = "CORS_METHODS"
-	EnvCORSOrigins                = "CORS_ORIGINS"
+	EnvServerPort        = "SERVER_PORT"
+	EnvTemporalAddress   = "TEMPORAL_ADDRESS"
+	EnvTemporalNamespace = "TEMPORAL_NAMESPACE"
+	EnvCORSHaders        = "CORS_HEADERS"
+	EnvCORSMethods       = "CORS_METHODS"
+	EnvCORSOrigins       = "CORS_ORIGINS"
 )
 
 func serverCommands() []*cli.Command {

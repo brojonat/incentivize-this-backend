@@ -36,12 +36,10 @@ The system supports multiple content platforms with a flexible architecture that
 ### Supported Platforms
 
 - **Reddit**
-  - Supports both posts (t3*) and comments (t1*)
+  - Supports posts (t3*) and comments (t1*)
   - Requires OAuth2 authentication
   - Returns formatted content with author and subreddit information
 - **YouTube** (placeholder)
-- **Yelp** (placeholder)
-- **Google** (placeholder)
 
 ### Example: Starting a Bounty Assessment Workflow for Different Platforms
 
@@ -125,13 +123,13 @@ content := FormatYouTubeContent(youtubeContent)
 
 ### Implementing a New Platform
 
-To add support for a new platform:
+To add support for a new platform (e.g., "NewPlatform"):
 
 1. Define a new platform type constant in `activity.go`:
 
 ```go
 const (
-    PlatformNewPlatform PlatformType = "new_platform"
+    PlatformNewPlatform PlatformType = "newplatform"
 )
 ```
 
@@ -162,12 +160,13 @@ func (a *Activities) PullNewPlatformContent(contentID string) (string, error) {
 
 ```go
 case PlatformNewPlatform:
-    deps, ok := input.Dependencies.(NewPlatformDependencies)
-    if !ok {
-        return "", fmt.Errorf("invalid dependencies for NewPlatform")
-    }
-    activities.newPlatformDeps = deps
-    err = workflow.ExecuteActivity(ctx, activities.PullNewPlatformContent, input.ContentID).Get(ctx, &result)
+    // Example: Call the new activity
+    // var newContent string
+    // err = workflow.ExecuteActivity(ctx, (*Activities).PullNewPlatformContent, input.ContentID).Get(ctx, &newContent)
+    // if err == nil {
+    //    contentBytes = []byte(newContent)
+    // }
+    return nil, fmt.Errorf("platform handler for NewPlatform not fully implemented in PullContentWorkflow")
 ```
 
 ## Testing

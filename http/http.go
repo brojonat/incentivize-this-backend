@@ -14,6 +14,19 @@ import (
 	"go.temporal.io/sdk/client"
 )
 
+// Environment Variable Keys
+const (
+	EnvSolanaEscrowPrivateKey = "SOLANA_ESCROW_PRIVATE_KEY"
+	EnvSolanaEscrowWallet     = "SOLANA_ESCROW_WALLET"
+	EnvSolanaRPCEndpoint      = "SOLANA_RPC_ENDPOINT"
+	EnvSolanaWSEndpoint       = "SOLANA_WS_ENDPOINT"
+	EnvSolanaUSDCMintAddress  = "SOLANA_USDC_MINT_ADDRESS"
+	EnvTaskQueue              = "TASK_QUEUE"
+	EnvUserRevenueSharePct    = "USER_REVENUE_SHARE_PCT"
+	EnvServerSecretKey        = "SERVER_SECRET_KEY"
+	EnvSolanaTreasuryWallet   = "SOLANA_TREASURY_WALLET"
+)
+
 type corsConfigKey struct{}
 
 // GetCORSConfig retrieves CORS configuration from the context
@@ -46,7 +59,7 @@ type PayoutCalculator func(totalAmount float64) float64
 func DefaultPayoutCalculator() PayoutCalculator {
 	// Parse user revenue share percentage from environment variable (default to 50%)
 	userRevSharePct := 50.0
-	if pctStr := os.Getenv("USER_REVENUE_SHARE_PCT"); pctStr != "" {
+	if pctStr := os.Getenv(EnvUserRevenueSharePct); pctStr != "" {
 		if pct, err := strconv.ParseFloat(pctStr, 64); err == nil {
 			// Ensure the percentage is within bounds
 			if pct >= 0 && pct <= 100 {

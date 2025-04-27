@@ -268,5 +268,5 @@ type DefaultJSONResponse struct {
 }
 
 func getSecretKey() string {
-	return os.Getenv("SERVER_SECRET_KEY")
+	return os.Getenv(EnvServerSecretKey)
 }

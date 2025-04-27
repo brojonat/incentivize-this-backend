@@ -103,15 +103,15 @@ func handlePayBounty(l *slog.Logger, tc client.Client) http.HandlerFunc {
 		}
 
 		// Create Solana config (Assuming default escrow account is used for sending)
-		privateKeyStr := os.Getenv("SOLANA_ESCROW_PRIVATE_KEY")
-		tokenAccountStr := os.Getenv("SOLANA_ESCROW_TOKEN_ACCOUNT")
+		privateKeyStr := os.Getenv(EnvSolanaEscrowPrivateKey)
+		escrowWalletStr := os.Getenv(EnvSolanaEscrowWallet) // Use owner wallet
 
 		if privateKeyStr == "" {
-			writeInternalError(l, w, fmt.Errorf("SOLANA_ESCROW_PRIVATE_KEY must be set"))
+			writeInternalError(l, w, fmt.Errorf("%s must be set", EnvSolanaEscrowPrivateKey))
 			return
 		}
-		if tokenAccountStr == "" {
-			writeInternalError(l, w, fmt.Errorf("SOLANA_ESCROW_TOKEN_ACCOUNT must be set"))
+		if escrowWalletStr == "" {
+			writeInternalError(l, w, fmt.Errorf("%s must be set", EnvSolanaEscrowWallet))
 			return
 		}
 
@@ -121,24 +121,25 @@ func handlePayBounty(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			return
 		}
 
-		escrowTokenAccount, err := solanago.PublicKeyFromBase58(tokenAccountStr)
+		escrowWallet, err := solanago.PublicKeyFromBase58(escrowWalletStr) // Parse owner wallet
 		if err != nil {
-			writeInternalError(l, w, fmt.Errorf("failed to parse escrow token account: %w", err))
+			writeInternalError(l, w, fmt.Errorf("failed to parse escrow wallet: %w", err))
 			return
 		}
 
 		solanaConfig := abb.SolanaConfig{
-			RPCEndpoint:      os.Getenv("SOLANA_RPC_ENDPOINT"),
-			WSEndpoint:       os.Getenv("SOLANA_WS_ENDPOINT"),
+			RPCEndpoint:      os.Getenv(EnvSolanaRPCEndpoint),
+			WSEndpoint:       os.Getenv(EnvSolanaWSEndpoint),
 			EscrowPrivateKey: &escrowPrivateKey,
-			EscrowWallet:     escrowTokenAccount,
+			EscrowWallet:     escrowWallet, // Assign owner wallet
+			USDCMintAddress:  os.Getenv(EnvSolanaUSDCMintAddress),
 		}
 
 		// Execute workflow
 		workflowID := fmt.Sprintf("pay-bounty-%s", uuid.New().String())
 		workflowOptions := client.StartWorkflowOptions{
 			ID:        workflowID,
-			TaskQueue: os.Getenv("TASK_QUEUE"),
+			TaskQueue: os.Getenv(EnvTaskQueue),
 		}
 
 		// Pass req.Wallet to the workflow input field (assuming it's named ToAccount there)
@@ -238,48 +239,32 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 		}
 
 		// --- Populate SolanaConfig from Server Environment ---
-		privateKeyStr := os.Getenv("SOLANA_ESCROW_PRIVATE_KEY")
-		escrowWalletStr := os.Getenv("SOLANA_ESCROW_WALLET")
-		rpcEndpoint := os.Getenv("SOLANA_RPC_ENDPOINT")
-		wsEndpoint := os.Getenv("SOLANA_WS_ENDPOINT") // Optional, ok if empty
-		usdcMintAddr := os.Getenv("SOLANA_USDC_MINT_ADDRESS")
+		privateKeyStr := os.Getenv(EnvSolanaEscrowPrivateKey)
+		escrowWalletStr := os.Getenv(EnvSolanaEscrowWallet)
+		rpcEndpoint := os.Getenv(EnvSolanaRPCEndpoint)
+		usdcMintAddr := os.Getenv(EnvSolanaUSDCMintAddress)
+		treasuryWalletStr := os.Getenv(EnvSolanaTreasuryWallet)
 
 		if privateKeyStr == "" {
-			writeInternalError(logger, w, fmt.Errorf("server config error: SOLANA_ESCROW_PRIVATE_KEY not set"))
+			writeInternalError(logger, w, fmt.Errorf("server config error: %s not set", EnvSolanaEscrowPrivateKey))
 			return
 		}
 		if escrowWalletStr == "" {
-			writeInternalError(logger, w, fmt.Errorf("server config error: SOLANA_ESCROW_WALLET not set"))
+			writeInternalError(logger, w, fmt.Errorf("server config error: %s not set", EnvSolanaEscrowWallet))
 			return
 		}
 		if rpcEndpoint == "" {
-			writeInternalError(logger, w, fmt.Errorf("server config error: SOLANA_RPC_ENDPOINT not set"))
+			writeInternalError(logger, w, fmt.Errorf("server config error: %s not set", EnvSolanaRPCEndpoint))
 			return
 		}
 		if usdcMintAddr == "" {
-			writeInternalError(logger, w, fmt.Errorf("server config error: SOLANA_USDC_MINT_ADDRESS not set"))
+			writeInternalError(logger, w, fmt.Errorf("server config error: %s not set", EnvSolanaUSDCMintAddress))
 			return
 		}
-
-		escrowPrivateKey, err := solanago.PrivateKeyFromBase58(privateKeyStr)
-		if err != nil {
-			writeInternalError(logger, w, fmt.Errorf("failed to parse escrow private key from env: %w", err))
+		if treasuryWalletStr == "" {
+			writeInternalError(logger, w, fmt.Errorf("server config error: %s not set", EnvSolanaTreasuryWallet))
 			return
 		}
-		escrowWallet, err := solanago.PublicKeyFromBase58(escrowWalletStr)
-		if err != nil {
-			writeInternalError(logger, w, fmt.Errorf("failed to parse escrow wallet public key from env: %w", err))
-			return
-		}
-
-		solanaConfig := abb.SolanaConfig{
-			RPCEndpoint:      rpcEndpoint,
-			WSEndpoint:       wsEndpoint,
-			EscrowPrivateKey: &escrowPrivateKey,
-			EscrowWallet:     escrowWallet,
-			USDCMintAddress:  usdcMintAddr,
-		}
-		// --- End SolanaConfig Population ---
 
 		// Convert ORIGINAL total bounty for verification
 		originalTotalBountyAmount, err := solana.NewUSDCAmount(req.TotalBounty)
@@ -299,14 +284,13 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 			PlatformType:        req.PlatformType,
 			Timeout:             24 * time.Hour * 7,     // Default bounty active duration (e.g., 1 week)
 			PaymentTimeout:      paymentTimeoutDuration, // Use duration from request
-			SolanaConfig:        solanaConfig,           // Assign the populated config
 		}
 
 		// Execute workflow
 		workflowID := fmt.Sprintf("bounty-%s", uuid.New().String())
 		workflowOptions := client.StartWorkflowOptions{
 			ID:        workflowID,
-			TaskQueue: os.Getenv("TASK_QUEUE"),
+			TaskQueue: os.Getenv(EnvTaskQueue),
 		}
 
 		_, err = tc.ExecuteWorkflow(r.Context(), workflowOptions, abb.BountyAssessmentWorkflow, input)

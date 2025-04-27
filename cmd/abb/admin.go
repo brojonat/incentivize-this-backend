@@ -386,11 +386,11 @@ func fundEscrowAction(ctx *cli.Context) error {
 		fmt.Println("  Transaction confirmed successfully!")
 	}
 
-	fmt.Println("Escrow funding process complete.")
-	fmt.Println("FIXME: this should not be sending to bounties that are already funded!" +
-		"We can fix this by checking the bounty status before sending the transaction, but" +
-		"we need to expose that state from inside the workflow." +
-		"we also want to make sure this bounty exists before sending the transaction.")
+	fmt.Println("Escrow funding process complete. ")
+	fmt.Println("FIXME: this should not be sending to bounties that are already funded! " +
+		"We can fix this by checking the bounty status before sending the transaction, but " +
+		"we need to expose that state from inside the workflow. " +
+		"We also want to make sure this bounty exists before sending the transaction.")
 	return nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -29,13 +30,52 @@ const (
 	PlatformReddit PlatformType = "reddit"
 	// PlatformYouTube represents the YouTube platform
 	PlatformYouTube PlatformType = "youtube"
-	// PlatformYelp represents the Yelp platform
-	PlatformYelp PlatformType = "yelp"
-	// PlatformGoogle represents the Google platform
-	PlatformGoogle PlatformType = "google"
-	// PlatformAmazon represents the Amazon platform
-	PlatformAmazon PlatformType = "amazon"
 )
+
+// Environment Variable Keys for Activities
+const (
+	EnvSolanaEscrowPrivateKey = "SOLANA_ESCROW_PRIVATE_KEY"
+	EnvSolanaEscrowWallet     = "SOLANA_ESCROW_WALLET"
+	EnvSolanaTreasuryWallet   = "SOLANA_TREASURY_WALLET"
+	EnvSolanaUSDCMintAddress  = "SOLANA_USDC_MINT_ADDRESS"
+	EnvSolanaRPCEndpoint      = "SOLANA_RPC_ENDPOINT"
+	EnvSolanaWSEndpoint       = "SOLANA_WS_ENDPOINT"
+
+	EnvLLMProvider = "LLM_PROVIDER"
+	EnvLLMAPIKey   = "LLM_API_KEY"
+	EnvLLMModel    = "LLM_MODEL"
+
+	EnvRedditUserAgent    = "REDDIT_USER_AGENT"
+	EnvRedditUsername     = "REDDIT_USERNAME"
+	EnvRedditPassword     = "REDDIT_PASSWORD"
+	EnvRedditClientID     = "REDDIT_CLIENT_ID"
+	EnvRedditClientSecret = "REDDIT_CLIENT_SECRET"
+
+	EnvYouTubeAPIKey  = "YOUTUBE_API_KEY"
+	EnvYouTubeAppName = "YOUTUBE_APP_NAME"
+
+	EnvServerURL = "SERVER_URL"
+	EnvAuthToken = "AUTH_TOKEN"
+
+	EnvLLMCheckReqPromptBase = "LLM_CHECK_REQ_PROMPT_BASE"
+)
+
+// Default base prompt for CheckContentRequirements
+const DefaultLLMCheckReqPromptBase = `You are a content verification system. Your task is to determine if the given content satisfies the specified requirements.
+
+The content to evaluate is provided as a JSON object below.`
+
+// Configuration holds all necessary configuration for workflows and activities.
+// It is intended to be populated inside activities to avoid non-deterministic behavior.
+type Configuration struct {
+	SolanaConfig SolanaConfig        `json:"solana_config"`
+	LLMConfig    LLMConfig           `json:"llm_config"`
+	RedditDeps   RedditDependencies  `json:"reddit_deps"`
+	YouTubeDeps  YouTubeDependencies `json:"youtube_deps"`
+	ServerURL    string              `json:"server_url"`
+	AuthToken    string              `json:"auth_token"`
+	Prompt       string              `json:"prompt"`
+}
 
 // SolanaConfig holds the necessary configuration for Solana interactions.
 type SolanaConfig struct {
@@ -47,236 +87,137 @@ type SolanaConfig struct {
 	USDCMintAddress  string               `json:"usdc_mint_address"`
 }
 
+// LLMConfig holds configuration for the LLM provider.
+
 // Activities holds all activity implementations and their dependencies
+// Dependencies are now passed via parameters or fetched from Configuration.
 type Activities struct {
-	solanaConfig SolanaConfig
-	httpClient   *http.Client
-	serverURL    string
-	authToken    string
-	redditDeps   RedditDependencies
-	youtubeDeps  YouTubeDependencies
-	yelpDeps     YelpDependencies
-	googleDeps   GoogleDependencies
-	amazonDeps   AmazonDependencies
-	llmDeps      LLMDependencies
+	httpClient *http.Client // Example shared, non-config dependency
 }
 
-// NewActivities creates a new Activities instance
-func NewActivities(config SolanaConfig, serverURL, authToken string,
-	redditDeps RedditDependencies,
-	youtubeDeps YouTubeDependencies,
-	yelpDeps YelpDependencies,
-	googleDeps GoogleDependencies,
-	amazonDeps AmazonDependencies,
-	llmDeps LLMDependencies) (*Activities, error) {
-
+// NewActivities creates a new Activities instance.
+// Dependencies are no longer injected here.
+func NewActivities() (*Activities, error) {
+	// Initialize only non-config shared state if needed
 	return &Activities{
-		solanaConfig: config,
-		httpClient:   &http.Client{Timeout: 10 * time.Second},
-		serverURL:    serverURL,
-		authToken:    authToken,
-		redditDeps:   redditDeps,
-		youtubeDeps:  youtubeDeps,
-		yelpDeps:     yelpDeps,
-		googleDeps:   googleDeps,
-		amazonDeps:   amazonDeps,
-		llmDeps:      llmDeps,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}, nil
 }
 
-// RedditContent represents the extracted content from Reddit
-type RedditContent struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Selftext    string    `json:"selftext"`
-	URL         string    `json:"url"`
-	Body        string    `json:"body"`      // For comments
-	Author      string    `json:"author"`    // For both posts and comments
-	Subreddit   string    `json:"subreddit"` // For both posts and comments
-	Score       int       `json:"score"`
-	Created     time.Time `json:"created_utc"`
-	IsComment   bool      `json:"is_comment"`
-	Permalink   string    `json:"permalink"`
-	NumComments int       `json:"num_comments"`
-	IsStickied  bool      `json:"is_stickied"`
-	IsLocked    bool      `json:"is_locked"`
-	IsNSFW      bool      `json:"is_nsfw"`
-	IsSpoiler   bool      `json:"is_spoiler"`
-	Flair       string    `json:"flair"`
-}
+// getConfiguration reads configuration from environment variables.
+// NOTE: Storing private keys and API keys directly in env vars might not be secure for production.
+// Consider using a secret management system.
+func getConfiguration(ctx context.Context) (*Configuration, error) {
+	logger := activity.GetLogger(ctx)
 
-// UnmarshalJSON implements custom unmarshaling for RedditContent
-func (r *RedditContent) UnmarshalJSON(data []byte) error {
-	// First unmarshal into a map to handle the created_utc field flexibly
-	var rawData map[string]interface{}
-	if err := json.Unmarshal(data, &rawData); err != nil {
-		return err
+	// --- Solana Config ---
+	escrowPrivateKeyStr := os.Getenv(EnvSolanaEscrowPrivateKey)
+	escrowWalletStr := os.Getenv(EnvSolanaEscrowWallet)
+	treasuryWalletStr := os.Getenv(EnvSolanaTreasuryWallet)
+	usdcMintStr := os.Getenv(EnvSolanaUSDCMintAddress)
+
+	var solanaConfig SolanaConfig
+	solanaConfig.RPCEndpoint = os.Getenv(EnvSolanaRPCEndpoint)
+	solanaConfig.WSEndpoint = os.Getenv(EnvSolanaWSEndpoint)
+	solanaConfig.TreasuryWallet = treasuryWalletStr
+	solanaConfig.USDCMintAddress = usdcMintStr
+
+	escrowPrivateKey, err := solanago.PrivateKeyFromBase58(escrowPrivateKeyStr)
+	if err != nil {
+		logger.Error("Failed to parse escrow private key", "env_var", EnvSolanaEscrowPrivateKey, "error", err)
+		// Decide if this should return error or proceed with nil key
+		return nil, fmt.Errorf("failed to parse escrow private key: %w", err)
+	}
+	solanaConfig.EscrowPrivateKey = &escrowPrivateKey // Storing private key directly
+
+	escrowWallet, err := solanago.PublicKeyFromBase58(escrowWalletStr)
+	if err != nil {
+		logger.Error("Failed to parse escrow wallet address", "env_var", EnvSolanaEscrowWallet, "error", err)
+		return nil, fmt.Errorf("failed to parse escrow wallet address: %w", err)
+	}
+	solanaConfig.EscrowWallet = escrowWallet
+
+	// Validate that the private key corresponds to the wallet address
+	if !escrowPrivateKey.PublicKey().Equals(escrowWallet) {
+		logger.Error("Escrow private key does not match escrow wallet address")
+		return nil, fmt.Errorf("escrow private key does not match escrow wallet address")
 	}
 
-	// Handle the created_utc field separately
-	var createdTime time.Time
-	switch v := rawData["created_utc"].(type) {
-	case float64:
-		createdTime = time.Unix(int64(v), 0)
-	case string:
-		// Try parsing as ISO 8601 first
-		var err error
-		createdTime, err = time.Parse(time.RFC3339, v)
-		if err != nil {
-			// If that fails, try parsing as a Unix timestamp string
-			timestamp, err := strconv.ParseFloat(v, 64)
-			if err != nil {
-				return fmt.Errorf("failed to parse created_utc timestamp: %w", err)
-			}
-			createdTime = time.Unix(int64(timestamp), 0)
+	// Validate treasury wallet address if provided
+	if treasuryWalletStr != "" {
+		if _, err := solanago.PublicKeyFromBase58(treasuryWalletStr); err != nil {
+			logger.Error("Failed to parse treasury wallet address", "env_var", EnvSolanaTreasuryWallet, "error", err)
+			// Decide policy: error out or warn?
+			return nil, fmt.Errorf("failed to parse treasury wallet address: %w", err)
 		}
-	case json.Number:
-		timestamp, err := v.Float64()
-		if err != nil {
-			return fmt.Errorf("failed to parse created_utc timestamp: %w", err)
-		}
-		createdTime = time.Unix(int64(timestamp), 0)
-	default:
-		return fmt.Errorf("unexpected type for created_utc: %T", v)
+	} else {
+		logger.Warn("Treasury wallet not set in environment", "env_var", EnvSolanaTreasuryWallet)
 	}
 
-	// Create an auxiliary struct for the rest of the fields
-	type Aux struct {
-		ID          string `json:"id"`
-		Title       string `json:"title"`
-		Selftext    string `json:"selftext"`
-		URL         string `json:"url"`
-		Body        string `json:"body"`
-		Author      string `json:"author"`
-		Subreddit   string `json:"subreddit"`
-		Score       int    `json:"score"`
-		IsComment   bool   `json:"is_comment"`
-		Permalink   string `json:"permalink"`
-		NumComments int    `json:"num_comments"`
-		IsStickied  bool   `json:"stickied"`
-		IsLocked    bool   `json:"locked"`
-		IsNSFW      bool   `json:"over_18"`
-		IsSpoiler   bool   `json:"spoiler"`
-		Flair       string `json:"link_flair_text"`
+	// --- LLM Config ---
+	// Assuming LLMConfig struct definition is added above or exists elsewhere
+	llmConfig := LLMConfig{
+		Provider:    os.Getenv(EnvLLMProvider),
+		APIKey:      os.Getenv(EnvLLMAPIKey),
+		Model:       os.Getenv(EnvLLMModel),
+		MaxTokens:   1000, // Default or from env var?
+		Temperature: 0.7,  // Default or from env var?
+	}
+	// Basic validation: check API key presence
+	if llmConfig.APIKey == "" {
+		logger.Error("LLM API key not found in environment", "env_var", EnvLLMAPIKey)
+		return nil, fmt.Errorf("missing env var: %s", EnvLLMAPIKey)
 	}
 
-	var aux Aux
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
+	// --- Platform Dependencies ---
+	// Assuming RedditDependencies, etc. structs are defined elsewhere in the file
+	redditDeps := RedditDependencies{
+		UserAgent:    os.Getenv(EnvRedditUserAgent),
+		Username:     os.Getenv(EnvRedditUsername),
+		Password:     os.Getenv(EnvRedditPassword), // Sensitive
+		ClientID:     os.Getenv(EnvRedditClientID),
+		ClientSecret: os.Getenv(EnvRedditClientSecret), // Sensitive
 	}
 
-	// Copy all fields from aux to r
-	r.ID = aux.ID
-	r.Title = aux.Title
-	r.Selftext = aux.Selftext
-	r.URL = aux.URL
-	r.Body = aux.Body
-	r.Author = aux.Author
-	r.Subreddit = aux.Subreddit
-	r.Score = aux.Score
-	r.Created = createdTime
-	r.IsComment = aux.IsComment
-	r.Permalink = aux.Permalink
-	r.NumComments = aux.NumComments
-	r.IsStickied = aux.IsStickied
-	r.IsLocked = aux.IsLocked
-	r.IsNSFW = aux.IsNSFW
-	r.IsSpoiler = aux.IsSpoiler
-	r.Flair = aux.Flair
-
-	return nil
-}
-
-// PullRedditContent pulls content from Reddit
-func (a *Activities) PullRedditContent(ctx context.Context, contentID string) (*RedditContent, error) {
-	// Create HTTP client for this activity
-	client := &http.Client{
-		Timeout: 10 * time.Second,
+	youtubeDeps := YouTubeDependencies{
+		APIKey:          os.Getenv(EnvYouTubeAPIKey), // Sensitive
+		ApplicationName: os.Getenv(EnvYouTubeAppName),
 	}
 
-	// Get auth token if needed
-	if a.redditDeps.RedditAuthToken == "" || time.Now().After(a.redditDeps.RedditAuthTokenExp) {
-		token, err := getRedditToken(client, a.redditDeps)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get Reddit token: %w", err)
-		}
-		a.redditDeps.RedditAuthToken = token
-		a.redditDeps.RedditAuthTokenExp = time.Now().Add(1 * time.Hour)
+	// --- Other Config ---
+	serverURL := os.Getenv(EnvServerURL)
+	authToken := os.Getenv(EnvAuthToken) // Sensitive
+
+	promptBase := os.Getenv(EnvLLMCheckReqPromptBase)
+	if promptBase == "" {
+		logger.Warn("Environment variable not set, using default prompt base", "env_var", EnvLLMCheckReqPromptBase)
+		promptBase = DefaultLLMCheckReqPromptBase
 	}
 
-	// Create request to Reddit API
-	url := fmt.Sprintf("https://oauth.reddit.com/api/info.json?id=%s", contentID)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	// --- Assemble Configuration ---
+	config := &Configuration{
+		SolanaConfig: solanaConfig,
+		LLMConfig:    llmConfig,
+		RedditDeps:   redditDeps,
+		YouTubeDeps:  youtubeDeps,
+		ServerURL:    serverURL,
+		AuthToken:    authToken,
+		Prompt:       promptBase,
 	}
 
-	// Set headers
-	req.Header.Set("User-Agent", a.redditDeps.UserAgent)
-	req.Header.Set("Authorization", "Bearer "+a.redditDeps.RedditAuthToken)
-
-	// Make request
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	// Log the raw response for debugging
-	activity.GetLogger(ctx).Debug("Reddit API Response", "response", string(body))
-
-	// Check status code
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Reddit API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	// Parse response as JSON
-	var data interface{}
-	if err := json.Unmarshal(body, &data); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w (body: %s)", err, string(body))
-	}
-
-	// Use JMESPath to extract the first child's data
-	expression := "data.children[0].data"
-	result, err := jmespath.Search(expression, data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract data with JMESPath: %w", err)
-	}
-
-	if result == nil {
-		return nil, fmt.Errorf("no content found for ID %s", contentID)
-	}
-
-	// Convert the result to JSON and then to our struct
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal JMESPath result: %w", err)
-	}
-
-	// Log the extracted data for debugging
-	activity.GetLogger(ctx).Debug("Extracted Reddit Data", "data", string(resultJSON))
-
-	var content RedditContent
-	if err := json.Unmarshal(resultJSON, &content); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal content: %w", err)
-	}
-
-	// Set additional fields
-	content.ID = contentID
-	content.IsComment = strings.HasPrefix(contentID, "t1_")
-
-	return &content, nil
+	return config, nil
 }
 
 // CheckContentRequirements checks if the content satisfies the requirements
 func (a *Activities) CheckContentRequirements(ctx context.Context, content []byte, requirements []string) (CheckContentRequirementsResult, error) {
 	logger := activity.GetLogger(ctx)
+
+	// Get fresh config
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return CheckContentRequirementsResult{}, fmt.Errorf("failed to get configuration in CheckContentRequirements: %w", err)
+	}
+
 	logger.Debug("Starting content requirements check",
 		"content_length", len(content),
 		"requirements_count", len(requirements))
@@ -284,32 +225,22 @@ func (a *Activities) CheckContentRequirements(ctx context.Context, content []byt
 	// Convert content bytes to string for the prompt
 	contentStr := string(content)
 
-	// Updated prompt to handle JSON input
-	prompt := fmt.Sprintf(`You are a content verification system. Your task is to determine if the given content satisfies the specified requirements.
+	// Construct the final prompt
+	prompt := fmt.Sprintf("%s\n\nRequirements:\n%s\n\nContent (JSON):\n%s\n\nYou must respond with a valid JSON object...", cfg.Prompt, strings.Join(requirements, "\n"), contentStr)
 
-The content to evaluate is provided as a JSON object below.
-
-Requirements:
-%s
-
-Content (JSON):
-%s
-
-You must respond with a valid JSON object in exactly this format:
-{
-  "satisfies": true/false,
-  "reason": "your explanation here"
-}
-
-Do not include any text before or after the JSON object. The response must be valid JSON that can be parsed by a JSON parser.
-Evaluate strictly and conservatively. Only return true if ALL requirements are clearly met by the data within the provided JSON content.`, strings.Join(requirements, "\n"), contentStr)
-
-	// Log estimated token count (approx 4 chars/token)
+	// Log estimated token count
 	estimatedTokens := len(prompt) / 4
 	logger.Info("Sending prompt to LLM", "estimated_tokens", estimatedTokens, "prompt_length_chars", len(prompt))
 
-	// Call the LLM service using the provider
-	resp, err := a.llmDeps.Provider.Complete(ctx, prompt)
+	// Create LLM provider instance from config fetched within the activity
+	llmProvider, err := NewLLMProvider(cfg.LLMConfig) // Use cfg.LLMConfig
+	if err != nil {
+		logger.Error("Failed to create LLM provider from config", "error", err)
+		return CheckContentRequirementsResult{}, fmt.Errorf("failed to create LLM provider: %w", err)
+	}
+
+	// Call the LLM service
+	resp, err := llmProvider.Complete(ctx, prompt)
 	if err != nil {
 		logger.Error("Failed to get LLM response", "error", err)
 		return CheckContentRequirementsResult{}, fmt.Errorf("failed to check content requirements: %w", err)
@@ -353,6 +284,14 @@ Evaluate strictly and conservatively. Only return true if ALL requirements are c
 // Logic from the internal transferUSDC helper has been inlined.
 func (a *Activities) TransferUSDC(ctx context.Context, userID string, amount float64) error {
 	logger := activity.GetLogger(ctx)
+
+	// Get fresh config
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get configuration in TransferUSDC: %w", err)
+	}
+	solCfg := cfg.SolanaConfig
+
 	logger.Info("TransferUSDC activity started", "userID", userID, "amount", amount)
 
 	// Convert amount to USDCAmount
@@ -363,8 +302,6 @@ func (a *Activities) TransferUSDC(ctx context.Context, userID string, amount flo
 	}
 
 	// Convert user ID to a Solana wallet address
-	// Note: In a real system, you would look up the user's wallet address using the user ID
-	// For this example, we'll assume the userID is already a Solana public key string
 	recipientPublicKey, err := solanago.PublicKeyFromBase58(userID)
 	if err != nil {
 		logger.Error("Invalid user ID format, expected Solana public key string", "userID", userID, "error", err)
@@ -372,27 +309,27 @@ func (a *Activities) TransferUSDC(ctx context.Context, userID string, amount flo
 	}
 
 	// 1. Initialize RPC Client
-	client := solanautil.NewRPCClient(a.solanaConfig.RPCEndpoint)
+	client := solanautil.NewRPCClient(solCfg.RPCEndpoint)
 	if err := solanautil.CheckRPCHealth(ctx, client); err != nil {
 		logger.Error("RPC health check failed", "error", err)
 		return fmt.Errorf("RPC health check failed: %w", err)
 	}
 
 	// 2. Load Keys and Addresses
-	if a.solanaConfig.EscrowPrivateKey == nil {
+	if solCfg.EscrowPrivateKey == nil {
 		logger.Error("Escrow private key is missing in Solana configuration")
 		return fmt.Errorf("escrow private key missing in config")
 	}
-	senderPrivateKey := *a.solanaConfig.EscrowPrivateKey
+	senderPrivateKey := *solCfg.EscrowPrivateKey
 
 	// Get the Owner wallet address (the escrow wallet)
-	escrowWalletOwner := a.solanaConfig.EscrowWallet
+	escrowWalletOwner := solCfg.EscrowWallet
 
 	// Parse the USDC mint address
-	usdcMint, err := solanago.PublicKeyFromBase58(a.solanaConfig.USDCMintAddress)
+	usdcMint, err := solanago.PublicKeyFromBase58(solCfg.USDCMintAddress)
 	if err != nil {
 		// This is a config error, likely fatal for this activity
-		logger.Error("Failed to parse USDC mint address from config", "mint", a.solanaConfig.USDCMintAddress, "error", err)
+		logger.Error("Failed to parse USDC mint address from config", "mint", solCfg.USDCMintAddress, "error", err)
 		return fmt.Errorf("invalid USDC mint address in config: %w", err)
 	}
 
@@ -611,16 +548,21 @@ type YouTubeContent struct {
 // PullYouTubeContent pulls metadata from YouTube Data API and transcript via scraping.
 func (a *Activities) PullYouTubeContent(ctx context.Context, contentID string) (*YouTubeContent, error) {
 	logger := activity.GetLogger(ctx)
+
+	// Get fresh config
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get configuration in PullYouTubeContent: %w", err)
+	}
+	ytDeps := cfg.YouTubeDeps // Use the fetched YouTubeDependencies
+
 	logger.Info("Pulling YouTube content", "content_id", contentID)
 
-	// Set HTTP client (needed for both metadata and transcript fetching)
-	a.youtubeDeps.Client = a.httpClient
-
-	// Extract video ID from contentID (assuming format: yt_video_id or just video_id)
+	httpClient := a.httpClient
 	videoID := strings.TrimPrefix(contentID, "yt_")
 
 	// Fetch video metadata using YouTube Data API (still useful)
-	videoData, err := a.fetchYouTubeVideoMetadata(ctx, videoID)
+	videoData, err := a.fetchYouTubeVideoMetadata(ctx, ytDeps, httpClient, videoID)
 	if err != nil {
 		// Don't fail outright if metadata fetch fails, maybe transcript is enough?
 		logger.Warn("Failed to fetch YouTube video metadata, proceeding to transcript fetch", "video_id", videoID, "error", err)
@@ -629,7 +571,7 @@ func (a *Activities) PullYouTubeContent(ctx context.Context, contentID string) (
 			ID: videoID,
 		}
 		// Attempt to fetch transcript even if metadata failed
-		transcript, transcriptErr := a.FetchYouTubeTranscriptDirectly(ctx, videoID, "en") // Default to English
+		transcript, transcriptErr := a.FetchYouTubeTranscriptDirectly(ctx, httpClient, videoID, "en") // Default to English
 		if transcriptErr != nil {
 			logger.Warn("Failed to fetch YouTube transcript directly after metadata failure", "video_id", videoID, "error", transcriptErr)
 			// If both fail, return the original metadata error or a combined error
@@ -659,7 +601,7 @@ func (a *Activities) PullYouTubeContent(ctx context.Context, contentID string) (
 	}
 
 	// Fetch transcript using the direct scraping method
-	transcript, err := a.FetchYouTubeTranscriptDirectly(ctx, videoID, "en") // Default to English
+	transcript, err := a.FetchYouTubeTranscriptDirectly(ctx, httpClient, videoID, "en") // Default to English
 	if err != nil {
 		logger.Warn("Failed to fetch YouTube transcript directly", "video_id", videoID, "error", err)
 		// Don't fail the whole activity if transcript fails, return metadata only
@@ -749,13 +691,13 @@ func (v *YouTubeVideoData) UnmarshalJSON(data []byte) error {
 }
 
 // fetchYouTubeVideoMetadata fetches video metadata from the YouTube Data API
-func (a *Activities) fetchYouTubeVideoMetadata(ctx context.Context, videoID string) (*YouTubeVideoData, error) {
+func (a *Activities) fetchYouTubeVideoMetadata(ctx context.Context, ytDeps YouTubeDependencies, httpClient *http.Client, videoID string) (*YouTubeVideoData, error) {
 	logger := activity.GetLogger(ctx)
 	logger.Info("Fetching YouTube video metadata", "video_id", videoID)
 
 	// Create request to YouTube Data API
 	url := fmt.Sprintf("https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=%s&key=%s",
-		videoID, a.youtubeDeps.APIKey)
+		videoID, ytDeps.APIKey)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -763,13 +705,13 @@ func (a *Activities) fetchYouTubeVideoMetadata(ctx context.Context, videoID stri
 	}
 
 	// Set application name in the request headers
-	if a.youtubeDeps.ApplicationName != "" {
-		req.Header.Set("X-Goog-Api-Key", a.youtubeDeps.APIKey)
-		req.Header.Set("X-Goog-Api-Client", a.youtubeDeps.ApplicationName)
+	if ytDeps.ApplicationName != "" {
+		req.Header.Set("X-Goog-Api-Key", ytDeps.APIKey)
+		req.Header.Set("X-Goog-Api-Client", ytDeps.ApplicationName)
 	}
 
-	// Make request
-	resp, err := a.youtubeDeps.Client.Do(req)
+	// Make request using the passed httpClient
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
@@ -803,9 +745,7 @@ func (a *Activities) fetchYouTubeVideoMetadata(ctx context.Context, videoID stri
 }
 
 // FetchYouTubeTranscriptDirectly attempts to fetch a YouTube transcript by scraping the watch page.
-// It looks for embedded JSON data containing caption track URLs using brace counting.
-// Defaults to English ("en") if no specific language is requested and found.
-func (a *Activities) FetchYouTubeTranscriptDirectly(ctx context.Context, videoID string, preferredLanguage string) (string, error) {
+func (a *Activities) FetchYouTubeTranscriptDirectly(ctx context.Context, httpClient *http.Client, videoID string, preferredLanguage string) (string, error) {
 	logger := activity.GetLogger(ctx)
 	if preferredLanguage == "" {
 		preferredLanguage = "en" // Default to English
@@ -821,8 +761,8 @@ func (a *Activities) FetchYouTubeTranscriptDirectly(ctx context.Context, videoID
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
-	client := a.httpClient
-	resp, err := client.Do(req)
+	// Use the passed httpClient
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch watch page %s: %w", watchURL, err)
 	}
@@ -942,7 +882,7 @@ endLoop:
 	if err != nil {
 		return "", fmt.Errorf("failed to create request for caption URL %s: %w", captionURL, err)
 	}
-	captionResp, err := client.Do(captionReq)
+	captionResp, err := httpClient.Do(captionReq)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch caption content from %s: %w", captionURL, err)
 	}
@@ -961,196 +901,6 @@ endLoop:
 	return string(captionBytes), nil
 }
 
-// YelpDependencies holds the dependencies for Yelp-related activities
-type YelpDependencies struct {
-	Client   *http.Client
-	APIKey   string
-	ClientID string
-}
-
-// Type returns the platform type for YelpDependencies
-func (deps YelpDependencies) Type() PlatformType {
-	return PlatformYelp
-}
-
-// MarshalJSON implements json.Marshaler for YelpDependencies
-func (deps YelpDependencies) MarshalJSON() ([]byte, error) {
-	type Aux struct {
-		APIKey   string `json:"api_key"`
-		ClientID string `json:"client_id"`
-	}
-
-	aux := Aux{
-		APIKey:   deps.APIKey,
-		ClientID: deps.ClientID,
-	}
-
-	return json.Marshal(aux)
-}
-
-// UnmarshalJSON implements json.Unmarshaler for YelpDependencies
-func (deps *YelpDependencies) UnmarshalJSON(data []byte) error {
-	type Aux struct {
-		APIKey   string `json:"api_key"`
-		ClientID string `json:"client_id"`
-	}
-
-	var aux Aux
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	deps.APIKey = aux.APIKey
-	deps.ClientID = aux.ClientID
-
-	return nil
-}
-
-// PullYelpContent pulls content from Yelp
-func (a *Activities) PullYelpContent(ctx context.Context, contentID string) (string, error) {
-	logger := activity.GetLogger(ctx)
-	logger.Info("Pulling Yelp content", "content_id", contentID)
-
-	// Set HTTP client
-	a.yelpDeps.Client = a.httpClient
-
-	// TODO: implement Yelp content fetching
-	// This would involve using the Yelp Fusion API to fetch business reviews, etc.
-	// Example implementation would authenticate with the Yelp API and fetch content
-
-	return "", fmt.Errorf("Yelp content fetching not yet implemented")
-}
-
-// GoogleDependencies holds the dependencies for Google-related activities
-type GoogleDependencies struct {
-	Client         *http.Client
-	APIKey         string
-	SearchEngineID string
-}
-
-// Type returns the platform type for GoogleDependencies
-func (deps GoogleDependencies) Type() PlatformType {
-	return PlatformGoogle
-}
-
-// MarshalJSON implements json.Marshaler for GoogleDependencies
-func (deps GoogleDependencies) MarshalJSON() ([]byte, error) {
-	type Aux struct {
-		APIKey         string `json:"api_key"`
-		SearchEngineID string `json:"search_engine_id"`
-	}
-
-	aux := Aux{
-		APIKey:         deps.APIKey,
-		SearchEngineID: deps.SearchEngineID,
-	}
-
-	return json.Marshal(aux)
-}
-
-// UnmarshalJSON implements json.Unmarshaler for GoogleDependencies
-func (deps *GoogleDependencies) UnmarshalJSON(data []byte) error {
-	type Aux struct {
-		APIKey         string `json:"api_key"`
-		SearchEngineID string `json:"search_engine_id"`
-	}
-
-	var aux Aux
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	deps.APIKey = aux.APIKey
-	deps.SearchEngineID = aux.SearchEngineID
-
-	return nil
-}
-
-// PullGoogleContent pulls content from Google
-func (a *Activities) PullGoogleContent(ctx context.Context, contentID string) (string, error) {
-	logger := activity.GetLogger(ctx)
-	logger.Info("Pulling Google content", "content_id", contentID)
-
-	// Set HTTP client
-	a.googleDeps.Client = a.httpClient
-
-	// TODO: implement Google content fetching
-	// This would involve using the Google Custom Search API or other Google APIs
-	// Example implementation would authenticate with the Google API and fetch content
-
-	return "", fmt.Errorf("Google content fetching not yet implemented")
-}
-
-// AmazonDependencies holds the dependencies for Amazon-related activities
-type AmazonDependencies struct {
-	Client        *http.Client
-	APIKey        string
-	APISecret     string
-	AssociateTag  string
-	MarketplaceID string
-}
-
-// Type returns the platform type for AmazonDependencies
-func (deps AmazonDependencies) Type() PlatformType {
-	return PlatformAmazon
-}
-
-// MarshalJSON implements json.Marshaler for AmazonDependencies
-func (deps AmazonDependencies) MarshalJSON() ([]byte, error) {
-	type Aux struct {
-		APIKey        string `json:"api_key"`
-		APISecret     string `json:"api_secret"`
-		AssociateTag  string `json:"associate_tag"`
-		MarketplaceID string `json:"marketplace_id"`
-	}
-
-	aux := Aux{
-		APIKey:        deps.APIKey,
-		APISecret:     deps.APISecret,
-		AssociateTag:  deps.AssociateTag,
-		MarketplaceID: deps.MarketplaceID,
-	}
-
-	return json.Marshal(aux)
-}
-
-// UnmarshalJSON implements json.Unmarshaler for AmazonDependencies
-func (deps *AmazonDependencies) UnmarshalJSON(data []byte) error {
-	type Aux struct {
-		APIKey        string `json:"api_key"`
-		APISecret     string `json:"api_secret"`
-		AssociateTag  string `json:"associate_tag"`
-		MarketplaceID string `json:"marketplace_id"`
-	}
-
-	var aux Aux
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	deps.APIKey = aux.APIKey
-	deps.APISecret = aux.APISecret
-	deps.AssociateTag = aux.AssociateTag
-	deps.MarketplaceID = aux.MarketplaceID
-
-	return nil
-}
-
-// PullAmazonContent pulls content from Amazon
-func (a *Activities) PullAmazonContent(ctx context.Context, contentID string) (string, error) {
-	logger := activity.GetLogger(ctx)
-	logger.Info("Pulling Amazon content", "content_id", contentID)
-
-	// Set HTTP client
-	a.amazonDeps.Client = a.httpClient
-
-	// TODO: implement Amazon content fetching
-	// This would involve using the Amazon Product Advertising API to fetch product reviews, etc.
-	// Example implementation would authenticate with the Amazon API and fetch content
-
-	return "", fmt.Errorf("Amazon content fetching not yet implemented")
-}
-
 // VerifyPaymentResult represents the result of verifying a payment
 type VerifyPaymentResult struct {
 	Verified bool
@@ -1158,9 +908,17 @@ type VerifyPaymentResult struct {
 	Error    string
 }
 
-// VerifyPayment verifies that a specific payment transaction has been received in the escrow account
+// VerifyPayment verifies that a specific payment transaction has been received
 func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey, expectedAmount *solanautil.USDCAmount, timeout time.Duration) (*VerifyPaymentResult, error) {
 	logger := activity.GetLogger(ctx)
+
+	// Get fresh config
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get configuration in VerifyPayment: %w", err)
+	}
+	solCfg := cfg.SolanaConfig // Use fetched config
+
 	expectedAmountUint64 := expectedAmount.ToSmallestUnit().Uint64()
 	activityInfo := activity.GetInfo(ctx)
 	expectedWorkflowID := activityInfo.WorkflowExecution.ID
@@ -1169,9 +927,9 @@ func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey,
 		"from_owner", from.String(),
 		"expected_amount_lamports", expectedAmountUint64,
 		"timeout", timeout,
-		"rpc_endpoint", a.solanaConfig.RPCEndpoint,
-		"usdc_mint", a.solanaConfig.USDCMintAddress,
-		"escrow_owner", a.solanaConfig.EscrowWallet.String())
+		"rpc_endpoint", solCfg.RPCEndpoint, // Use fetched config
+		"usdc_mint", solCfg.USDCMintAddress, // Use fetched config
+		"escrow_owner", solCfg.EscrowWallet.String()) // Use fetched config
 
 	// Create a ticker to check transactions periodically
 	ticker := time.NewTicker(10 * time.Second) // Check more frequently for debugging
@@ -1181,15 +939,15 @@ func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey,
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	rpcClient := solanautil.NewRPCClient(a.solanaConfig.RPCEndpoint)
+	rpcClient := solanautil.NewRPCClient(solCfg.RPCEndpoint)
 
 	// Get the escrow wallet that should receive the funds
-	escrowWallet := a.solanaConfig.EscrowWallet
+	escrowWallet := solCfg.EscrowWallet
 
 	// Parse the USDC mint address
-	usdcMint, err := solanago.PublicKeyFromBase58(a.solanaConfig.USDCMintAddress)
+	usdcMint, err := solanago.PublicKeyFromBase58(solCfg.USDCMintAddress)
 	if err != nil {
-		logger.Error("Failed to parse USDC mint address from config", "mint", a.solanaConfig.USDCMintAddress, "error", err)
+		logger.Error("Failed to parse USDC mint address from config", "mint", solCfg.USDCMintAddress, "error", err)
 		return nil, fmt.Errorf("invalid USDC mint address in config: %w", err)
 	}
 
@@ -1356,14 +1114,14 @@ func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey,
 						}, nil
 					}
 				} else {
-					logger.Warn("Transaction missing pre/post token balances, cannot verify via balance diff", "signature", sig.String())
+					logger.Debug("Transaction missing pre/post token balances, cannot verify via balance diff", "signature", sig.String())
 					// TODO: Optionally add parsing of instructions here as a fallback
 				}
 				// --- End Transaction Parsing ---
 			}
 			logger.Debug("Finished checking batch of signatures")
-		} // end select
-	} // end for
+		}
+	}
 }
 
 // checkTokenBalancesForTransfer parses token balances to find a specific transfer.
@@ -1550,4 +1308,206 @@ type ytInitialPlayerResponse struct {
 			} `json:"captionTracks"`
 		} `json:"playerCaptionsTracklistRenderer"`
 	} `json:"captions"`
+}
+
+// RedditContent represents the extracted content from Reddit
+type RedditContent struct {
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Selftext    string    `json:"selftext"`
+	URL         string    `json:"url"`
+	Body        string    `json:"body"`      // For comments
+	Author      string    `json:"author"`    // For both posts and comments
+	Subreddit   string    `json:"subreddit"` // For both posts and comments
+	Score       int       `json:"score"`
+	Created     time.Time `json:"created_utc"`
+	IsComment   bool      `json:"is_comment"`
+	Permalink   string    `json:"permalink"`
+	NumComments int       `json:"num_comments"`
+	IsStickied  bool      `json:"is_stickied"`
+	IsLocked    bool      `json:"is_locked"`
+	IsNSFW      bool      `json:"is_nsfw"`
+	IsSpoiler   bool      `json:"is_spoiler"`
+	Flair       string    `json:"flair"`
+}
+
+// UnmarshalJSON implements custom unmarshaling for RedditContent
+func (r *RedditContent) UnmarshalJSON(data []byte) error {
+	// First unmarshal into a map to handle the created_utc field flexibly
+	var rawData map[string]interface{}
+	if err := json.Unmarshal(data, &rawData); err != nil {
+		return err
+	}
+
+	// Handle the created_utc field separately
+	var createdTime time.Time
+	switch v := rawData["created_utc"].(type) {
+	case float64:
+		createdTime = time.Unix(int64(v), 0)
+	case string:
+		// Try parsing as ISO 8601 first
+		var err error
+		createdTime, err = time.Parse(time.RFC3339, v)
+		if err != nil {
+			// If that fails, try parsing as a Unix timestamp string
+			timestamp, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				return fmt.Errorf("failed to parse created_utc timestamp: %w", err)
+			}
+			createdTime = time.Unix(int64(timestamp), 0)
+		}
+	case json.Number:
+		timestamp, err := v.Float64()
+		if err != nil {
+			return fmt.Errorf("failed to parse created_utc timestamp: %w", err)
+		}
+		createdTime = time.Unix(int64(timestamp), 0)
+	default:
+		return fmt.Errorf("unexpected type for created_utc: %T", v)
+	}
+
+	// Create an auxiliary struct for the rest of the fields
+	type Aux struct {
+		ID          string `json:"id"`
+		Title       string `json:"title"`
+		Selftext    string `json:"selftext"`
+		URL         string `json:"url"`
+		Body        string `json:"body"`
+		Author      string `json:"author"`
+		Subreddit   string `json:"subreddit"`
+		Score       int    `json:"score"`
+		IsComment   bool   `json:"is_comment"`
+		Permalink   string `json:"permalink"`
+		NumComments int    `json:"num_comments"`
+		IsStickied  bool   `json:"stickied"`
+		IsLocked    bool   `json:"locked"`
+		IsNSFW      bool   `json:"over_18"`
+		IsSpoiler   bool   `json:"spoiler"`
+		Flair       string `json:"link_flair_text"`
+	}
+
+	var aux Aux
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Copy all fields from aux to r
+	r.ID = aux.ID
+	r.Title = aux.Title
+	r.Selftext = aux.Selftext
+	r.URL = aux.URL
+	r.Body = aux.Body
+	r.Author = aux.Author
+	r.Subreddit = aux.Subreddit
+	r.Score = aux.Score
+	r.Created = createdTime
+	r.IsComment = aux.IsComment
+	r.Permalink = aux.Permalink
+	r.NumComments = aux.NumComments
+	r.IsStickied = aux.IsStickied
+	r.IsLocked = aux.IsLocked
+	r.IsNSFW = aux.IsNSFW
+	r.IsSpoiler = aux.IsSpoiler
+	r.Flair = aux.Flair
+
+	return nil
+}
+
+// PullRedditContent pulls content from Reddit
+func (a *Activities) PullRedditContent(ctx context.Context, contentID string) (*RedditContent, error) {
+	logger := activity.GetLogger(ctx)
+
+	// Get fresh config
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get configuration in PullRedditContent: %w", err)
+	}
+	redditDeps := cfg.RedditDeps // Use fetched deps
+
+	logger.Info("Pulling Reddit content", "content_id", contentID)
+
+	client := a.httpClient
+
+	// Get auth token using fetched credentials
+	token, err := getRedditToken(client, redditDeps)
+	if err != nil {
+		logger.Error("Failed to get Reddit token", "error", err, "clientId", redditDeps.ClientID)
+		return nil, fmt.Errorf("failed to get Reddit token: %w", err)
+	}
+
+	// Create request
+	url := fmt.Sprintf("https://oauth.reddit.com/api/info.json?id=%s", contentID)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set headers using fetched deps
+	req.Header.Set("User-Agent", redditDeps.UserAgent)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	// Make request
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Log the raw response for debugging
+	logger.Debug("Reddit API Response", "response", string(body))
+
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
+		// Log the error response body for easier debugging
+		logger.Error("Reddit API returned non-OK status", "status_code", resp.StatusCode, "response_body", string(body))
+		return nil, fmt.Errorf("Reddit API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse response as JSON
+	var data interface{}
+	if err := json.Unmarshal(body, &data); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w (body: %s)", err, string(body))
+	}
+
+	// Use JMESPath to extract the first child's data
+	expression := "data.children[0].data"
+	result, err := jmespath.Search(expression, data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract data with JMESPath: %w", err)
+	}
+
+	if result == nil {
+		// Log the full response if content is not found
+		logger.Warn("No content found in Reddit response for ID", "content_id", contentID, "full_response", string(body))
+		return nil, fmt.Errorf("no content found for ID %s", contentID)
+	}
+
+	// Convert the result to JSON and then to our struct
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal JMESPath result: %w", err)
+	}
+
+	// Log the extracted data for debugging
+	logger.Debug("Extracted Reddit Data", "data", string(resultJSON))
+
+	var content RedditContent
+	if err := json.Unmarshal(resultJSON, &content); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal content: %w (extracted JSON: %s)", err, string(resultJSON))
+	}
+
+	// Set additional fields
+	// content.ID should come from the JSON data itself, verify if necessary
+	// The ID passed in (contentID) might be the prefixed one (e.g., t3_...). Ensure the struct field matches the data.
+	// If `content.ID` is populated correctly by UnmarshalJSON, we might not need this line.
+	// For now, assume UnmarshalJSON populates it correctly based on the `id` field in the response.
+	content.IsComment = strings.HasPrefix(contentID, "t1_") // Use the passed-in ID for type check
+
+	return &content, nil
 }

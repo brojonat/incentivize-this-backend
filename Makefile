@@ -200,7 +200,7 @@ start-dev-session: build-cli # Ensure CLI is built
 	@/usr/local/bin/tmux select-pane -t 1 # Select Pane 1 (Should be Server)
 	@/usr/local/bin/tmux send-keys -t 1 'echo "Server Pane ^"' C-m
 	@/usr/local/bin/tmux select-pane -t 2 # Select Pane 2 (Should be CLI)
-	@/usr/local/bin/tmux send-keys -t 2 'set -o allexport; source .env.server.debug; set +o allexport; echo "CLI Pane - .env.server.debug sourced."' C-m
+	@/usr/local/bin/tmux send-keys -t 2 'set -o allexport; source .env.server.debug; set +o allexport; export PATH=$$(pwd)/bin:$$PATH; echo "CLI Pane - .env sourced & ./bin added to PATH."' C-m
 	@/usr/local/bin/tmux select-pane -t 3 # Select Pane 3 (Should be Worker)
 	@/usr/local/bin/tmux send-keys -t 3 'echo "Worker Pane ^"' C-m
 	# Attach to the session, focusing the CLI pane (index 2)

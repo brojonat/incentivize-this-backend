@@ -1,12 +1,12 @@
 # affiliate-bounty-board
 
-I was watching this new show on Apple with Seth Rogan where he has to make a cinematic Koolaid movie. This got me thinking about advertising on Reddit. Advertisers would pay for favorable mentions of their product. We can facilitate that. This is a collection of Temporal workflows and activities that provide a sort of "bounty" board for making posts on Reddit. This generalizes pretty well to other platforms too, namely, YouTube. Here's the flow:
+I was watching this new show on Apple with Seth Rogan where he has to make a cinematic Koolaid movie. This got me thinking about advertising on Reddit. Advertisers would pay for favorable mentions of their product. We can facilitate that. This is a collection of Temporal workflows and activities that provide a sort of "bounty" board for producing content on the Internet.
 
-1. Advertiser creates a bounty with a reward amount and stipulations.
+1. Funder (e.g., a business owner) creates a bounty with a reward amount and stipulations.
 2. Content creator sees the bounty.
-3. Content creator fulfills the bounty.
-4. We assess the content.
-5. If approved, content creator gets paid from the escrow.
+3. Content creator produces some content that fulfills the bounty and sends us a link along with their Solana wallet address.
+4. We assess the content using our not-so-secret sauce.
+5. If the content fulfills the requirements set by the bounty funder, the content creator gets paid with USDC from the escrow.
 
 ## Development
 
@@ -16,7 +16,7 @@ I was watching this new show on Apple with Seth Rogan where he has to make a cin
 - Docker
 - Kubernetes cluster
 - kubectl configured to access your cluster
-- Temporal server running (can be local or remote)
+- Temporal server
 - Make
 
 ### Environment Setup
@@ -137,11 +137,11 @@ Here are some of the most frequently used Makefile targets:
 
 - `make build-cli`: Builds the `abb` command-line interface executable.
 - `make test`: Runs all unit tests.
+- `make start-dev-session`: Starts a tmux session with the server, worker, and a CLI pane for easy local development. It handles port-forwarding automatically. Requires `tmux`.
+- `make stop-dev-session`: Stops the tmux development session and associated processes.
 - `make test-coverage`: Runs tests and generates an HTML coverage report.
 - `make run-http-server-local`: Runs the HTTP server locally (requires Temporal and port-forwarding).
 - `make run-worker-local`: Runs the Temporal worker locally (requires Temporal and port-forwarding).
-- `make dev-session`: Starts a tmux session with the server, worker, and a CLI pane for easy local development. It handles port-forwarding automatically. Requires `tmux`.
-- `make stop-dev-session`: Stops the tmux development session and associated processes.
 - `make deploy-all`: Builds and deploys both the server and worker to the configured Kubernetes cluster.
 - `make logs-server`/`make logs-worker`: Tails logs for the deployed server/worker pods.
 - `make status`: Shows the status of Kubernetes deployments and pods.
@@ -441,144 +441,6 @@ The output will be JSON containing:
 }
 ```
 
-## HTTP API Routes
-
-### Authentication Endpoints
-
-- `POST /token`
-
-  - Get a new Bearer token
-  - Requires Basic auth
-  - Response:
-    ```json
-    {
-      "message": "Bearer <token>"
-    }
-    ```
-
-- `GET /ping`
-  - Health check endpoint
-  - Requires Bearer token
-  - Response:
-    ```json
-    {
-      "message": "ok"
-    }
-    ```
-
-### Advertiser Endpoints
-
-- `POST /api/bounties`
-
-  - Create a new bounty
-  - Body:
-    ```json
-    {
-      "description": "Mention Koolaid in a positive light",
-      "amount": 0.5,
-      "requirements": [
-        "Content must include the keyword 'Koolaid'",
-        "Content must have a positive sentiment",
-        "Content must have at least 50 words"
-      ]
-    }
-    ```
-
-- `GET /api/bounties`
-
-  - List all active bounties
-  - Query params: `page`, `limit`, `status`
-
-- `GET /api/bounties/:id`
-  - Get details of a specific bounty
-
-### User Endpoints
-
-- `POST /api/submissions`
-
-  - Submit a Reddit post for bounty verification
-  - Body:
-    ```json
-    {
-      "bountyId": "123",
-      "postId": "abc123",
-      "redditUsername": "user123"
-    }
-    ```
-
-- `GET /api/submissions/:id`
-  - Check status of a submission
-
-### Admin Endpoints
-
-- `PUT /api/bounties/:id/status`
-
-  - Update bounty status (active/paused/completed)
-  - Requires admin authentication
-
-## Architecture
-
-The backend is an HTTP server written in Go that provides the API endpoints and orchestrates the Temporal workflows.
-
-## Environment Variables Reference
-
-| Variable               | Description                                     | Used By      | Default               |
-| ---------------------- | ----------------------------------------------- | ------------ | --------------------- |
-| SERVER_SECRET_KEY      | Server's secret key for auth                    | All commands | None                  |
-| SERVER_ENDPOINT        | HTTP server endpoint                            | CLI commands | http://localhost:8080 |
-| SERVER_PORT            | Port for HTTP server                            | http-server  | 8080                  |
-| AUTH_TOKEN             | Bearer token for auth                           | CLI commands | None                  |
-| USER_REVENUE_SHARE_PCT | Percentage of advertising revenue paid to users | http-server  | 50                    |
-
-## Development Setup
-
-### Prerequisites
-
-- Go 1.21 or later
-- Temporal CLI and server
-- OpenAI API key (for LLM integration)
-
-### Local Development
-
-1. Start Temporal server:
-
-```bash
-temporal server start-dev
-```
-
-2. Start the backend server:
-
-```bash
-abb run http-server
-```
-
-### Testing
-
-The project includes comprehensive test suites for various components. Use the following Makefile targets to run tests:
-
-```bash
-# Run all tests
-make test
-
-# Run only workflow-related tests
-make test-workflow
-
-# Run tests for specific packages
-make test-solana
-make test-rbb
-
-# Generate test coverage report (HTML)
-make test-coverage
-
-# Show coverage summary in terminal
-make test-coverage-summary
-
-# Run tests optimized for CI environments (with race detection)
-make test-ci
-```
-
-Test coverage reports are generated in the project root as `coverage.out` (raw data) and `coverage.html` (HTML report).
-
 ## Temporal Workflows
 
 The system uses Temporal for orchestrating the bounty verification process:
@@ -594,6 +456,88 @@ The system uses Temporal for orchestrating the bounty verification process:
    - Orchestrates the verification of user submissions
    - Coordinates with LLM for content analysis
    - Handles payment distribution
+
+Below are diagrams illustrating the logic of the primary workflows:
+
+#### `BountyAssessmentWorkflow`
+
+```mermaid
+graph TD
+    Start --> AwaitFund{"Await Bounty Fund?"};
+    AwaitFund -- Success --> AwaitFee{"Await Fee Transfer?"};
+    AwaitFund -- Failure --> ErrorNode[Error];
+    AwaitFee -- Success --> LoopStart{"Start Assessment Loop"};
+    AwaitFee -- Failure --> ErrorNode;
+    LoopStart --> WaitSignal{"Wait for Signal or Timeout"};
+
+    subgraph AssessmentLoop [awaitLoopUntilEmptyOrTimeout]
+        WaitSignal -- AssessmentSignal --> CheckSignal{"Check Idempotency/Bounty"};
+        CheckSignal -- Valid --> PullContent["Execute Child: PullContent"];
+        PullContent -- Success --> CheckReqs["Execute Activity: Check Requirements"];
+        CheckReqs -- Success --> Satisfied{"Requirements Satisfied?"};
+        Satisfied -- Yes --> Payout["Execute Activity: Payout"];
+        Payout -- Success --> UpdateBounty["Update Bounty & Mark Processed"];
+        Payout -- Failure --> WaitSignal;
+        Satisfied -- No --> LogFailure["Log Failure & Mark Processed"];
+        LogFailure --> WaitSignal;
+        UpdateBounty --> WaitSignal;
+        CheckSignal -- Invalid --> WaitSignal;
+        PullContent -- Failure --> WaitSignal;
+        CheckReqs -- Failure --> WaitSignal;
+
+        WaitSignal -- CancelSignal --> CheckCancel{"Check Owner/Bounty"};
+        CheckCancel -- Valid --> RefundCancel["Execute Activity: Refund"];
+        RefundCancel -- Success --> SetBountyZeroCancel["Set Bounty Zero"];
+        RefundCancel -- Failure --> WaitSignal;
+        CheckCancel -- Invalid --> WaitSignal;
+        SetBountyZeroCancel --> LoopEnd["End Loop"];
+
+        WaitSignal -- Timeout --> CheckTimeout{"Check Bounty"};
+        CheckTimeout -- Bounty > 0 --> RefundTimeout["Execute Activity: Refund"];
+        RefundTimeout -- Success --> SetBountyZeroTimeout["Set Bounty Zero"];
+        RefundTimeout -- Failure --> WaitSignal;
+        CheckTimeout -- Bounty == 0 --> LoopEnd;
+        SetBountyZeroTimeout --> LoopEnd;
+    end
+
+    LoopStart -- Loop Condition Met --> SuccessNode[Success];
+    LoopEnd --> SuccessNode;
+```
+
+#### `PullContentWorkflow`
+
+```mermaid
+graph TD
+    Start --> CheckPlatform{"Platform Type?"};
+    CheckPlatform -- Reddit --> PullReddit["Execute Activity: PullRedditContent"];
+    CheckPlatform -- YouTube --> PullYouTube["Execute Activity: PullYouTubeContent"];
+    CheckPlatform -- Other --> ErrorUnsupported["Error: Unsupported Platform"];
+    PullReddit --> MarshalResult{"Marshal Result?"};
+    PullYouTube --> MarshalResult;
+    MarshalResult -- Success --> EndSuccess["End: Content Bytes"];
+    MarshalResult -- Failure --> EndError["End: Error"];
+    ErrorUnsupported --> EndError;
+```
+
+#### `CheckContentRequirementsWorkflow`
+
+```mermaid
+graph TD
+    Start --> CheckReqs["Execute Activity: CheckContentRequirements"];
+    CheckReqs -- Success --> EndSuccess["End: Result"];
+    CheckReqs -- Failure --> EndError["End: Error"];
+```
+
+#### `PayBountyWorkflow`
+
+```mermaid
+graph TD
+    Start --> ValidateWallet{"Validate Wallet Address?"};
+    ValidateWallet -- Valid --> Transfer["Execute Activity: TransferUSDC"];
+    ValidateWallet -- Invalid --> EndError["End: Error"];
+    Transfer -- Success --> EndSuccess["End: Success"];
+    Transfer -- Failure --> EndError;
+```
 
 ### Activities
 
@@ -615,6 +559,8 @@ The system uses Temporal for orchestrating the bounty verification process:
    - Track payment status
 
 ## LLM Integration
+
+FIXME: we should support any provider!
 
 The system uses OpenAI's GPT models for content analysis:
 
