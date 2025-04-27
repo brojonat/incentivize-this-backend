@@ -22,14 +22,24 @@ import (
 	temporal_log "go.temporal.io/sdk/log"
 )
 
-// PlatformType represents the type of platform
-type PlatformType string
+// PlatformKind represents the type of platform
+type PlatformKind string
+type ContentKind string
+
+const (
+	ContentKindComment ContentKind = "comment"
+	ContentKindPost    ContentKind = "post"
+	ContentKindVideo   ContentKind = "video"
+	ContentKindText    ContentKind = "text"
+	ContentKindImage   ContentKind = "image"
+	ContentKindAudio   ContentKind = "gif"
+)
 
 const (
 	// PlatformReddit represents the Reddit platform
-	PlatformReddit PlatformType = "reddit"
+	PlatformReddit PlatformKind = "reddit"
 	// PlatformYouTube represents the YouTube platform
-	PlatformYouTube PlatformType = "youtube"
+	PlatformYouTube PlatformKind = "youtube"
 )
 
 // Environment Variable Keys for Activities
@@ -488,7 +498,7 @@ type YouTubeDependencies struct {
 }
 
 // Type returns the platform type for YouTubeDependencies
-func (deps YouTubeDependencies) Type() PlatformType {
+func (deps YouTubeDependencies) Type() PlatformKind {
 	return PlatformYouTube
 }
 
@@ -552,7 +562,7 @@ type YouTubeContent struct {
 }
 
 // PullYouTubeContent pulls metadata from YouTube Data API and transcript via scraping.
-func (a *Activities) PullYouTubeContent(ctx context.Context, contentID string) (*YouTubeContent, error) {
+func (a *Activities) PullYouTubeContent(ctx context.Context, contentID string, contentKind ContentKind) (*YouTubeContent, error) {
 	logger := activity.GetLogger(ctx)
 
 	// Get fresh config
@@ -1420,7 +1430,7 @@ func (r *RedditContent) UnmarshalJSON(data []byte) error {
 }
 
 // PullRedditContent pulls content from Reddit
-func (a *Activities) PullRedditContent(ctx context.Context, contentID string) (*RedditContent, error) {
+func (a *Activities) PullRedditContent(ctx context.Context, contentID string, contentKind ContentKind) (*RedditContent, error) {
 	logger := activity.GetLogger(ctx)
 
 	// Get fresh config
@@ -1429,6 +1439,14 @@ func (a *Activities) PullRedditContent(ctx context.Context, contentID string) (*
 		return nil, fmt.Errorf("failed to get configuration in PullRedditContent: %w", err)
 	}
 	redditDeps := cfg.RedditDeps // Use fetched deps
+
+	switch contentKind {
+	case ContentKindPost:
+		contentID = "t3_" + strings.TrimPrefix(contentID, "t3_")
+	case ContentKindComment:
+		contentID = "t1_" + strings.TrimPrefix(contentID, "t1_")
+
+	}
 
 	logger.Info("Pulling Reddit content", "content_id", contentID)
 

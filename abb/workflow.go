@@ -23,7 +23,8 @@ const (
 type AssessContentSignal struct {
 	ContentID    string       `json:"content_id"`
 	PayoutWallet string       `json:"payout_wallet"`
-	Platform     PlatformType `json:"platform"`
+	Platform     PlatformKind `json:"platform"`
+	ContentKind  ContentKind  `json:"content_kind"`
 }
 
 // CancelBountySignal represents the signal to cancel the bounty and return remaining funds
@@ -39,7 +40,8 @@ type BountyAssessmentWorkflowInput struct {
 	OriginalTotalBounty *solana.USDCAmount `json:"original_total_bounty"`
 	BountyOwnerWallet   string             `json:"bounty_owner_wallet"`
 	BountyFunderWallet  string             `json:"bounty_funder_wallet"`
-	PlatformType        PlatformType       // The platform type (Reddit, YouTube, etc.)
+	Platform            PlatformKind       // The platform type (Reddit, YouTube, etc.)
+	ContentKind         ContentKind        // The content kind (post, comment, video, etc.)
 	PaymentTimeout      time.Duration      // How long to wait for funding/payment verification
 	Timeout             time.Duration      // How long the bounty should remain active
 }
@@ -79,7 +81,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 // PlatformDependencies is an interface for platform-specific dependencies
 type PlatformDependencies interface {
 	// Type returns the platform type
-	Type() PlatformType
+	Type() PlatformKind
 }
 
 // ContentProvider is an interface for retrieving content from a platform
@@ -89,20 +91,19 @@ type PlatformDependencies interface {
 // when we more explicitly implement this as a graph based agentic workflow.
 type ContentProvider interface {
 	// PullContent pulls content from a platform given a content ID
-	PullContent(ctx context.Context, contentID string) ([]byte, error)
+	PullContent(ctx context.Context, contentID string, contentKind ContentKind) ([]byte, error)
 }
 
 // PullContentWorkflowInput represents the input parameters for the workflow
 type PullContentWorkflowInput struct {
-	PlatformType PlatformType
+	PlatformType PlatformKind
+	ContentKind  ContentKind
 	ContentID    string
 	// Removed SolanaConfig as it's not directly needed by this workflow's activities
 }
 
 // PullContentWorkflow represents the workflow that pulls content from a platform
 func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) ([]byte, error) {
-	// REMOVED: GetConfigurationActivity call
-
 	// --- Activity Options for Pulling ---
 	options := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
@@ -121,13 +122,13 @@ func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) (
 	switch input.PlatformType {
 	case PlatformReddit:
 		var redditContent *RedditContent
-		err = workflow.ExecuteActivity(ctx, (*Activities).PullRedditContent, input.ContentID).Get(ctx, &redditContent)
+		err = workflow.ExecuteActivity(ctx, (*Activities).PullRedditContent, input.ContentID, input.ContentKind).Get(ctx, &redditContent)
 		if err == nil {
 			contentBytes, err = json.Marshal(redditContent)
 		}
 	case PlatformYouTube:
 		var youtubeContent *YouTubeContent
-		err = workflow.ExecuteActivity(ctx, (*Activities).PullYouTubeContent, input.ContentID).Get(ctx, &youtubeContent)
+		err = workflow.ExecuteActivity(ctx, (*Activities).PullYouTubeContent, input.ContentID, input.ContentKind).Get(ctx, &youtubeContent)
 		if err == nil {
 			contentBytes, err = json.Marshal(youtubeContent)
 		}
@@ -399,7 +400,7 @@ func awaitLoopUntilEmptyOrTimeout(
 			}
 			var signal AssessContentSignal
 			c.Receive(ctx, &signal)
-			logger.Info("Received assessment signal", "ContentID", signal.ContentID, "Platform", signal.Platform, "PayoutWallet", signal.PayoutWallet)
+			logger.Info("Received assessment signal", "ContentID", signal.ContentID, "Platform", signal.Platform, "PayoutWallet", signal.PayoutWallet, "ContentKind", signal.ContentKind)
 
 			// Idempotency Check
 			if processedContentIDs[signal.ContentID] {
@@ -419,13 +420,13 @@ func awaitLoopUntilEmptyOrTimeout(
 			switch signal.Platform {
 			case PlatformReddit:
 				var redditContent *RedditContent
-				pullErr = workflow.ExecuteActivity(loopCtx, (*Activities).PullRedditContent, signal.ContentID).Get(loopCtx, &redditContent)
+				pullErr = workflow.ExecuteActivity(loopCtx, (*Activities).PullRedditContent, signal.ContentID, signal.ContentKind).Get(loopCtx, &redditContent)
 				if pullErr == nil {
 					contentBytes, pullErr = json.Marshal(redditContent)
 				}
 			case PlatformYouTube:
 				var youtubeContent *YouTubeContent
-				pullErr = workflow.ExecuteActivity(loopCtx, (*Activities).PullYouTubeContent, signal.ContentID).Get(loopCtx, &youtubeContent)
+				pullErr = workflow.ExecuteActivity(loopCtx, (*Activities).PullYouTubeContent, signal.ContentID, signal.ContentKind).Get(loopCtx, &youtubeContent)
 				if pullErr == nil {
 					contentBytes, pullErr = json.Marshal(youtubeContent)
 				}
@@ -469,14 +470,14 @@ func awaitLoopUntilEmptyOrTimeout(
 					payOpts := workflow.ActivityOptions{StartToCloseTimeout: DefaultPayoutTimeout}
 					// --- Create Memo for Payout --- //
 					type PayoutMemo struct {
-						WorkflowID  string `json:"workflow_id"`
-						ContentID   string `json:"content_id"`
-						ContentKind string `json:"content_kind,omitempty"` // Placeholder for future use
+						WorkflowID  string      `json:"workflow_id"`
+						ContentID   string      `json:"content_id"`
+						ContentKind ContentKind `json:"content_kind,omitempty"` // Placeholder for future use
 					}
 					memoData := PayoutMemo{
-						WorkflowID: workflowID,
-						ContentID:  signal.ContentID,
-						// ContentKind: nil, // FIXME Explicitly null or omit until we introduce, but this would come from the workflow input
+						WorkflowID:  workflowID,
+						ContentID:   signal.ContentID,
+						ContentKind: signal.ContentKind,
 					}
 					memoBytes, mErr := json.Marshal(memoData)
 					if mErr != nil {

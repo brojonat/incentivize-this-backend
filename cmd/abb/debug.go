@@ -359,7 +359,7 @@ func testPullContent(c *cli.Context) error {
 		return fmt.Errorf("--platform flag is required")
 	}
 
-	var platformType abb.PlatformType
+	var platformType abb.PlatformKind
 	switch strings.ToLower(platformStr) {
 	case "reddit":
 		platformType = abb.PlatformReddit
@@ -408,7 +408,7 @@ func testPullContent(c *cli.Context) error {
 
 	// Output clean JSON that can be piped to other commands
 	output := struct {
-		Platform  abb.PlatformType `json:"platform"`
+		Platform  abb.PlatformKind `json:"platform"`
 		ContentID string           `json:"content_id"`
 		Content   json.RawMessage  `json:"content"`
 	}{

@@ -130,7 +130,7 @@ func TestWorkflow(t *testing.T) {
 			Permalink:   "test-permalink",
 			NumComments: 10,
 		}
-		env.OnActivity(activities.PullRedditContent, mock.Anything, mock.Anything).
+		env.OnActivity(activities.PullRedditContent, mock.Anything, "test-content", ContentKindPost).
 			Return(mockedRedditContent, nil)
 
 		// Mock CheckContentRequirements - Expect context, []byte, []string
@@ -217,7 +217,7 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 		Permalink:   "test-permalink",
 		NumComments: 10,
 	}
-	env.OnActivity(activities.PullRedditContent, mock.Anything, mock.Anything).
+	env.OnActivity(activities.PullRedditContent, mock.Anything, "test-content", ContentKindPost).
 		Return(mockedRedditContent, nil)
 
 	// Mock CheckContentRequirements (expect context, []byte, []string)
@@ -249,7 +249,8 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 		OriginalTotalBounty: originalTotalBounty, // Original funded amount
 		BountyOwnerWallet:   ownerWallet.PublicKey().String(),
 		BountyFunderWallet:  funderWallet.PublicKey().String(),
-		PlatformType:        PlatformReddit,
+		Platform:            PlatformReddit,
+		ContentKind:         ContentKindPost,
 		Timeout:             30 * time.Second, // Increased from 5 seconds
 		PaymentTimeout:      5 * time.Second,  // Set payment timeout
 	}
@@ -260,6 +261,7 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 			ContentID:    "test-content",
 			PayoutWallet: payoutWallet.PublicKey().String(),
 			Platform:     PlatformReddit,
+			ContentKind:  ContentKindPost,
 		})
 	}, time.Second)
 
@@ -320,7 +322,7 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 		Return(&VerifyPaymentResult{Verified: true, Amount: feeAmount}, nil).Maybe()
 
 	// Mock content pulling/checking - basic success mocks, may not be called
-	env.OnActivity(activities.PullRedditContent, mock.Anything, mock.Anything).
+	env.OnActivity(activities.PullRedditContent, mock.Anything, mock.AnythingOfType("string"), ContentKindPost).
 		Return(&RedditContent{ID: "timeout-test-content"}, nil).Maybe()
 	env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.Anything, mock.Anything).
 		Return(CheckContentRequirementsResult{Satisfies: true}, nil).Maybe()
@@ -343,7 +345,8 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 		OriginalTotalBounty: originalTotalBounty, // Original funded amount
 		BountyOwnerWallet:   ownerWallet.PublicKey().String(),
 		BountyFunderWallet:  funderWallet.PublicKey().String(),
-		PlatformType:        PlatformReddit,
+		Platform:            PlatformReddit,
+		ContentKind:         ContentKindPost,
 		Timeout:             30 * time.Second,
 		PaymentTimeout:      5 * time.Second,
 	}
@@ -396,7 +399,7 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 
 	// Mock PullRedditContent - Called Once
 	mockRedditContent := &RedditContent{ID: contentID, Title: "Idempotent Test"}
-	env.OnActivity(activities.PullRedditContent, mock.Anything, contentID).Return(mockRedditContent, nil).Once()
+	env.OnActivity(activities.PullRedditContent, mock.Anything, contentID, ContentKindPost).Return(mockRedditContent, nil).Once()
 
 	// Mock CheckContentRequirements - Expect context, []byte, []string
 	env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.AnythingOfType("[]uint8"), mock.AnythingOfType("[]string")).
@@ -416,7 +419,7 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 		OriginalTotalBounty: originalTotalBounty,
 		BountyOwnerWallet:   ownerWallet.PublicKey().String(),
 		BountyFunderWallet:  funderWallet.PublicKey().String(),
-		PlatformType:        PlatformReddit,
+		Platform:            PlatformReddit,
 		Timeout:             30 * time.Second,
 		PaymentTimeout:      5 * time.Second,
 	}
@@ -425,6 +428,7 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 		ContentID:    contentID,
 		PayoutWallet: payoutWallet.PublicKey().String(),
 		Platform:     PlatformReddit,
+		ContentKind:  ContentKindPost,
 	}
 
 	// signal workflow once
@@ -486,7 +490,7 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), feeAmount, mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: feeAmount}, nil).Once()
 
 	// Expect content pull for the failing content
-	env.OnActivity(activities.PullRedditContent, mock.Anything, contentID).Return(mockRedditContent, nil).Once()
+	env.OnActivity(activities.PullRedditContent, mock.Anything, contentID, ContentKindComment).Return(mockRedditContent, nil).Once()
 
 	// Expect requirements check to fail (expect context, []byte, []string)
 	env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.AnythingOfType("[]uint8"), mock.AnythingOfType("[]string")).Return(CheckContentRequirementsResult{Satisfies: false, Reason: "Did not meet criteria"}, nil).Once()
@@ -522,7 +526,7 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 		OriginalTotalBounty: originalTotalBounty,
 		BountyOwnerWallet:   ownerWallet.PublicKey().String(),
 		BountyFunderWallet:  funderWallet.PublicKey().String(),
-		PlatformType:        PlatformReddit,
+		Platform:            PlatformReddit,
 		Timeout:             30 * time.Second,
 		PaymentTimeout:      5 * time.Second,
 	}
@@ -532,6 +536,7 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 		ContentID:    contentID,
 		PayoutWallet: payoutWallet.PublicKey().String(), // Still need payout wallet in signal struct
 		Platform:     PlatformReddit,
+		ContentKind:  ContentKindComment,
 	}
 	cancelSignal := CancelBountySignal{
 		BountyOwnerWallet: ownerWallet.PublicKey().String(),
@@ -579,7 +584,7 @@ func TestPlatformActivities(t *testing.T) {
 		env.RegisterActivity(activities.PullRedditContent)
 
 		// Mock activity using the instance
-		env.OnActivity(activities.PullRedditContent, mock.Anything, "reddit-content-id").
+		env.OnActivity(activities.PullRedditContent, mock.Anything, "reddit-content-id", ContentKindComment).
 			Return(&RedditContent{
 				ID:        "reddit-content-id",
 				Author:    "testuser",
@@ -594,7 +599,7 @@ func TestPlatformActivities(t *testing.T) {
 				StartToCloseTimeout: time.Minute,
 			})
 			var redditContent *RedditContent
-			err := workflow.ExecuteActivity(ctx, activities.PullRedditContent, "reddit-content-id").Get(ctx, &redditContent)
+			err := workflow.ExecuteActivity(ctx, activities.PullRedditContent, "reddit-content-id", ContentKindComment).Get(ctx, &redditContent)
 			if err != nil {
 				return "", err
 			}
@@ -642,7 +647,7 @@ func TestPlatformActivities(t *testing.T) {
 
 		// Mock activity using the instance
 		mockedTranscript := "1\n00:00:00,000 --> 00:00:05,000\nThis is a test transcript.\n\n2\n00:00:05,000 --> 00:00:10,000\nIt contains multiple lines."
-		env.OnActivity(activities.PullYouTubeContent, mock.Anything, "youtube-content-id").
+		env.OnActivity(activities.PullYouTubeContent, mock.Anything, "youtube-content-id", ContentKindVideo).
 			Return(&YouTubeContent{
 				ID:           "youtube-content-id",
 				Title:        "Test Video",
@@ -661,7 +666,7 @@ func TestPlatformActivities(t *testing.T) {
 				StartToCloseTimeout: time.Minute,
 			})
 			var youtubeContent *YouTubeContent
-			err := workflow.ExecuteActivity(ctx, activities.PullYouTubeContent, "youtube-content-id").Get(ctx, &youtubeContent)
+			err := workflow.ExecuteActivity(ctx, activities.PullYouTubeContent, "youtube-content-id", ContentKindVideo).Get(ctx, &youtubeContent)
 			if err != nil {
 				return nil, err
 			}

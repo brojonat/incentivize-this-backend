@@ -44,7 +44,7 @@ type CreateBountyRequest struct {
 	TotalBounty        float64          `json:"total_bounty"`
 	BountyOwnerWallet  string           `json:"bounty_owner_wallet"`
 	BountyFunderWallet string           `json:"bounty_funder_wallet"`
-	PlatformType       abb.PlatformType `json:"platform_type"`
+	PlatformType       abb.PlatformKind `json:"platform_type"`
 	PaymentTimeout     int              `json:"payment_timeout"` // Timeout in seconds
 }
 
@@ -56,7 +56,7 @@ type BountyListItem struct {
 	BountyPerPost     float64          `json:"bounty_per_post"`
 	TotalBounty       float64          `json:"total_bounty"`
 	BountyOwnerWallet string           `json:"bounty_owner_wallet"`
-	PlatformType      abb.PlatformType `json:"platform_type"`
+	PlatformType      abb.PlatformKind `json:"platform_type"`
 	CreatedAt         time.Time        `json:"created_at"`
 }
 
@@ -84,7 +84,7 @@ type AssessContentRequest struct {
 	BountyID     string           `json:"bounty_id"`
 	ContentID    string           `json:"content_id"`
 	PayoutWallet string           `json:"payout_wallet"`
-	Platform     abb.PlatformType `json:"platform"`
+	Platform     abb.PlatformKind `json:"platform"`
 }
 
 // AssessContentResponse represents the response from content assessment
@@ -299,7 +299,7 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 			OriginalTotalBounty: originalTotalBountyAmount, // Original amount for verification
 			BountyOwnerWallet:   req.BountyOwnerWallet,
 			BountyFunderWallet:  req.BountyFunderWallet,
-			PlatformType:        req.PlatformType,
+			Platform:            req.PlatformType,
 			Timeout:             24 * time.Hour * 7,     // Default bounty active duration (e.g., 1 week)
 			PaymentTimeout:      paymentTimeoutDuration, // Use duration from request
 		}
@@ -400,7 +400,7 @@ func handleListBounties(l *slog.Logger, tc client.Client) http.HandlerFunc {
 				BountyPerPost:     input.BountyPerPost.ToUSDC(),
 				TotalBounty:       input.TotalBounty.ToUSDC(),
 				BountyOwnerWallet: input.BountyOwnerWallet,
-				PlatformType:      input.PlatformType,
+				PlatformType:      input.Platform,
 				CreatedAt:         execution.StartTime.AsTime(),
 			})
 		}

@@ -60,7 +60,7 @@ func TestHandleListBounties(t *testing.T) {
 					BountyPerPost:     bountyPerPost,
 					TotalBounty:       totalBounty,
 					BountyOwnerWallet: "test-owner",
-					PlatformType:      abb.PlatformReddit,
+					Platform:          abb.PlatformReddit,
 					// Add other fields matching the expected input in the handler
 				}
 				inputPayload, err := converter.GetDefaultDataConverter().ToPayload(expectedInput)
