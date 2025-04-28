@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"encoding/base64"
 
+	"github.com/brojonat/affiliate-bounty-board/http/api"
 	solanautil "github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/programs/memo"
@@ -64,10 +66,16 @@ const (
 	EnvYouTubeAPIKey  = "YOUTUBE_API_KEY"
 	EnvYouTubeAppName = "YOUTUBE_APP_NAME"
 
-	EnvServerURL = "SERVER_URL"
-	EnvAuthToken = "AUTH_TOKEN"
+	EnvServerURL       = "SERVER_ENDPOINT"
+	EnvAuthToken       = "AUTH_TOKEN"
+	EnvServerSecretKey = "SERVER_SECRET_KEY"
 
 	EnvLLMCheckReqPromptBase = "LLM_CHECK_REQ_PROMPT_BASE"
+
+	// Env vars for periodic bounty publisher activity
+	EnvTargetSubreddit                   = "PUBLISH_TARGET_SUBREDDIT"
+	EnvPeriodicPublisherScheduleID       = "PERIODIC_PUBLISHER_SCHEDULE_ID"
+	EnvPeriodicPublisherScheduleInterval = "PERIODIC_PUBLISHER_SCHEDULE_INTERVAL"
 )
 
 // Default base prompt for CheckContentRequirements
@@ -78,13 +86,16 @@ The content to evaluate is provided as a JSON object below.`
 // Configuration holds all necessary configuration for workflows and activities.
 // It is intended to be populated inside activities to avoid non-deterministic behavior.
 type Configuration struct {
-	SolanaConfig SolanaConfig        `json:"solana_config"`
-	LLMConfig    LLMConfig           `json:"llm_config"`
-	RedditDeps   RedditDependencies  `json:"reddit_deps"`
-	YouTubeDeps  YouTubeDependencies `json:"youtube_deps"`
-	ServerURL    string              `json:"server_url"`
-	AuthToken    string              `json:"auth_token"`
-	Prompt       string              `json:"prompt"`
+	SolanaConfig           SolanaConfig        `json:"solana_config"`
+	LLMConfig              LLMConfig           `json:"llm_config"`
+	RedditDeps             RedditDependencies  `json:"reddit_deps"`
+	YouTubeDeps            YouTubeDependencies `json:"youtube_deps"`
+	ServerURL              string              `json:"server_url"`
+	AuthToken              string              `json:"auth_token"`
+	Prompt                 string              `json:"prompt"`
+	ABBServerURL           string              `json:"abb_server_url"`
+	ABBServerSecretKey     string              `json:"abb_server_secret_key"`
+	PublishTargetSubreddit string              `json:"publish_target_subreddit"`
 }
 
 // SolanaConfig holds the necessary configuration for Solana interactions.
@@ -198,21 +209,51 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 	serverURL := os.Getenv(EnvServerURL)
 	authToken := os.Getenv(EnvAuthToken) // Sensitive
 
-	promptBase := os.Getenv(EnvLLMCheckReqPromptBase)
-	if promptBase == "" {
+	promptBaseEncoded := os.Getenv(EnvLLMCheckReqPromptBase)
+	var promptBase string
+	if promptBaseEncoded == "" {
 		logger.Warn("Environment variable not set, using default prompt base", "env_var", EnvLLMCheckReqPromptBase)
 		promptBase = DefaultLLMCheckReqPromptBase
+	} else {
+		decodedBytes, err := base64.StdEncoding.DecodeString(promptBaseEncoded)
+		if err != nil {
+			logger.Error("Failed to decode Base64 prompt from environment", "env_var", EnvLLMCheckReqPromptBase, "error", err)
+			return nil, fmt.Errorf("failed to decode base64 env var %s: %w", EnvLLMCheckReqPromptBase, err)
+		}
+		promptBase = string(decodedBytes)
+	}
+
+	// --- Config for Publisher Activity ---
+	abbServerURL := os.Getenv(EnvServerURL)
+	abbServerSecretKey := os.Getenv(EnvServerSecretKey) // Sensitive
+	targetSubreddit := os.Getenv(EnvTargetSubreddit)
+
+	// Basic validation for publisher config
+	if abbServerURL == "" {
+		logger.Error("ABB Server URL not found in environment", "env_var", EnvServerURL)
+		return nil, fmt.Errorf("missing env var: %s", EnvServerURL)
+	}
+	if abbServerSecretKey == "" {
+		logger.Error("ABB Server Secret Key not found in environment", "env_var", EnvServerSecretKey)
+		return nil, fmt.Errorf("missing env var: %s", EnvServerSecretKey)
+	}
+	if targetSubreddit == "" {
+		logger.Error("Target Subreddit not found in environment", "env_var", EnvTargetSubreddit)
+		return nil, fmt.Errorf("missing env var: %s", EnvTargetSubreddit)
 	}
 
 	// --- Assemble Configuration ---
 	config := &Configuration{
-		SolanaConfig: solanaConfig,
-		LLMConfig:    llmConfig,
-		RedditDeps:   redditDeps,
-		YouTubeDeps:  youtubeDeps,
-		ServerURL:    serverURL,
-		AuthToken:    authToken,
-		Prompt:       promptBase,
+		SolanaConfig:           solanaConfig,
+		LLMConfig:              llmConfig,
+		RedditDeps:             redditDeps,
+		YouTubeDeps:            youtubeDeps,
+		ServerURL:              serverURL,
+		AuthToken:              authToken,
+		Prompt:                 promptBase,
+		ABBServerURL:           abbServerURL,
+		ABBServerSecretKey:     abbServerSecretKey,
+		PublishTargetSubreddit: targetSubreddit,
 	}
 
 	return config, nil
@@ -235,8 +276,20 @@ func (a *Activities) CheckContentRequirements(ctx context.Context, content []byt
 	// Convert content bytes to string for the prompt
 	contentStr := string(content)
 
-	// Construct the final prompt
-	prompt := fmt.Sprintf("%s\n\nRequirements:\n%s\n\nContent (JSON):\n%s\n\nYou must respond with a valid JSON object...", cfg.Prompt, strings.Join(requirements, "\n"), contentStr)
+	// Construct the final prompt. This part of the prompt includes the specification
+	// for the LLM to follow when checking the content against the requirements. That
+	// is to say, you may influence the LLM's behavior by changing the base prompt
+	// on the provider, but this is where the LLM's behavior is specified to be
+	// in accordance with the code (i.e., requiring a particular format for the response).
+	prompt := fmt.Sprintf(`%s
+
+Requirements:
+%s
+
+Content (JSON):
+%s
+
+You must respond ONLY with a valid JSON object containing two keys: "satisfies" (a boolean indicating if the content meets the requirements) and "reason" (a string explaining your decision). Example: {"satisfies": true, "reason": "Content meets all criteria."}`, cfg.Prompt, strings.Join(requirements, "\n"), contentStr)
 
 	// Log estimated token count
 	estimatedTokens := len(prompt) / 4
@@ -924,8 +977,17 @@ type VerifyPaymentResult struct {
 	Error    string
 }
 
-// VerifyPayment verifies that a specific payment transaction has been received
-func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey, expectedAmount *solanautil.USDCAmount, timeout time.Duration) (*VerifyPaymentResult, error) {
+// VerifyPayment verifies that a specific payment transaction has been received. More specifically,
+// it verifies that a transaction has been received from the expected sender to the expected recipient's
+// associated token account with the expected amount of USDC.
+func (a *Activities) VerifyPayment(
+	ctx context.Context,
+	expectedSender solanago.PublicKey,
+	expectedRecipient solanago.PublicKey,
+	expectedAmount *solanautil.USDCAmount,
+	expectedMemo string,
+	timeout time.Duration,
+) (*VerifyPaymentResult, error) {
 	logger := activity.GetLogger(ctx)
 
 	// Get fresh config
@@ -936,14 +998,13 @@ func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey,
 	solCfg := cfg.SolanaConfig // Use fetched config
 
 	expectedAmountUint64 := expectedAmount.ToSmallestUnit().Uint64()
-	activityInfo := activity.GetInfo(ctx)
-	expectedWorkflowID := activityInfo.WorkflowExecution.ID
 	logger.Info("VerifyPayment started",
-		"workflow_id", expectedWorkflowID,
-		"from_owner", from.String(),
+		"workflow_id", expectedMemo,
+		"expected_sender", expectedSender.String(),
+		"expected_recipient", expectedRecipient.String(),
 		"expected_amount_lamports", expectedAmountUint64,
 		"timeout", timeout,
-		"rpc_endpoint", solCfg.RPCEndpoint, // Use fetched config
+		"rpc_endpoint", solCfg.RPCEndpoint,
 		"usdc_mint", solCfg.USDCMintAddress, // Use fetched config
 		"escrow_owner", solCfg.EscrowWallet.String()) // Use fetched config
 
@@ -957,23 +1018,21 @@ func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey,
 
 	rpcClient := solanautil.NewRPCClient(solCfg.RPCEndpoint)
 
-	// Get the escrow wallet that should receive the funds
-	escrowWallet := solCfg.EscrowWallet
-
-	// Parse the USDC mint address
+	// Parse the USDC mint address from config
 	usdcMint, err := solanago.PublicKeyFromBase58(solCfg.USDCMintAddress)
 	if err != nil {
 		logger.Error("Failed to parse USDC mint address from config", "mint", solCfg.USDCMintAddress, "error", err)
 		return nil, fmt.Errorf("invalid USDC mint address in config: %w", err)
 	}
 
-	// Find the Associated Token Account (ATA) for the escrow wallet and USDC mint
-	escrowAtaAddress, _, err := solanago.FindAssociatedTokenAddress(escrowWallet, usdcMint)
+	// Derive the expected recipient's Associated Token Account (ATA)
+	expectedRecipientATA, _, err := solanago.FindAssociatedTokenAddress(expectedRecipient, usdcMint)
 	if err != nil {
-		logger.Error("Failed to derive ATA for escrow wallet", "owner", escrowWallet, "mint", usdcMint, "error", err)
-		return nil, fmt.Errorf("failed to find ATA for escrow wallet: %w", err)
+		logger.Error("Failed to derive expected recipient ATA", "recipient", expectedRecipient.String(), "mint", usdcMint.String(), "error", err)
+		return nil, fmt.Errorf("failed to derive recipient ATA: %w", err)
 	}
-	logger.Info("Derived Escrow USDC ATA to check for incoming transaction", "ata_address", escrowAtaAddress.String())
+
+	logger.Info("Verifying payment TO derived ATA", "ata_address", expectedRecipientATA.String(), "recipient", expectedRecipient.String())
 
 	// Keep track of signatures we've already checked to avoid redundant lookups
 	checkedSignatures := make(map[solanago.Signature]bool)
@@ -981,26 +1040,26 @@ func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey,
 	for {
 		select {
 		case <-timeoutCtx.Done():
-			logger.Warn("Payment verification timed out", "from_owner", from.String(), "escrow_ata", escrowAtaAddress.String())
+			logger.Warn("Payment verification timed out", "expected_sender", expectedSender.String(), "expected_recipient_ata", expectedRecipientATA.String())
 			return &VerifyPaymentResult{
 				Verified: false,
 				Error:    "payment verification timed out",
 			}, nil // Timeout is not a processing error, just verification failure
 
 		case <-ticker.C:
-			logger.Debug("Checking for recent transactions...", "escrow_ata", escrowAtaAddress.String())
-			// Get recent signatures for the escrow ATA
-			limitSignatures := 15 // Fetch a few more signatures
+			logger.Debug("Checking for recent transactions...", "recipient_ata", expectedRecipientATA.String())
+			// Get recent signatures for the recipient ATA, as we expect an incoming transfer there.
+			limitSignatures := 15
 			signatures, err := rpcClient.GetSignaturesForAddressWithOpts(
 				ctx,
-				escrowAtaAddress,
+				expectedRecipientATA, // Fetch history for the account we expect to receive funds
 				&rpc.GetSignaturesForAddressOpts{
-					Limit:      &limitSignatures, // Pointer to int
+					Limit:      &limitSignatures,
 					Commitment: rpc.CommitmentFinalized,
 				},
 			)
 			if err != nil {
-				logger.Error("Failed to get signatures for escrow ATA", "account", escrowAtaAddress.String(), "error", err)
+				logger.Error("Failed to get signatures for escrow ATA", "account", expectedRecipientATA.String(), "error", err)
 				// Don't fail immediately, could be transient RPC issue, wait for next tick or timeout
 				continue
 			}
@@ -1057,7 +1116,7 @@ func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey,
 				}
 
 				// --- Transaction Parsing Logic ---
-				// Look for the specific transfer: from 'from' owner, to 'escrowAtaAddress', correct USDC amount.
+				// Look for the specific transfer: from 'expectedSender', to 'expectedRecipientATA', correct USDC amount.
 				// Using token balances is often the most reliable way across instruction types.
 				if txResult.Meta != nil && txResult.Meta.PreTokenBalances != nil && txResult.Meta.PostTokenBalances != nil && txResult.Transaction != nil {
 
@@ -1081,7 +1140,7 @@ func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey,
 					}
 					accountKeys = rawTx.Message.AccountKeys
 
-					// --- Check 1: Verify Memo ---
+					// --- Verify Memo ---
 					memoMatches := false
 					memoContent := ""
 					for _, ix := range rawTx.Message.Instructions {
@@ -1092,24 +1151,30 @@ func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey,
 						}
 						if progKey.Equals(memo.ProgramID) {
 							memoContent = string(ix.Data)
-							if memoContent == expectedWorkflowID {
+							if memoContent == expectedMemo {
 								memoMatches = true
 								break // Found matching memo
 							}
 						}
 					}
-					logger.Debug("Memo check result", "signature", sig.String(), "found_memo", memoContent, "expected_memo", expectedWorkflowID, "match", memoMatches)
+					logger.Debug("Memo check result", "signature", sig.String(), "found_memo", memoContent, "expected_memo", expectedMemo, "match", memoMatches)
+
+					// if memo does not match, we don't need to check the balances
+					if !memoMatches {
+						logger.Debug("Memo does not match, skipping balance check", "signature", sig.String(), "expected_memo", expectedMemo, "found_memo", memoContent)
+						continue
+					}
 
 					// --- Check 2: Verify Token Balances ---
 					balancesMatch, err := checkTokenBalancesForTransfer(
-						logger, // Pass the temporal logger
+						logger,
 						txResult.Meta.PreTokenBalances,
 						txResult.Meta.PostTokenBalances,
-						accountKeys,          // Pass account keys from message
-						from,                 // Expected source *owner*
-						escrowAtaAddress,     // Expected destination *ATA*
-						usdcMint,             // Expected mint
-						expectedAmountUint64, // Expected amount in lamports
+						accountKeys,
+						expectedSender,
+						expectedRecipientATA,
+						usdcMint,
+						expectedAmountUint64,
 					)
 					if err != nil {
 						logger.Error("Error checking token balances for tx", "signature", sig.String(), "error", err)
@@ -1120,8 +1185,8 @@ func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey,
 					if balancesMatch && memoMatches {
 						logger.Info("Matching payment transaction found (balances and memo match)",
 							"signature", sig.String(),
-							"from_owner", from.String(),
-							"to_ata", escrowAtaAddress.String(),
+							"from_owner", expectedSender.String(),
+							"to_ata", expectedRecipientATA.String(),
 							"amount_lamports", expectedAmountUint64)
 						// We found the specific transaction we were looking for.
 						return &VerifyPaymentResult{
@@ -1131,7 +1196,6 @@ func (a *Activities) VerifyPayment(ctx context.Context, from solanago.PublicKey,
 					}
 				} else {
 					logger.Debug("Transaction missing pre/post token balances, cannot verify via balance diff", "signature", sig.String())
-					// TODO: Optionally add parsing of instructions here as a fallback
 				}
 				// --- End Transaction Parsing ---
 			}
@@ -1534,4 +1598,264 @@ func (a *Activities) PullRedditContent(ctx context.Context, contentID string, co
 	content.IsComment = strings.HasPrefix(contentID, "t1_") // Use the passed-in ID for type check
 
 	return &content, nil
+}
+
+// --- Bounty Publisher Activity ---
+
+// PublishBountiesReddit fetches bounties from the ABB server and posts them to Reddit.
+func (a *Activities) PublishBountiesReddit(ctx context.Context) error {
+	logger := activity.GetLogger(ctx)
+	logger.Info("Running PublishBountiesReddit activity...")
+
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get configuration: %w", err)
+	}
+
+	// Use the shared httpClient from the Activities struct
+	client := a.httpClient
+
+	// 1. Get ABB Auth Token
+	abbToken, err := a.getABBAuthToken(ctx, logger, cfg, client)
+	if err != nil {
+		logger.Error("Failed to get ABB auth token", "error", err)
+		return err // Return error to let Temporal handle retries
+	}
+	logger.Debug("Obtained ABB auth token")
+
+	// 2. Fetch Bounties
+	bounties, err := a.fetchBounties(ctx, logger, cfg, client, abbToken)
+	if err != nil {
+		logger.Error("Failed to fetch bounties", "error", err)
+		return err
+	}
+	if len(bounties) == 0 {
+		logger.Info("No active bounties found to post.")
+		return nil // Not an error, just nothing to do
+	}
+	logger.Info("Fetched bounties", "count", len(bounties))
+
+	// 3. Format Bounties
+	postTitle, postBody, err := a.formatBountiesForReddit(bounties, cfg.ABBServerURL)
+	if err != nil {
+		logger.Error("Failed to format bounties", "error", err)
+		return fmt.Errorf("internal error formatting bounties: %w", err) // Non-retryable likely
+	}
+	logger.Debug("Formatted bounties for Reddit post")
+
+	// 4. Get Reddit Auth Token
+	redditToken, err := a.getRedditToken(ctx, logger, cfg, client)
+	if err != nil {
+		logger.Error("Failed to get Reddit auth token", "error", err)
+		return err
+	}
+	logger.Debug("Obtained Reddit auth token")
+
+	// 5. Post to Reddit
+	err = a.postToReddit(ctx, logger, cfg, client, redditToken, postTitle, postBody)
+	if err != nil {
+		logger.Error("Failed to post to Reddit", "error", err)
+		return err
+	}
+
+	logger.Info("Successfully posted bounties to Reddit", "subreddit", cfg.PublishTargetSubreddit)
+	return nil
+}
+
+// --- Helper methods for PublishBountiesReddit (moved into Activities struct) ---
+
+// Fetches an auth token from the ABB /token endpoint
+func (a *Activities) getABBAuthToken(ctx context.Context, logger temporal_log.Logger, cfg *Configuration, client *http.Client) (string, error) {
+	form := url.Values{}
+	form.Add("username", "temporal-bounty-poster") // Use a specific username
+	form.Add("password", cfg.ABBServerSecretKey)
+
+	tokenURL := fmt.Sprintf("%s/token", strings.TrimSuffix(cfg.ABBServerURL, "/"))
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", fmt.Errorf("failed to create ABB token request: %w", err)
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("ABB token request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("ABB token request returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var tokenResp api.DefaultJSONResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return "", fmt.Errorf("failed to decode ABB token response: %w", err)
+	}
+
+	if tokenResp.Message == "" {
+		return "", fmt.Errorf("ABB token response did not contain a token in the message field")
+	}
+
+	return tokenResp.Message, nil
+}
+
+// Fetches the list of bounties from the ABB /bounties endpoint
+func (a *Activities) fetchBounties(ctx context.Context, logger temporal_log.Logger, cfg *Configuration, client *http.Client, token string) ([]api.BountyListItem, error) {
+	bountiesURL := fmt.Sprintf("%s/bounties", strings.TrimSuffix(cfg.ABBServerURL, "/"))
+	req, err := http.NewRequestWithContext(ctx, "GET", bountiesURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create bounties request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("bounties request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("bounties request returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var bounties []api.BountyListItem
+	if err := json.NewDecoder(resp.Body).Decode(&bounties); err != nil {
+		// Log the body for debugging decode errors
+		bodyBytes, _ := io.ReadAll(resp.Body) // Reread might be needed if decoder consumed it
+		logger.Error("Failed to decode bounties response", "error", err, "response_body", string(bodyBytes))
+		return nil, fmt.Errorf("failed to decode bounties response: %w", err)
+	}
+
+	return bounties, nil
+}
+
+// Formats the list of bounties into a Reddit post title and body (Markdown)
+func (a *Activities) formatBountiesForReddit(bounties []api.BountyListItem, serverURL string) (string, string, error) {
+	title := fmt.Sprintf("📢 Active Bounties (%s)", time.Now().Format("2006-01-02"))
+
+	var body strings.Builder
+	body.WriteString(fmt.Sprintf("Here are the currently active bounties available:\n\n"))
+	body.WriteString("| Bounty ID | Platform | Reward/Post | Total Reward | Requirements |\n")
+	body.WriteString("|---|---|---|---|---|\n")
+
+	for _, b := range bounties {
+		reqSummary := strings.Join(b.Requirements, ", ")
+		if len(reqSummary) > 2048 {
+			reqSummary = reqSummary[:2045] + "..."
+		}
+		line := fmt.Sprintf("| [%s](%s) | %s | $%.2f | $%.2f | %s |\n",
+			b.WorkflowID,
+			fmt.Sprintf("%s/bounty/%s", strings.TrimSuffix(serverURL, "/"), b.WorkflowID),
+			b.PlatformType,
+			b.BountyPerPost,
+			b.TotalBounty,
+			reqSummary,
+		)
+		body.WriteString(line)
+	}
+	return title, body.String(), nil
+}
+
+// Gets an OAuth2 token from Reddit
+func (a *Activities) getRedditToken(ctx context.Context, logger temporal_log.Logger, cfg *Configuration, client *http.Client) (string, error) {
+	tokenURL := "https://www.reddit.com/api/v1/access_token"
+	form := url.Values{}
+	form.Add("grant_type", "password")
+	form.Add("username", cfg.RedditDeps.Username)
+	form.Add("password", cfg.RedditDeps.Password)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", fmt.Errorf("failed to create reddit token request: %w", err)
+	}
+
+	req.SetBasicAuth(cfg.RedditDeps.ClientID, cfg.RedditDeps.ClientSecret)
+	req.Header.Set("User-Agent", cfg.RedditDeps.UserAgent)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("reddit token request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		logger.Error("Reddit token request failed", "status", resp.StatusCode, "body", string(bodyBytes))
+		return "", fmt.Errorf("reddit token request returned status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
+		Scope       string `json:"scope"`
+		TokenType   string `json:"token_type"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode reddit token response: %w", err)
+	}
+
+	if result.AccessToken == "" {
+		return "", fmt.Errorf("reddit token response did not contain an access token")
+	}
+
+	logger.Debug("Successfully obtained Reddit access token", "scope", result.Scope, "expires_in", result.ExpiresIn)
+	return result.AccessToken, nil
+}
+
+// Posts the formatted content to the specified subreddit
+func (a *Activities) postToReddit(ctx context.Context, logger temporal_log.Logger, cfg *Configuration, client *http.Client, token, title, body string) error {
+	submitURL := "https://oauth.reddit.com/api/submit"
+
+	form := url.Values{}
+	form.Add("api_type", "json")
+	form.Add("kind", "self")
+	form.Add("sr", cfg.PublishTargetSubreddit)
+	form.Add("title", title)
+	form.Add("text", body)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", submitURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("failed to create reddit submit request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("User-Agent", cfg.RedditDeps.UserAgent)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("reddit submit request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBodyBytes, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		logger.Error("Reddit submit request failed", "status", resp.StatusCode, "body", string(respBodyBytes))
+		return fmt.Errorf("reddit submit request returned status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		JSON struct {
+			Errors [][]string `json:"errors"`
+			Data   struct {
+				URL string `json:"url"`
+			} `json:"data"`
+		} `json:"json"`
+	}
+
+	if err := json.Unmarshal(respBodyBytes, &result); err != nil {
+		logger.Warn("Failed to decode reddit submit response JSON, but status was OK", "error", err, "response_body", string(respBodyBytes))
+	} else if len(result.JSON.Errors) > 0 {
+		logger.Error("Reddit API reported errors after submission", "errors", result.JSON.Errors, "response_body", string(respBodyBytes))
+		return fmt.Errorf("reddit API returned errors: %v", result.JSON.Errors)
+	} else {
+		logger.Info("Reddit post submitted successfully", "post_url", result.JSON.Data.URL)
+	}
+
+	return nil
 }

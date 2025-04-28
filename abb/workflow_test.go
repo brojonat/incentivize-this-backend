@@ -187,21 +187,21 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	ownerWallet := solanago.NewWallet()
 	funderWallet := solanago.NewWallet() // Separate funder for clarity
 	payoutWallet := solanago.NewWallet()
+	escrowWallet := solanago.NewWallet()   // Dummy escrow wallet for testing
+	treasuryWallet := solanago.NewWallet() // Dummy treasury wallet for testing
 
 	// Mock VerifyPayment - use originalTotalBounty
-	// Expect: context, from, expectedAmount, timeout
-	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), originalTotalBounty, mock.Anything).
+	// Expect: context, from, recipient, expectedAmount, memo, timeout
+	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).
 		Return(&VerifyPaymentResult{
 			Verified: true,
 			Amount:   originalTotalBounty, // Verify against the original amount funded
 		}, nil).Once() // Expect initial funding check once
 
-	// Mock VerifyPayment for Fee Transfer - Added
-	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), feeAmount, mock.Anything).
-		Return(&VerifyPaymentResult{
-			Verified: true,
-			Amount:   feeAmount, // Verify against the fee amount
-		}, nil).Once() // Expect fee funding check once
+	// Mock TransferUSDC for Fee Transfer (Escrow -> Treasury) - Executed in main workflow
+	// Expect: context, recipientWallet (string), amount (float64), memo (string)
+	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), mock.AnythingOfType("string")).
+		Return(nil).Once()
 
 	// Mock PullRedditContent
 	mockedRedditContent := &RedditContent{
@@ -243,16 +243,18 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 
 	// Create test input - include OriginalTotalBounty
 	input := BountyAssessmentWorkflowInput{
-		Requirements:        []string{"Test requirement"},
-		BountyPerPost:       bountyPerPost,
-		TotalBounty:         totalBounty,         // User payable amount
-		OriginalTotalBounty: originalTotalBounty, // Original funded amount
-		BountyOwnerWallet:   ownerWallet.PublicKey().String(),
-		BountyFunderWallet:  funderWallet.PublicKey().String(),
-		Platform:            PlatformReddit,
-		ContentKind:         ContentKindPost,
-		Timeout:             30 * time.Second, // Increased from 5 seconds
-		PaymentTimeout:      5 * time.Second,  // Set payment timeout
+		Requirements:       []string{"Test requirement"},
+		BountyPerPost:      bountyPerPost,
+		TotalBounty:        totalBounty,         // User payable amount
+		TotalCharged:       originalTotalBounty, // Original funded amount
+		BountyOwnerWallet:  ownerWallet.PublicKey().String(),
+		BountyFunderWallet: funderWallet.PublicKey().String(),
+		EscrowWallet:       escrowWallet.PublicKey().String(),   // Add dummy escrow
+		TreasuryWallet:     treasuryWallet.PublicKey().String(), // Add dummy treasury
+		Platform:           PlatformReddit,
+		ContentKind:        ContentKindPost,
+		Timeout:            30 * time.Second, // Increased from 5 seconds
+		PaymentTimeout:     5 * time.Second,  // Set payment timeout
 	}
 
 	// Execute workflow and send signals
@@ -306,20 +308,23 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 
 	// Create valid Solana wallet for testing
 	ownerWallet := solanago.NewWallet()
-	funderWallet := solanago.NewWallet() // Define funder wallet for VerifyPayment
+	funderWallet := solanago.NewWallet()   // Define funder wallet for VerifyPayment
+	escrowWallet := solanago.NewWallet()   // Dummy escrow wallet for testing
+	treasuryWallet := solanago.NewWallet() // Dummy treasury wallet for testing
 
 	// Create a channel to signal when the refund mock is called
 	// mockCalled := make(chan struct{}) // Removed as logging is simplified
 
 	// --- Mock Setups ---
 	// Mock VerifyPayment - Return success with the originalTotalBounty
-	// Expect: context, from, expectedAmount, timeout
-	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), originalTotalBounty, mock.Anything).
+	// Expect: context, from, recipient, expectedAmount, memo, timeout
+	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).
 		Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty}, nil).Maybe() // May or may not be called before timeout
 
-	// Mock VerifyPayment for Fee Transfer - Expects feeAmount
-	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), feeAmount, mock.Anything).
-		Return(&VerifyPaymentResult{Verified: true, Amount: feeAmount}, nil).Maybe()
+	// Mock TransferUSDC for Fee Transfer (Escrow -> Treasury) - Executed in main workflow, maybe
+	// Expect: context, recipientWallet (string), amount (float64), memo (string)
+	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), mock.AnythingOfType("string")).
+		Return(nil).Maybe()
 
 	// Mock content pulling/checking - basic success mocks, may not be called
 	env.OnActivity(activities.PullRedditContent, mock.Anything, mock.AnythingOfType("string"), ContentKindPost).
@@ -339,16 +344,18 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 
 	// Create test input
 	input := BountyAssessmentWorkflowInput{
-		Requirements:        []string{"Test requirement"},
-		BountyPerPost:       bountyPerPost,
-		TotalBounty:         totalBounty,         // User payable amount
-		OriginalTotalBounty: originalTotalBounty, // Original funded amount
-		BountyOwnerWallet:   ownerWallet.PublicKey().String(),
-		BountyFunderWallet:  funderWallet.PublicKey().String(),
-		Platform:            PlatformReddit,
-		ContentKind:         ContentKindPost,
-		Timeout:             30 * time.Second,
-		PaymentTimeout:      5 * time.Second,
+		Requirements:       []string{"Test requirement"},
+		BountyPerPost:      bountyPerPost,
+		TotalBounty:        totalBounty,         // User payable amount
+		TotalCharged:       originalTotalBounty, // Original funded amount
+		BountyOwnerWallet:  ownerWallet.PublicKey().String(),
+		BountyFunderWallet: funderWallet.PublicKey().String(),
+		EscrowWallet:       escrowWallet.PublicKey().String(),   // Add dummy escrow
+		TreasuryWallet:     treasuryWallet.PublicKey().String(), // Add dummy treasury
+		Platform:           PlatformReddit,
+		ContentKind:        ContentKindPost,
+		Timeout:            30 * time.Second,
+		PaymentTimeout:     5 * time.Second,
 	}
 
 	env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
@@ -388,14 +395,18 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 	funderWallet := solanago.NewWallet()
 	ownerWallet := solanago.NewWallet()
 	payoutWallet := solanago.NewWallet()
+	escrowWallet := solanago.NewWallet()   // Dummy escrow wallet for testing
+	treasuryWallet := solanago.NewWallet() // Dummy treasury wallet for testing
 	contentID := "idempotent-content"
 
 	// Mock VerifyPayment - Called Once, use originalTotalBounty
-	// Expect: context, from, expectedAmount, timeout
-	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), originalTotalBounty, mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty}, nil).Once()
+	// Expect: context, from, recipient, expectedAmount, memo, timeout
+	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty}, nil).Once()
 
-	// Mock VerifyPayment for Fee Transfer - Called Once, expects feeAmount
-	env.OnActivity(activities.VerifyPayment, mock.Anything, mock.Anything, feeAmount, mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: feeAmount}, nil).Once()
+	// Mock TransferUSDC for Fee Transfer (Escrow -> Treasury) - Called Once
+	// Expect: context, recipientWallet (string), amount (float64), memo (string)
+	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), mock.AnythingOfType("string")).
+		Return(nil).Once()
 
 	// Mock PullRedditContent - Called Once
 	mockRedditContent := &RedditContent{ID: contentID, Title: "Idempotent Test"}
@@ -413,15 +424,17 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 	env.OnActivity(activities.TransferUSDC, mock.Anything, ownerWallet.PublicKey().String(), cancelRefundAmount.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Once()
 
 	input := BountyAssessmentWorkflowInput{
-		Requirements:        []string{"Idempotency Test"},
-		BountyPerPost:       bountyPerPost,
-		TotalBounty:         totalBounty,
-		OriginalTotalBounty: originalTotalBounty,
-		BountyOwnerWallet:   ownerWallet.PublicKey().String(),
-		BountyFunderWallet:  funderWallet.PublicKey().String(),
-		Platform:            PlatformReddit,
-		Timeout:             30 * time.Second,
-		PaymentTimeout:      5 * time.Second,
+		Requirements:       []string{"Idempotency Test"},
+		BountyPerPost:      bountyPerPost,
+		TotalBounty:        totalBounty,
+		TotalCharged:       originalTotalBounty,
+		BountyOwnerWallet:  ownerWallet.PublicKey().String(),
+		BountyFunderWallet: funderWallet.PublicKey().String(),
+		EscrowWallet:       escrowWallet.PublicKey().String(),   // Add dummy escrow
+		TreasuryWallet:     treasuryWallet.PublicKey().String(), // Add dummy treasury
+		Platform:           PlatformReddit,
+		Timeout:            30 * time.Second,
+		PaymentTimeout:     5 * time.Second,
 	}
 
 	signal := AssessContentSignal{
@@ -452,11 +465,6 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 	testSuite := &testsuite.WorkflowTestSuite{}
 	env := testSuite.NewTestWorkflowEnvironment()
 
-	// escrowKey := solanago.NewWallet().PrivateKey // Removed as unused
-	// escrowAccount := solanago.NewWallet().PublicKey() // Removed as unused
-	// treasuryWallet := solanago.NewWallet() // Dummy treasury wallet - Removed as testConfig is removed
-	// testConfig := SolanaConfig{ // Removed as it's unused now
-
 	activities, err := NewActivities()
 	require.NoError(t, err)
 
@@ -475,6 +483,8 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 	funderWallet := solanago.NewWallet()
 	ownerWallet := solanago.NewWallet()
 	payoutWallet := solanago.NewWallet()
+	escrowWallet := solanago.NewWallet()
+	treasuryWallet := solanago.NewWallet()
 	contentID := "failed-content"
 	mockRedditContent := &RedditContent{ID: contentID, Title: "Failed Test"}
 
@@ -483,13 +493,15 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 
 	// --- Mock Expectations ---
 	// Expect initial payment verification (original amount)
-	// Expect: context, from, expectedAmount, timeout
-	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), originalTotalBounty, mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty}, nil).Once()
+	// Expect: context, from, recipient, expectedAmount, memo, timeout
+	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty}, nil).Once()
 
-	// Expect fee verification - Called Once, expects feeAmount
-	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), feeAmount, mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: feeAmount}, nil).Once()
+	// Mock TransferUSDC for Fee Transfer (Escrow -> Treasury) - Called Once
+	// Expect: context, recipientWallet (string), amount (float64), memo (string)
+	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), mock.AnythingOfType("string")).
+		Return(nil).Once()
 
-	// Expect content pull for the failing content
+	// Mock content pull for the failing content
 	env.OnActivity(activities.PullRedditContent, mock.Anything, contentID, ContentKindComment).Return(mockRedditContent, nil).Once()
 
 	// Expect requirements check to fail (expect context, []byte, []string)
@@ -499,36 +511,33 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Never()
 
 	// Expect refund transfer to the owner for the full remaining USER PAYABLE bounty.
-	// Use Sub method here as well - Expect memo
 	env.OnActivity(activities.TransferUSDC,
 		mock.Anything,
 		ownerWallet.PublicKey().String(),
 		totalBounty.ToUSDC(),
-		mock.AnythingOfType("string"), // Expect memo argument
-	).Run(func(args mock.Arguments) { // Add Run back for logging and signaling
-		// owner := args.String(1)
-		// amountArg := args.Get(2)
-		// t.Logf("Refund Mock .Run() called: owner=%s, amount=%v (type: %T)", owner, amountArg, amountArg)
-		// Non-blocking send to signal execution for manual verification
+		mock.AnythingOfType("string"),
+	).Run(func(args mock.Arguments) {
 		select {
 		case refundCalled <- struct{}{}:
 			// t.Logf("Successfully signaled refundCalled channel")
 		default:
 			// t.Logf("Could not signal refundCalled channel (already full or no receiver?)")
 		}
-	}).Return(nil) // Allow retries, remove .Once()
+	}).Return(nil)
 
 	// --- Workflow Input ---
 	input := BountyAssessmentWorkflowInput{
-		Requirements:        []string{"Failure Test"},
-		BountyPerPost:       bountyPerPost,
-		TotalBounty:         totalBounty,
-		OriginalTotalBounty: originalTotalBounty,
-		BountyOwnerWallet:   ownerWallet.PublicKey().String(),
-		BountyFunderWallet:  funderWallet.PublicKey().String(),
-		Platform:            PlatformReddit,
-		Timeout:             30 * time.Second,
-		PaymentTimeout:      5 * time.Second,
+		Requirements:       []string{"Failure Test"},
+		BountyPerPost:      bountyPerPost,
+		TotalBounty:        totalBounty,
+		TotalCharged:       originalTotalBounty,
+		BountyOwnerWallet:  ownerWallet.PublicKey().String(),
+		BountyFunderWallet: funderWallet.PublicKey().String(),
+		EscrowWallet:       escrowWallet.PublicKey().String(),   // Add dummy escrow
+		TreasuryWallet:     treasuryWallet.PublicKey().String(), // Add dummy treasury
+		Platform:           PlatformReddit,
+		Timeout:            30 * time.Second,
+		PaymentTimeout:     5 * time.Second,
 	}
 
 	// --- Signal Sequence (Simplified) ---
@@ -548,8 +557,8 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 		// Shortly after, send the cancellation signal
 		env.RegisterDelayedCallback(func() {
 			env.SignalWorkflow(CancelSignalName, cancelSignal)
-		}, time.Millisecond*10) // Minimal delay
-	}, time.Second)
+		}, 20*time.Second)
+	}, 10*time.Second)
 
 	// --- Execution & Verification ---
 	env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
@@ -560,7 +569,7 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 	// Re-introduce the channel check as the primary verification for the refund mock.
 	select {
 	case <-refundCalled:
-		// t.Logf("Verified refundCalled channel received signal.")
+		// Verification passed: Refund mock was called
 	default:
 		t.Fatalf("Refund mock .Run() block was expected to execute and signal channel, but didn't.")
 	}

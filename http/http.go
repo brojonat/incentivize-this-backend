@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/brojonat/affiliate-bounty-board/abb"
 	"github.com/brojonat/affiliate-bounty-board/http/api"
 	"github.com/brojonat/affiliate-bounty-board/internal/stools"
 	solanago "github.com/gagliardetto/solana-go"
@@ -19,15 +21,18 @@ import (
 
 // Environment Variable Keys
 const (
-	EnvSolanaEscrowPrivateKey = "SOLANA_ESCROW_PRIVATE_KEY"
-	EnvSolanaEscrowWallet     = "SOLANA_ESCROW_WALLET"
-	EnvSolanaRPCEndpoint      = "SOLANA_RPC_ENDPOINT"
-	EnvSolanaWSEndpoint       = "SOLANA_WS_ENDPOINT"
-	EnvSolanaUSDCMintAddress  = "SOLANA_USDC_MINT_ADDRESS"
-	EnvTaskQueue              = "TASK_QUEUE"
-	EnvUserRevenueSharePct    = "USER_REVENUE_SHARE_PCT"
-	EnvServerSecretKey        = "SERVER_SECRET_KEY"
-	EnvSolanaTreasuryWallet   = "SOLANA_TREASURY_WALLET"
+	EnvSolanaEscrowPrivateKey            = "SOLANA_ESCROW_PRIVATE_KEY"
+	EnvSolanaEscrowWallet                = "SOLANA_ESCROW_WALLET"
+	EnvSolanaRPCEndpoint                 = "SOLANA_RPC_ENDPOINT"
+	EnvSolanaWSEndpoint                  = "SOLANA_WS_ENDPOINT"
+	EnvSolanaUSDCMintAddress             = "SOLANA_USDC_MINT_ADDRESS"
+	EnvTaskQueue                         = "TASK_QUEUE"
+	EnvUserRevenueSharePct               = "USER_REVENUE_SHARE_PCT"
+	EnvServerSecretKey                   = "SERVER_SECRET_KEY"
+	EnvSolanaTreasuryWallet              = "SOLANA_TREASURY_WALLET"
+	EnvPeriodicPublisherScheduleID       = "PERIODIC_PUBLISHER_SCHEDULE_ID"
+	EnvPeriodicPublisherScheduleInterval = "PERIODIC_PUBLISHER_SCHEDULE_INTERVAL"
+	EnvPublishTargetSubreddit            = "PUBLISH_TARGET_SUBREDDIT"
 )
 
 type corsConfigKey struct{}
@@ -152,6 +157,20 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	}
 	logger.Debug("Successfully connected to Solana RPC", "endpoint", rpcEndpoint)
 
+	// --- Setup Temporal Schedule for Periodic Publisher ---
+	if err := setupPeriodicPublisherSchedule(ctx, logger, tc, "periodic-publisher"); err != nil {
+		// Log error but don't prevent server startup
+		logger.Error("Failed to set up periodic publisher schedule", "error", err)
+	}
+	// --- End Schedule Setup ---
+
+	// Get current environment (e.g., "dev", "prod")
+	currentEnv := os.Getenv("ENV") // Read the ENV variable
+	if currentEnv == "" {
+		currentEnv = "dev" // Default to "dev" if not set
+		logger.Warn("ENV environment variable not set, defaulting to 'dev'")
+	}
+
 	// Add routes
 	mux.HandleFunc("GET /ping", stools.AdaptHandler(
 		handlePing(),
@@ -174,14 +193,14 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	))
 
 	mux.HandleFunc("GET /bounties/paid", stools.AdaptHandler(
-		handleListPaidBounties(logger, rpcClient, escrowWallet, usdcMintAddress),
+		handleListPaidBounties(logger, rpcClient, escrowWallet, usdcMintAddress, 1*time.Minute),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
 		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
 	mux.HandleFunc("POST /bounties", stools.AdaptHandler(
-		handleCreateBounty(logger, tc, DefaultPayoutCalculator()),
+		handleCreateBounty(logger, tc, DefaultPayoutCalculator(), currentEnv),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
 		apiMode(logger, maxBytes, headers, methods, origins),
@@ -242,4 +261,53 @@ func handlePing() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSONResponse(w, api.DefaultJSONResponse{Message: "pong"}, http.StatusOK)
 	}
+}
+
+// setupPeriodicPublisherSchedule sets up a Temporal schedule for periodic publisher
+func setupPeriodicPublisherSchedule(ctx context.Context, logger *slog.Logger, tc client.Client, scheduleID string) error {
+	scheduleClient := tc.ScheduleClient()
+
+	// Try to get a handle to the schedule to check if it exists
+	// Getting a handle doesn't guarantee existence, but Describe seems unavailable directly
+	// We'll rely on the Create call to fail if it already exists.
+	// Let's remove the explicit check for now and handle the error during Create.
+
+	// Schedule does not exist (or we assume it doesn't), proceed to create it
+	taskQueue := os.Getenv(EnvTaskQueue)
+	if taskQueue == "" {
+		return fmt.Errorf("cannot create schedule: %s env var not set", EnvTaskQueue)
+	}
+
+	logger.Info("Attempting to create periodic publisher schedule", "schedule_id", scheduleID)
+
+	// Attempt to Create the schedule
+	_, err := scheduleClient.Create(ctx, client.ScheduleOptions{
+		ID: scheduleID,
+		Spec: client.ScheduleSpec{
+			Intervals: []client.ScheduleIntervalSpec{
+				{
+					Every: 8 * time.Hour,
+				},
+			},
+		},
+		Action: &client.ScheduleWorkflowAction{
+			Workflow:  abb.PublishBountiesWorkflow,
+			TaskQueue: taskQueue,
+		},
+	})
+
+	if err != nil {
+		// Check if the error is specifically that the schedule already exists
+		if strings.Contains(err.Error(), "schedule already exists") {
+			logger.Info("Periodic publisher schedule already exists, no action taken.", "schedule_id", scheduleID)
+			return nil // Not an error in this context
+		}
+		// For any other error, return it
+		return fmt.Errorf("failed to create schedule %s: %w", scheduleID, err)
+	}
+
+	// If err is nil, creation was successful
+	logger.Info("Successfully created periodic publisher schedule", "schedule_id", scheduleID)
+
+	return nil
 }

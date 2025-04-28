@@ -51,6 +51,7 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 	w.RegisterWorkflow(abb.PullContentWorkflow)
 	w.RegisterWorkflow(abb.CheckContentRequirementsWorkflow)
 	w.RegisterWorkflow(abb.PayBountyWorkflow)
+	w.RegisterWorkflow(abb.PublishBountiesWorkflow)
 
 	// Register all activities
 	w.RegisterActivity(activities.PullRedditContent)
@@ -58,7 +59,7 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 	w.RegisterActivity(activities.CheckContentRequirements)
 	w.RegisterActivity(activities.VerifyPayment)
 	w.RegisterActivity(activities.TransferUSDC)
-
+	w.RegisterActivity(activities.PublishBountiesReddit)
 	// Run the single worker
 	l.Info("Starting worker", "TaskQueue", taskQueue)
 	err = w.Run(worker.InterruptCh())

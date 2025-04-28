@@ -274,6 +274,32 @@ func listBounties(ctx *cli.Context) error {
 	return printServerResponse(res)
 }
 
+// Action function for listing paid bounties
+func listPaidBountiesAction(ctx *cli.Context) error {
+	limit := ctx.Int("limit")
+	requestURL := fmt.Sprintf("%s/bounties/paid?limit=%d", ctx.String("endpoint"), limit)
+
+	httpReq, err := http.NewRequest(
+		http.MethodGet,
+		requestURL,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set headers
+	httpReq.Header.Set("Authorization", "Bearer "+ctx.String("token"))
+
+	// Execute the request
+	res, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+
+	return printServerResponse(res)
+}
+
 // getDefaultKeypairPath returns the default path to the Solana keypair, expanding the tilde.
 // Returns an empty string if the home directory cannot be determined.
 func getDefaultKeypairPath() string {
@@ -307,6 +333,7 @@ func printPrivateKeyAction(ctx *cli.Context) error {
 // Action function for the fund-escrow command
 func fundEscrowAction(ctx *cli.Context) error {
 	fmt.Println("Initiating escrow funding...")
+	fmt.Println("WARNING: this doesn't check to see if the bounty exists or if you've already funded it! ")
 
 	// --- Get Flag Values ---
 	amount := ctx.Float64("amount")
@@ -387,10 +414,6 @@ func fundEscrowAction(ctx *cli.Context) error {
 	}
 
 	fmt.Println("Escrow funding process complete. ")
-	fmt.Println("FIXME: this should not be sending to bounties that are already funded! " +
-		"We can fix this by checking the bounty status before sending the transaction, but " +
-		"we need to expose that state from inside the workflow. " +
-		"We also want to make sure this bounty exists before sending the transaction.")
 	return nil
 }
 
@@ -563,6 +586,33 @@ func adminCommands() []*cli.Command {
 						},
 					},
 					Action: listBounties,
+				},
+				{
+					Name:        "list-paid",
+					Usage:       "List recently paid bounties",
+					Description: "Lists recently paid bounties from the /bounties/paid endpoint",
+					Flags: []cli.Flag{
+						&cli.StringFlag{
+							Name:    "endpoint",
+							Aliases: []string{"end", "e"},
+							Value:   "http://localhost:8080",
+							Usage:   "Server endpoint",
+							EnvVars: []string{EnvServerEndpoint},
+						},
+						&cli.StringFlag{
+							Name:     "token",
+							Required: true,
+							Usage:    "Authorization token",
+							EnvVars:  []string{EnvAuthToken},
+						},
+						&cli.IntFlag{
+							Name:    "limit",
+							Aliases: []string{"l"},
+							Value:   20, // Default limit
+							Usage:   "Maximum number of recent paid transactions to fetch",
+						},
+					},
+					Action: listPaidBountiesAction,
 				},
 			},
 		},

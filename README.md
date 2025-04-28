@@ -560,21 +560,28 @@ graph TD
 
 ## LLM Integration
 
-FIXME: we should support any provider!
-
-The system uses OpenAI's GPT models for content analysis:
-
+- The system uses an LLM (e.g., OpenAI's GPT models) for content analysis:
 - Verifies post content against bounty requirements
 - Analyzes sentiment and context
 - Checks for keyword presence and usage
 - Generates detailed verification reports
 
-Required environment variables:
+- The base prompt used for content verification can be configured using the `LLM_CHECK_REQ_PROMPT_BASE` environment variable. This variable should contain the base64 encoded version of the desired base prompt text.
+- You can generate a base64 encoded prompt using a command like this (saving the output to a file or directly setting the environment variable):
 
-```bash
-OPENAI_API_KEY=your_api_key
-OPENAI_MODEL=gpt-4  # or preferred model
-```
+  ```bash
+  # Example command to base64 encode a custom prompt
+  echo -n "You are a content verification system.\n\nYour task is to determine if the given content satisfies the\n\nspecified requirements. Be sure to have a reason for you decision. The content to evaluate is provided as a JSON object below.\n" | base64 > prompt.txt
+  # You would then set LLM_CHECK_REQ_PROMPT_BASE=$(cat prompt.txt)
+  ```
+
+- Required environment variables for the chosen LLM provider (e.g., OpenAI):
+  ```bash
+  LLM_PROVIDER=openai
+  LLM_API_KEY=your_api_key
+  LLM_MODEL=gpt-4o-mini
+  # LLM_CHECK_REQ_PROMPT_BASE=... (Optional, base64 encoded prompt)
+  ```
 
 ## Deployment Considerations
 

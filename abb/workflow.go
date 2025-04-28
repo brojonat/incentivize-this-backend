@@ -12,6 +12,38 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
+// Search Attribute Keys
+var (
+	BountyOwnerWalletKey   = temporal.NewSearchAttributeKeyString("BountyOwnerWallet")
+	BountyFunderWalletKey  = temporal.NewSearchAttributeKeyString("BountyFunderWallet")
+	BountyPlatformKey      = temporal.NewSearchAttributeKeyString("BountyPlatform")
+	BountyTotalAmountKey   = temporal.NewSearchAttributeKeyFloat64("BountyTotalAmount")
+	BountyPerPostAmountKey = temporal.NewSearchAttributeKeyFloat64("BountyPerPostAmount")
+	BountyCreationTimeKey  = temporal.NewSearchAttributeKeyTime("BountyCreationTime")
+	BountyTimeoutTimeKey   = temporal.NewSearchAttributeKeyTime("BountyTimeoutTime")
+	BountyStatusKey        = temporal.NewSearchAttributeKeyString("BountyStatus")
+	EnvironmentKey         = temporal.NewSearchAttributeKeyString("Environment")
+)
+
+// BountyStatus defines the possible states of a bounty workflow.
+type BountyStatus string
+
+// Bounty Status Constants
+const (
+	// BountyStatusAwaitingFunding indicates the workflow is waiting for the funder to deposit USDC.
+	BountyStatusAwaitingFunding BountyStatus = "AwaitingFunding"
+	// BountyStatusTransferringFee indicates the workflow is transferring the platform fee.
+	BountyStatusTransferringFee BountyStatus = "TransferringFee"
+	// BountyStatusListening indicates the workflow is actively listening for content submissions.
+	BountyStatusListening BountyStatus = "Listening"
+	// BountyStatusRefunded indicates the workflow has refunded the remaining bounty amount.
+	BountyStatusRefunded BountyStatus = "Refunded"
+	// BountyStatusPaying indicates a payment to a creator is in progress.
+	BountyStatusPaying BountyStatus = "Paying"
+	// BountyStatusCancelled indicates the bounty was cancelled externally.
+	BountyStatusCancelled BountyStatus = "Cancelled"
+)
+
 // Signal Name Constants
 const (
 	AssessmentSignalName = "assessment"
@@ -34,21 +66,22 @@ type CancelBountySignal struct {
 
 // BountyAssessmentWorkflowInput represents the input parameters for the workflow
 type BountyAssessmentWorkflowInput struct {
-	Requirements        []string           `json:"requirements"`
-	BountyPerPost       *solana.USDCAmount `json:"bounty_per_post"`
-	TotalBounty         *solana.USDCAmount `json:"total_bounty"`
-	OriginalTotalBounty *solana.USDCAmount `json:"original_total_bounty"`
-	BountyOwnerWallet   string             `json:"bounty_owner_wallet"`
-	BountyFunderWallet  string             `json:"bounty_funder_wallet"`
-	Platform            PlatformKind       // The platform type (Reddit, YouTube, etc.)
-	ContentKind         ContentKind        // The content kind (post, comment, video, etc.)
-	PaymentTimeout      time.Duration      // How long to wait for funding/payment verification
-	Timeout             time.Duration      // How long the bounty should remain active
+	Requirements       []string           `json:"requirements"`
+	BountyPerPost      *solana.USDCAmount `json:"bounty_per_post"`
+	TotalBounty        *solana.USDCAmount `json:"total_bounty"`
+	TotalCharged       *solana.USDCAmount `json:"total_charged"`
+	BountyOwnerWallet  string             `json:"bounty_owner_wallet"`
+	BountyFunderWallet string             `json:"bounty_funder_wallet"`
+	Platform           PlatformKind       // The platform type (Reddit, YouTube, etc.)
+	ContentKind        ContentKind        // The content kind (post, comment, video, etc.)
+	PaymentTimeout     time.Duration      // How long to wait for funding/payment verification
+	Timeout            time.Duration      // How long the bounty should remain active
+	TreasuryWallet     string             `json:"treasury_wallet"`
+	EscrowWallet       string             `json:"escrow_wallet"`
 }
 
 // BountyAssessmentWorkflow represents the workflow that manages bounty assessment
 func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkflowInput) error {
-	// REMOVED: GetConfigurationActivity call
 
 	// Set default activity options (can be overridden)
 	options := workflow.ActivityOptions{
@@ -68,14 +101,59 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 		return err
 	}
 
-	// await the fee transfer to the treasury wallet
-	err = awaitFeeTransfer(ctx, input) // Pass full input
+	// --- Execute Fee Transfer (Escrow -> Treasury) ---
+	logger := workflow.GetLogger(ctx)
+
+	// Update status before attempting fee transfer
+	err = workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusTransferringFee)))
 	if err != nil {
-		return err
+		logger.Error("Failed to update search attribute BountyStatus to TransferringFee", "error", err)
+	}
+
+	if input.TotalCharged != nil && input.TotalBounty != nil {
+		feeAmount := input.TotalCharged.Sub(input.TotalBounty)
+		if feeAmount.IsPositive() {
+			workflowID := workflow.GetInfo(ctx).WorkflowExecution.ID
+			feeTransferMemo := fmt.Sprintf("%s-fee-transfer", workflowID)
+			logger.Info("Executing fee transfer from escrow to treasury", "amount", feeAmount.ToUSDC(), "memo", feeTransferMemo)
+			transferOpts := workflow.ActivityOptions{
+				StartToCloseTimeout: input.PaymentTimeout + (10 * time.Second),
+				RetryPolicy: &temporal.RetryPolicy{
+					InitialInterval:    time.Second,
+					BackoffCoefficient: 2.0,
+					MaximumInterval:    10 * time.Second,
+					MaximumAttempts:    5,
+				},
+			}
+			err = workflow.ExecuteActivity(
+				workflow.WithActivityOptions(ctx, transferOpts),
+				(*Activities).TransferUSDC,
+				input.TreasuryWallet,
+				feeAmount.ToUSDC(),
+				feeTransferMemo,
+			).Get(ctx, nil)
+			if err != nil {
+				logger.Error("Failed to execute fee transfer activity", "error", err)
+				return fmt.Errorf("failed to execute fee transfer: %w", err)
+			}
+		} else {
+			logger.Info("Fee amount is not positive, skipping transfer.")
+		}
+	} else {
+		logger.Error("Cannot calculate or transfer fee: OriginalTotalBounty or TotalBounty is nil")
+		// Decide if this is a fatal error for the workflow
+		// return fmt.Errorf("cannot calculate fee: input bounty amounts are nil")
+	}
+	// ---------------------------------------------
+
+	// Update status after fee transfer (or skip) before listening loop
+	err = workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusListening)))
+	if err != nil {
+		logger.Error("Failed to update search attribute BountyStatus to Listening", "error", err)
 	}
 
 	// loop to process content submissions
-	return awaitLoopUntilEmptyOrTimeout(ctx, input) // Pass full input
+	return awaitLoopUntilEmptyOrTimeout(ctx, input)
 }
 
 // PlatformDependencies is an interface for platform-specific dependencies
@@ -218,13 +296,18 @@ func awaitBountyFund(
 	ctx workflow.Context,
 	input BountyAssessmentWorkflowInput,
 ) (*VerifyPaymentResult, error) {
-	logger := workflow.GetLogger(ctx)
-	fw, err := solanago.PublicKeyFromBase58(input.BountyFunderWallet)
+	funderAccount, err := solanago.PublicKeyFromBase58(input.BountyFunderWallet)
 	if err != nil {
 		return nil, fmt.Errorf("invalid funder wallet address: %w", err)
 	}
+	escrowAccount, err := solanago.PublicKeyFromBase58(input.EscrowWallet)
+	if err != nil {
+		return nil, fmt.Errorf("invalid escrow wallet address from input: %w", err)
+	}
 
-	logger.Info("Waiting for payment verification", "timeout", input.PaymentTimeout, "funder_wallet", input.BountyFunderWallet)
+	// Use workflow ID as the base for the memo
+	workflowID := workflow.GetInfo(ctx).WorkflowExecution.ID
+	fundingMemo := workflowID
 
 	verifyPaymentActivityOptions := workflow.ActivityOptions{
 		StartToCloseTimeout: input.PaymentTimeout + (10 * time.Second), // Add buffer to internal timeout
@@ -242,12 +325,14 @@ func awaitBountyFund(
 	err = workflow.ExecuteActivity(
 		verifyPaymentCtx,
 		(*Activities).VerifyPayment,
-		fw,
-		input.OriginalTotalBounty,
+		funderAccount,
+		escrowAccount,
+		input.TotalCharged,
+		fundingMemo,
 		input.PaymentTimeout,
 	).Get(ctx, &verifyResult)
 	if err != nil {
-		return nil, fmt.Errorf("failed to verify payment: %w", err)
+		return nil, fmt.Errorf("failed to verify bounty funding: %w", err)
 	}
 
 	if !verifyResult.Verified {
@@ -257,72 +342,9 @@ func awaitBountyFund(
 	return verifyResult, nil
 }
 
-// awaitFeeTransfer blocks until the fee has been transferred to the treasury wallet
-func awaitFeeTransfer(
-	ctx workflow.Context,
-	input BountyAssessmentWorkflowInput,
-) error {
-	logger := workflow.GetLogger(ctx)
-	// Convert relevant addresses
-	funderAccount, err := solanago.PublicKeyFromBase58(input.BountyFunderWallet)
-	if err != nil {
-		return fmt.Errorf("invalid funder wallet address for fee check: %w", err)
-	}
-
-	// Calculate expected fee amount
-	if input.OriginalTotalBounty == nil || input.TotalBounty == nil {
-		logger.Error("OriginalTotalBounty or TotalBounty is nil, cannot calculate fee")
-		// Or return a specific error, depending on desired behavior
-		return fmt.Errorf("cannot calculate fee: input bounty amounts are nil")
-	}
-	expectedFeeAmount := input.OriginalTotalBounty.Sub(input.TotalBounty)
-	if !expectedFeeAmount.IsPositive() { // Check if fee is zero or negative
-		logger.Info("Calculated fee is zero or negative, skipping fee transfer verification.", "original_total", input.OriginalTotalBounty.ToUSDC(), "user_total", input.TotalBounty.ToUSDC())
-		return nil // No fee to verify
-	}
-
-	// Verify fee payment using the same VerifyPayment activity
-	logger.Info("Waiting for fee transfer verification", "timeout", input.PaymentTimeout, "expected_fee", expectedFeeAmount.ToUSDC())
-
-	// Define specific activity options for fee verification
-	verifyFeeActivityOptions := workflow.ActivityOptions{
-		StartToCloseTimeout: input.PaymentTimeout + (10 * time.Second),
-		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval:        time.Second,
-			BackoffCoefficient:     2.0,
-			MaximumInterval:        10 * time.Second,
-			MaximumAttempts:        5,
-			NonRetryableErrorTypes: []string{"TimeoutError"},
-		},
-	}
-	verifyFeeCtx := workflow.WithActivityOptions(ctx, verifyFeeActivityOptions)
-
-	var verifyFeeResult *VerifyPaymentResult
-	err = workflow.ExecuteActivity(
-		verifyFeeCtx,
-		(*Activities).VerifyPayment,
-		funderAccount,
-		expectedFeeAmount,
-		input.PaymentTimeout,
-	).Get(ctx, &verifyFeeResult)
-	if err != nil {
-		logger.Error("Fee transfer verification activity failed", "error", err)
-		return fmt.Errorf("failed to verify fee transfer: %w", err)
-	}
-
-	if !verifyFeeResult.Verified {
-		logger.Error("Fee transfer verification failed", "reason", verifyFeeResult.Error)
-		return fmt.Errorf("fee transfer not verified: %s", verifyFeeResult.Error)
-	}
-
-	logger.Info("Fee transfer verification successful")
-	return nil
-}
-
 // awaitLoopUntilEmptyOrTimeout is the main loop for bounty assessment
 func awaitLoopUntilEmptyOrTimeout(
 	ctx workflow.Context,
-	// Pass the full input which contains SolanaConfig
 	input BountyAssessmentWorkflowInput,
 ) error {
 	logger := workflow.GetLogger(ctx)
@@ -354,8 +376,13 @@ func awaitLoopUntilEmptyOrTimeout(
 			logger.Info("Bounty assessment period timed out.")
 			fErr := f.Get(ctx, nil)
 			if fErr != nil {
-				// Don't return here, we still need to try refunding
 				logger.Error("Timer future failed but proceeding with potential refund", "error", fErr)
+			}
+
+			// Update status before attempting timeout refund
+			err := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusRefunded)))
+			if err != nil {
+				logger.Error("Failed to update search attribute BountyStatus to Refunded", "error", err)
 			}
 
 			// Implement refund logic similar to cancel signal
@@ -487,6 +514,14 @@ func awaitLoopUntilEmptyOrTimeout(
 					memoString := string(memoBytes)
 					// --- End Memo Creation --- //
 
+					// --- Pay Bounty ---
+					// Update status before attempting payout
+					err = workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusPaying)))
+					if err != nil {
+						logger.Error("Failed to update search attribute BountyStatus to Paying", "error", err)
+					}
+
+					logger.Info("Attempting payout", "Amount", payoutAmount.ToUSDC(), "Recipient", signal.PayoutWallet, "ContentID", signal.ContentID)
 					payErr := workflow.ExecuteActivity(
 						workflow.WithActivityOptions(ctx, payOpts),
 						(*Activities).TransferUSDC,
@@ -495,6 +530,11 @@ func awaitLoopUntilEmptyOrTimeout(
 						memoString).Get(loopCtx, nil)
 					if payErr != nil {
 						logger.Error("Failed to pay bounty", "ContentID", signal.ContentID, "Wallet", signal.PayoutWallet, "Amount", payoutAmount.ToUSDC(), "error", payErr)
+						// Update status back to Listening after failed payout attempt
+						errUpdate := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusListening)))
+						if errUpdate != nil {
+							logger.Error("Failed to update search attribute BountyStatus back to Listening after failed payout", "error", errUpdate)
+						}
 					} else {
 						logger.Info("Successfully paid bounty portion", "ContentID", signal.ContentID, "Wallet", signal.PayoutWallet, "Amount", payoutAmount.ToUSDC())
 						if shouldCap {
@@ -503,6 +543,11 @@ func awaitLoopUntilEmptyOrTimeout(
 							remainingBounty = remainingBounty.Sub(input.BountyPerPost)
 						}
 						logger.Info("Remaining bounty after payout", "amount", remainingBounty.ToUSDC())
+						// Update status back to Listening after successful payout
+						errUpdate := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusListening)))
+						if errUpdate != nil {
+							logger.Error("Failed to update search attribute BountyStatus back to Listening after successful payout", "error", errUpdate)
+						}
 					}
 				}
 			} else {
@@ -527,6 +572,12 @@ func awaitLoopUntilEmptyOrTimeout(
 			if cancelSignal.BountyOwnerWallet != input.BountyOwnerWallet {
 				logger.Warn("Received cancel signal from incorrect owner", "received_owner", cancelSignal.BountyOwnerWallet, "expected_owner", input.BountyOwnerWallet)
 				return
+			}
+
+			// Update status before attempting cancel refund
+			err := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusCancelled)))
+			if err != nil {
+				logger.Error("Failed to update search attribute BountyStatus to Cancelled", "error", err)
 			}
 
 			if !remainingBounty.IsZero() {
@@ -563,4 +614,32 @@ func awaitLoopUntilEmptyOrTimeout(
 			return ctx.Err()
 		}
 	}
+}
+
+// PublishBountiesWorkflow is a workflow that fetches bounties and publishes them.
+func PublishBountiesWorkflow(ctx workflow.Context) error {
+	logger := workflow.GetLogger(ctx)
+	logger.Info("PublishBountiesWorkflow started")
+
+	// Set activity options with a reasonable timeout for the whole publish process
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute, // Timeout for the entire activity
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    5 * time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumInterval:    time.Minute,
+			MaximumAttempts:    3,
+		},
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	// Execute the activity to publish bounties to Reddit
+	err := workflow.ExecuteActivity(ctx, (*Activities).PublishBountiesReddit).Get(ctx, nil)
+	if err != nil {
+		logger.Error("PublishBountiesReddit activity failed", "error", err)
+		return fmt.Errorf("failed to publish bounties: %w", err)
+	}
+
+	logger.Info("PublishBountiesWorkflow completed successfully")
+	return nil
 }

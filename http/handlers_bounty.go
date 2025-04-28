@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/abb"
@@ -21,6 +22,7 @@ import (
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
+	"go.temporal.io/sdk/temporal"
 )
 
 // PayBountyRequest represents the request body for paying a bounty
@@ -45,7 +47,7 @@ type CreateBountyRequest struct {
 	BountyOwnerWallet  string           `json:"bounty_owner_wallet"`
 	BountyFunderWallet string           `json:"bounty_funder_wallet"`
 	PlatformType       abb.PlatformKind `json:"platform_type"`
-	PaymentTimeout     int              `json:"payment_timeout"` // Timeout in seconds
+	TimeoutDuration    string           `json:"timeout_duration"` // Bounty active duration (e.g., "72h", "7d")
 }
 
 // BountyListItem represents a single bounty in the list response
@@ -185,7 +187,7 @@ func handlePayBounty(l *slog.Logger, tc client.Client) http.HandlerFunc {
 }
 
 // handleCreateBounty handles the creation of a new bounty and starts a workflow
-func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator PayoutCalculator) http.HandlerFunc {
+func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator PayoutCalculator, env string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req CreateBountyRequest
 		if err := stools.DecodeJSONBody(r, &req); err != nil {
@@ -224,25 +226,33 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 			return
 		}
 
-		paymentTimeoutDuration := time.Duration(req.PaymentTimeout) * time.Second
-		if paymentTimeoutDuration <= 0 {
-			// Ensure a minimum positive timeout, using default if zero/negative
-			logger.Warn("Invalid payment_timeout received, defaulting", "received", req.PaymentTimeout, "default_seconds", 10)
-			paymentTimeoutDuration = 10 * time.Second // Default to 10 seconds
+		// Read and validate overall bounty timeout
+		bountyTimeoutDuration := 7 * 24 * time.Hour
+		if req.TimeoutDuration != "" {
+			duration, err := time.ParseDuration(req.TimeoutDuration)
+			if err != nil {
+				writeBadRequestError(w, fmt.Errorf("invalid timeout_duration format: %w", err))
+				return
+			}
+			bountyTimeoutDuration = duration
+		}
+
+		// Validate minimum duration
+		if bountyTimeoutDuration < 24*time.Hour {
+			writeBadRequestError(w, fmt.Errorf("timeout_duration must be at least 24 hours (e.g., \"24h\")"))
+			return
+		}
+
+		// Conditionally add timestamp requirement for prod environment
+		if env == "prod" {
+			currentTime := time.Now().UTC().Format(time.RFC3339) // Use ISO 8601 format
+			timestampReq := fmt.Sprintf("Content must be created after %s", currentTime)
+			req.Requirements = append(req.Requirements, timestampReq)
 		}
 
 		// Apply revenue sharing using the calculator function
-		userBountyPerPost := payoutCalculator(req.BountyPerPost)
+		userBountyPerPost := req.BountyPerPost
 		userTotalBounty := payoutCalculator(req.TotalBounty)
-
-		// Log the revenue sharing calculation
-		logger.Info("Applied revenue sharing to bounty",
-			"original_bounty_per_post", req.BountyPerPost,
-			"original_total_bounty", req.TotalBounty,
-			"user_bounty_per_post", userBountyPerPost,
-			"user_total_bounty", userTotalBounty,
-			"platform_fee_per_post", req.BountyPerPost-userBountyPerPost,
-			"platform_fee_total", req.TotalBounty-userTotalBounty)
 
 		// Convert amounts to USDCAmount
 		bountyPerPost, err := solana.NewUSDCAmount(userBountyPerPost)
@@ -256,36 +266,8 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 			return
 		}
 
-		// --- Populate SolanaConfig from Server Environment ---
-		privateKeyStr := os.Getenv(EnvSolanaEscrowPrivateKey)
-		escrowWalletStr := os.Getenv(EnvSolanaEscrowWallet)
-		rpcEndpoint := os.Getenv(EnvSolanaRPCEndpoint)
-		usdcMintAddr := os.Getenv(EnvSolanaUSDCMintAddress)
-		treasuryWalletStr := os.Getenv(EnvSolanaTreasuryWallet)
-
-		if privateKeyStr == "" {
-			writeInternalError(logger, w, fmt.Errorf("server config error: %s not set", EnvSolanaEscrowPrivateKey))
-			return
-		}
-		if escrowWalletStr == "" {
-			writeInternalError(logger, w, fmt.Errorf("server config error: %s not set", EnvSolanaEscrowWallet))
-			return
-		}
-		if rpcEndpoint == "" {
-			writeInternalError(logger, w, fmt.Errorf("server config error: %s not set", EnvSolanaRPCEndpoint))
-			return
-		}
-		if usdcMintAddr == "" {
-			writeInternalError(logger, w, fmt.Errorf("server config error: %s not set", EnvSolanaUSDCMintAddress))
-			return
-		}
-		if treasuryWalletStr == "" {
-			writeInternalError(logger, w, fmt.Errorf("server config error: %s not set", EnvSolanaTreasuryWallet))
-			return
-		}
-
 		// Convert ORIGINAL total bounty for verification
-		originalTotalBountyAmount, err := solana.NewUSDCAmount(req.TotalBounty)
+		totalCharged, err := solana.NewUSDCAmount(req.TotalBounty)
 		if err != nil {
 			writeBadRequestError(w, fmt.Errorf("invalid original total_bounty amount: %w", err))
 			return
@@ -293,22 +275,40 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 
 		// Create workflow input
 		input := abb.BountyAssessmentWorkflowInput{
-			Requirements:        req.Requirements,
-			BountyPerPost:       bountyPerPost,             // User payable amount per post
-			TotalBounty:         totalBounty,               // User payable total amount
-			OriginalTotalBounty: originalTotalBountyAmount, // Original amount for verification
-			BountyOwnerWallet:   req.BountyOwnerWallet,
-			BountyFunderWallet:  req.BountyFunderWallet,
-			Platform:            req.PlatformType,
-			Timeout:             24 * time.Hour * 7,     // Default bounty active duration (e.g., 1 week)
-			PaymentTimeout:      paymentTimeoutDuration, // Use duration from request
+			Requirements:       req.Requirements,
+			BountyPerPost:      bountyPerPost,
+			TotalBounty:        totalBounty,
+			TotalCharged:       totalCharged,
+			BountyOwnerWallet:  req.BountyOwnerWallet,
+			BountyFunderWallet: req.BountyFunderWallet,
+			Platform:           req.PlatformType,
+			Timeout:            bountyTimeoutDuration,
+			PaymentTimeout:     10 * time.Minute,
+			TreasuryWallet:     os.Getenv(EnvSolanaTreasuryWallet),
+			EscrowWallet:       os.Getenv(EnvSolanaEscrowWallet),
 		}
 
 		// Execute workflow
 		workflowID := fmt.Sprintf("bounty-%s", uuid.New().String())
+		now := time.Now().UTC()
+
+		// Create typed search attributes using defined keys
+		saMap := temporal.NewSearchAttributes(
+			abb.BountyOwnerWalletKey.ValueSet(input.BountyOwnerWallet),
+			abb.BountyFunderWalletKey.ValueSet(input.BountyFunderWallet),
+			abb.BountyPlatformKey.ValueSet(string(input.Platform)),
+			abb.BountyTotalAmountKey.ValueSet(input.TotalCharged.ToUSDC()),
+			abb.BountyPerPostAmountKey.ValueSet(input.BountyPerPost.ToUSDC()),
+			abb.BountyCreationTimeKey.ValueSet(now),
+			abb.BountyTimeoutTimeKey.ValueSet(now.Add(input.Timeout)),
+			abb.BountyStatusKey.ValueSet(string(abb.BountyStatusAwaitingFunding)), // Set initial status
+			abb.EnvironmentKey.ValueSet(env),
+		)
+
 		workflowOptions := client.StartWorkflowOptions{
-			ID:        workflowID,
-			TaskQueue: os.Getenv(EnvTaskQueue),
+			ID:                    workflowID,
+			TaskQueue:             os.Getenv(EnvTaskQueue),
+			TypedSearchAttributes: saMap,
 		}
 
 		_, err = tc.ExecuteWorkflow(r.Context(), workflowOptions, abb.BountyAssessmentWorkflow, input)
@@ -448,8 +448,53 @@ func handleAssessContent(l *slog.Logger, tc client.Client) http.HandlerFunc {
 }
 
 // handleListPaidBounties handles listing all paid bounties
-func handleListPaidBounties(l *slog.Logger, rpcClient *solanagrpc.Client, escrowWallet solanago.PublicKey, usdcMintAddress solanago.PublicKey) http.HandlerFunc {
+func handleListPaidBounties(
+	l *slog.Logger,
+	rpcClient *solanagrpc.Client,
+	escrowWallet solanago.PublicKey,
+	usdcMintAddress solanago.PublicKey,
+	cacheDuration time.Duration,
+) http.HandlerFunc {
+	// cache structure for paid bounties
+	type paidBountiesCache struct {
+		sync.RWMutex
+		data      []PaidBountyItem
+		timestamp time.Time
+	}
+
+	var listPaidBountiesCache paidBountiesCache
+	var initCacheOnce sync.Once // Declare a sync.Once variable
+	initCacheOnce.Do(func() {   // Call Do on the instance
+		listPaidBountiesCache = paidBountiesCache{
+			data:      make([]PaidBountyItem, 0),
+			timestamp: time.Time{}, // Initialize timestamp to zero value
+		}
+	})
 	return func(w http.ResponseWriter, r *http.Request) {
+
+		// --- Cache Check ---
+		listPaidBountiesCache.RLock()
+		cachedData := listPaidBountiesCache.data
+		cacheTimestamp := listPaidBountiesCache.timestamp
+		listPaidBountiesCache.RUnlock()
+
+		if cachedData != nil && time.Since(cacheTimestamp) < cacheDuration {
+			l.Debug("Serving paid bounties from cache")
+			writeJSONResponse(w, cachedData, http.StatusOK)
+			return
+		}
+		// --- End Cache Check ---
+
+		// Parse limit from query parameters, default to 100
+		limit := 100
+		limitStr := r.URL.Query().Get("limit")
+		if limitStr != "" {
+			limit, err := strconv.Atoi(limitStr)
+			if err != nil || limit <= 0 {
+				writeBadRequestError(w, fmt.Errorf("invalid limit: %s", limitStr))
+				return
+			}
+		}
 
 		// Derive the Associated Token Account (ATA) for the escrow wallet
 		escrowATA, _, err := solanago.FindAssociatedTokenAddress(escrowWallet, usdcMintAddress)
@@ -458,8 +503,7 @@ func handleListPaidBounties(l *slog.Logger, rpcClient *solanagrpc.Client, escrow
 			return
 		}
 
-		// Fetch recent transaction signatures for the escrow ATA
-		limit := 100 // Limit the number of signatures to fetch
+		// Fetch recent transaction signatures for the escrow ATA, using the parsed limit
 		signatures, err := rpcClient.GetSignaturesForAddressWithOpts(r.Context(), escrowATA, &solanagrpc.GetSignaturesForAddressOpts{
 			Limit:      &limit,
 			Commitment: solanagrpc.CommitmentFinalized,
@@ -476,9 +520,16 @@ func handleListPaidBounties(l *slog.Logger, rpcClient *solanagrpc.Client, escrow
 				continue
 			}
 
+			// --- Add a small delay to avoid rate limiting ---
+			time.Sleep(200 * time.Millisecond) // Adjust sleep duration if needed
+			// --------------------------------------------------
+
+			// Define MaxSupportedTransactionVersion
+			maxSupportedTxVersion := uint64(0)
 			tx, err := rpcClient.GetTransaction(r.Context(), sigInfo.Signature, &solanagrpc.GetTransactionOpts{
-				Encoding:   solanago.EncodingBase64, // Use Base64 for easier parsing if needed, or JSONParsed if available/preferred
-				Commitment: solanagrpc.CommitmentFinalized,
+				Encoding:                       solanago.EncodingBase64, // Use Base64 for easier parsing if needed, or JSONParsed if available/preferred
+				Commitment:                     solanagrpc.CommitmentFinalized,
+				MaxSupportedTransactionVersion: &maxSupportedTxVersion,
 			})
 			if err != nil {
 				l.Error("Failed to get transaction details", "signature", sigInfo.Signature.String(), "error", err)
@@ -533,7 +584,7 @@ func handleListPaidBounties(l *slog.Logger, rpcClient *solanagrpc.Client, escrow
 
 			// If we found a valid outgoing transfer from escrow ATA via token balances
 			if recipientOwnerWallet != "" && transferAmountLamports > 0 {
-				amountUSDC := lamportsToUSDC(transferAmountLamports)
+				amountUSDC := float64(transferAmountLamports) / math.Pow10(6) // Convert lamports to USDC
 
 				paidBounty := PaidBountyItem{
 					Signature:            sigInfo.Signature.String(),
@@ -551,6 +602,15 @@ func handleListPaidBounties(l *slog.Logger, rpcClient *solanagrpc.Client, escrow
 		}
 
 		l.Info("Finished processing signatures", "found_payments", len(paidBounties))
+
+		// --- Update Cache ---
+		listPaidBountiesCache.Lock()
+		listPaidBountiesCache.data = paidBounties // Store a copy or the slice itself
+		listPaidBountiesCache.timestamp = time.Now()
+		listPaidBountiesCache.Unlock()
+		l.Debug("Updated paid bounties cache")
+		// --- End Update Cache ---
+
 		writeJSONResponse(w, paidBounties, http.StatusOK)
 	}
 }
