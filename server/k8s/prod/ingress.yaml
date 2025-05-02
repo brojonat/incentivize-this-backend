@@ -9,9 +9,20 @@ spec:
   tls:
   - hosts:
     - api.abb.brojonat.com
+    - api.incentivizethis.com
     secretName: affiliate-bounty-board-backend-tls
   rules:
   - host: "api.abb.brojonat.com"
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/"
+        backend:
+          service:
+            name: affiliate-bounty-board-backend
+            port:
+              number: 80
+  - host: "api.incentivizethis.com"
     http:
       paths:
       - pathType: Prefix

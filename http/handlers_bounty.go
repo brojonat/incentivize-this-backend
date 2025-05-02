@@ -239,7 +239,7 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 		// Conditionally add timestamp requirement for prod environment
 		if env == "prod" {
 			currentTime := time.Now().UTC().Format("2006-01-02")
-			timestampReq := fmt.Sprintf("Content MUST be created after %s", currentTime)
+			timestampReq := fmt.Sprintf("Content must be created after %s", currentTime)
 			req.Requirements = append(req.Requirements, timestampReq)
 		}
 

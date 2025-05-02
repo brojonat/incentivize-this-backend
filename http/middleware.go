@@ -107,14 +107,16 @@ func rateLimitMiddleware(rl *RateLimiter) func(http.HandlerFunc) http.HandlerFun
 // wraps the handler with the usual CORS settings.
 func apiMode(l *slog.Logger, maxBytes int64, headers, methods, origins []string) func(http.HandlerFunc) http.HandlerFunc {
 	// Create rate limiter with reasonable defaults
-	rl := NewRateLimiter(1*time.Minute, 100) // 100 requests per minute
+	// rl := NewRateLimiter(1*time.Minute, 100) // 100 requests per minute (temporarily commented out)
 
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			next = makeGraceful(l)(next)
 			next = setMaxBytesReader(maxBytes)(next)
 			next = setContentType("application/json")(next)
-			next = rateLimitMiddleware(rl)(next)
+			// next = rateLimitMiddleware(rl)(next) // Temporarily comment out rate limiter
+
+			// Apply CORS middleware
 			handlers.CORS(
 				handlers.AllowedHeaders(headers),
 				handlers.AllowedMethods(methods),

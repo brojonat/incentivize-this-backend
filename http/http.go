@@ -16,6 +16,7 @@ import (
 	"github.com/brojonat/affiliate-bounty-board/internal/stools"
 	solanago "github.com/gagliardetto/solana-go"
 	solanarpc "github.com/gagliardetto/solana-go/rpc"
+	"github.com/gorilla/handlers"
 	"go.temporal.io/sdk/client"
 )
 
@@ -126,14 +127,13 @@ func writeJSONResponse(w http.ResponseWriter, resp interface{}, code int) {
 // RunServer starts the HTTP server with the given configuration
 func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port string) error {
 	mux := http.NewServeMux()
-	maxBytes := int64(1048576)
 
 	// --- Read and Apply CORS Configuration from Env Vars ---
 	allowedOriginsEnv := os.Getenv("CORS_ORIGINS")
 	var allowedOrigins []string
 	if allowedOriginsEnv == "*" {
 		allowedOrigins = []string{"*"}
-		logger.Info("CORS configured to allow all origins (*)")
+		logger.Warn("CORS configured to allow all origins (*)")
 	} else if allowedOriginsEnv != "" {
 		allowedOrigins = strings.Split(allowedOriginsEnv, ",")
 		logger.Info("CORS configured with specific origins", "origins", allowedOrigins)
@@ -142,15 +142,34 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		// Default to empty list, effectively disabling CORS unless middleware handles nil gracefully
 		allowedOrigins = []string{}
 	}
-	// TODO: Read CORS_METHODS and CORS_HEADERS similarly if needed
-	allowedMethods := []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}           // Example default methods
-	allowedHeaders := []string{"Authorization", "Content-Type", "X-Requested-With"} // Example default headers
+
+	// Read CORS Methods
+	allowedMethodsEnv := os.Getenv("CORS_METHODS")
+	var allowedMethods []string
+	if allowedMethodsEnv != "" {
+		allowedMethods = strings.Split(allowedMethodsEnv, ",")
+		logger.Info("CORS configured with specific methods", "methods", allowedMethods)
+	} else {
+		logger.Warn("CORS_METHODS not set, using default methods")
+		allowedMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"} // Default if not set
+	}
+
+	// Read CORS Headers
+	allowedHeadersEnv := os.Getenv("CORS_HEADERS")
+	var allowedHeaders []string
+	if allowedHeadersEnv != "" {
+		allowedHeaders = strings.Split(allowedHeadersEnv, ",")
+		logger.Info("CORS configured with specific headers", "headers", allowedHeaders)
+	} else {
+		logger.Warn("CORS_HEADERS not set, using default headers")
+		allowedHeaders = []string{"Authorization", "Content-Type", "X-Requested-With"} // Default if not set
+	}
 
 	ctx = WithCORSConfig(ctx, allowedHeaders, allowedMethods, allowedOrigins)
 	// --- End CORS Configuration ---
 
 	// Now retrieve the config from context (it should be populated now)
-	headers, methods, origins := GetCORSConfig(ctx)
+	// headers, methods, origins := GetCORSConfig(ctx) // No longer needed here
 
 	rpcEndpoint := os.Getenv(EnvSolanaRPCEndpoint)
 	if rpcEndpoint == "" {
@@ -198,63 +217,62 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	mux.HandleFunc("GET /ping", stools.AdaptHandler(
 		handlePing(),
 		withLogging(logger),
-		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
 	mux.HandleFunc("POST /token", stools.AdaptHandler(
 		handleIssueSudoToken(logger),
 		withLogging(logger),
 		atLeastOneAuth(oauthAuthorizerForm(getSecretKey)),
-		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
 	mux.HandleFunc("GET /bounties", stools.AdaptHandler(
 		handleListBounties(logger, tc, currentEnv),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
 	mux.HandleFunc("GET /bounties/paid", stools.AdaptHandler(
 		handleListPaidBounties(logger, rpcClient, escrowWallet, usdcMintAddress, 1*time.Minute),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
 	mux.HandleFunc("POST /bounties", stools.AdaptHandler(
 		handleCreateBounty(logger, tc, DefaultPayoutCalculator(), currentEnv),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
 	mux.HandleFunc("POST /assess", stools.AdaptHandler(
 		handleAssessContent(logger, tc),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
 	mux.HandleFunc("POST /bounties/pay", stools.AdaptHandler(
 		handlePayBounty(logger, tc),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 
 	// Route for getting a specific bounty by ID
 	mux.HandleFunc("GET /bounties/{id}", stools.AdaptHandler(
 		handleGetBountyByID(logger, tc),
 		withLogging(logger),
-		// FIXME: add auth after debugging is done
-		apiMode(logger, maxBytes, headers, methods, origins),
 	))
+
+	// Apply CORS globally
+	corsHandler := handlers.CORS(
+		handlers.AllowedHeaders(allowedHeaders),
+		handlers.AllowedMethods(allowedMethods),
+		handlers.AllowedOrigins(allowedOrigins),
+		handlers.AllowCredentials(),
+	)(mux)
 
 	// Start server
 	server := &http.Server{
 		Addr:    ":" + port,
-		Handler: mux,
+		Handler: corsHandler,
 	}
 
 	// Start server in a goroutine
