@@ -1741,13 +1741,13 @@ func (a *Activities) formatBountiesForReddit(bounties []api.BountyListItem, serv
 	body.WriteString("|---|---|---|---|---|\n")
 
 	for _, b := range bounties {
-		reqSummary := strings.Join(b.Requirements, ", ")
+		reqSummary := strings.Join(b.Requirements, " ")
 		if len(reqSummary) > 2048 {
 			reqSummary = reqSummary[:2045] + "..."
 		}
 		line := fmt.Sprintf("| [%s](%s) | %s | $%.2f | $%.2f | %s |\n",
 			b.WorkflowID,
-			fmt.Sprintf("%s/bounty/%s", strings.TrimSuffix(serverURL, "/"), b.WorkflowID),
+			fmt.Sprintf("%s/bounties/%s", strings.TrimSuffix(serverURL, "/"), b.WorkflowID),
 			b.PlatformType,
 			b.BountyPerPost,
 			b.TotalBounty,

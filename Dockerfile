@@ -1,8 +1,9 @@
 # ---- Builder Stage ----
 FROM golang:1.24-alpine AS builder
 
-# Install build dependencies
-RUN apk update && apk add --no-cache git build-base
+# Install build dependencies AND CA certificates
+RUN apk update && apk add --no-cache git build-base ca-certificates
+RUN update-ca-certificates
 
 # Set working directory
 WORKDIR /app
@@ -25,10 +26,11 @@ COPY worker/ ./worker/
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /bin/abb cmd/abb/*.go
 
 # ---- Final Stage ----
-FROM scratch
+FROM alpine:latest
 
-# Copy CA certificates for HTTPS requests (needed by both server/worker potentially)
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+WORKDIR /app
 
 # Copy the built binary from the builder stage
 COPY --from=builder /bin/abb /abb

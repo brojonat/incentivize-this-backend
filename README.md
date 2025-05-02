@@ -84,7 +84,7 @@ This flow demonstrates how to create a bounty, fund it using the CLI utility (si
 
     ```bash
     # Example:
-    ./bin/abb admin bounty create -r "foo" -r "bar" -r "baz" --per-post 0.01 --total 0.1 --platform reddit --payment-timeout 10m
+    ./bin/abb admin bounty create -r "foo" -r "bar" -r "baz" --per-post 0.01 --total 0.1 --platform reddit
     # Output will include: Workflow started: bounty-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
     ```
 
@@ -728,7 +728,7 @@ spl-token create-account $SOLANA_USDC_MINT_ADDRESS --owner $SOLANA_TEST_CREATOR_
 # And now check the balance (you should see 0)
 spl-token balance --address $SOLANA_TEST_CREATOR_USDC_ACA
 # Ok, now, pretend a hypothetical advertiser creates a bounty. This will use SOLANA_TEST_FUNDER_WALLET by default
-./bin/abb admin bounty create -r "write a post in r/orangecounty that is about microcenter and has at least 100 comments" --total 1 --per-post 0.05 --platform reddit --payment-timeout 10m
+./bin/abb admin bounty create -r "write a post in r/orangecounty that is about microcenter and has at least 100 comments" --total 1 --per-post 0.05 --platform reddit
 # Now fund the bounty escrow within the timeout window. This will use the
 # SOLANA_TEST_FUNDER_WALLET and SOLANA_TEST_FUNDER_PRIVATE_KEY by default
 ./bin/abb admin util fund-escrow -a 1.0 -w bounty-some-uuid

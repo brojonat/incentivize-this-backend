@@ -127,6 +127,29 @@ func writeJSONResponse(w http.ResponseWriter, resp interface{}, code int) {
 func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port string) error {
 	mux := http.NewServeMux()
 	maxBytes := int64(1048576)
+
+	// --- Read and Apply CORS Configuration from Env Vars ---
+	allowedOriginsEnv := os.Getenv("CORS_ORIGINS")
+	var allowedOrigins []string
+	if allowedOriginsEnv == "*" {
+		allowedOrigins = []string{"*"}
+		logger.Info("CORS configured to allow all origins (*)")
+	} else if allowedOriginsEnv != "" {
+		allowedOrigins = strings.Split(allowedOriginsEnv, ",")
+		logger.Info("CORS configured with specific origins", "origins", allowedOrigins)
+	} else {
+		logger.Warn("CORS_ORIGINS not set, CORS might not function correctly")
+		// Default to empty list, effectively disabling CORS unless middleware handles nil gracefully
+		allowedOrigins = []string{}
+	}
+	// TODO: Read CORS_METHODS and CORS_HEADERS similarly if needed
+	allowedMethods := []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}           // Example default methods
+	allowedHeaders := []string{"Authorization", "Content-Type", "X-Requested-With"} // Example default headers
+
+	ctx = WithCORSConfig(ctx, allowedHeaders, allowedMethods, allowedOrigins)
+	// --- End CORS Configuration ---
+
+	// Now retrieve the config from context (it should be populated now)
 	headers, methods, origins := GetCORSConfig(ctx)
 
 	rpcEndpoint := os.Getenv(EnvSolanaRPCEndpoint)
@@ -186,7 +209,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	))
 
 	mux.HandleFunc("GET /bounties", stools.AdaptHandler(
-		handleListBounties(logger, tc),
+		handleListBounties(logger, tc, currentEnv),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
 		apiMode(logger, maxBytes, headers, methods, origins),
@@ -217,6 +240,14 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		handlePayBounty(logger, tc),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		apiMode(logger, maxBytes, headers, methods, origins),
+	))
+
+	// Route for getting a specific bounty by ID
+	mux.HandleFunc("GET /bounties/{id}", stools.AdaptHandler(
+		handleGetBountyByID(logger, tc),
+		withLogging(logger),
+		// FIXME: add auth after debugging is done
 		apiMode(logger, maxBytes, headers, methods, origins),
 	))
 

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"crypto/tls"
+
 	"github.com/brojonat/affiliate-bounty-board/http/api"
 	solanautil "github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
@@ -122,7 +124,6 @@ func createBounty(ctx *cli.Context) error {
 	}
 
 	// Create a map for the request to avoid type conversion issues
-	paymentTimeoutDuration := ctx.Duration("payment-timeout")
 	req := map[string]interface{}{
 		"requirements":         ctx.StringSlice("requirements"),
 		"bounty_per_post":      ctx.Float64("per-post"),
@@ -130,7 +131,6 @@ func createBounty(ctx *cli.Context) error {
 		"bounty_owner_wallet":  bountyOwnerWallet,
 		"bounty_funder_wallet": bountyFunderWallet,
 		"platform_type":        ctx.String("platform"),
-		"payment_timeout":      int(paymentTimeoutDuration.Seconds()),
 	}
 
 	// Marshal to JSON
@@ -252,6 +252,13 @@ func assessContent(ctx *cli.Context) error {
 }
 
 func listBounties(ctx *cli.Context) error {
+	// Create a custom HTTP client that skips TLS verification
+	// WARNING: Use with caution, bypasses security checks.
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{Transport: tr}
+
 	// Create and send the HTTP request
 	httpReq, err := http.NewRequest(
 		http.MethodGet,
@@ -265,8 +272,8 @@ func listBounties(ctx *cli.Context) error {
 	// Set headers
 	httpReq.Header.Set("Authorization", "Bearer "+ctx.String("token"))
 
-	// Execute the request
-	res, err := http.DefaultClient.Do(httpReq)
+	// Execute the request using the custom client
+	res, err := client.Do(httpReq)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
@@ -510,11 +517,6 @@ func adminCommands() []*cli.Command {
 							Required: true,
 							Usage:    "Platform type (reddit, youtube, yelp, google)",
 							Value:    "reddit",
-						},
-						&cli.DurationFlag{
-							Name:  "payment-timeout",
-							Usage: "Timeout duration to wait for payment verification (e.g., 10s, 1m)",
-							Value: 10 * time.Second,
 						},
 					},
 					Action: createBounty,

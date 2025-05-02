@@ -42,8 +42,11 @@ build-cli:
 
 build-push-cli:
 	$(call setup_env, .env.server.prod)
-	docker build -f Dockerfile -t ${CLI_IMG_TAG} .
-	docker push ${CLI_IMG_TAG}
+	$(eval GIT_HASH := $(shell git rev-parse --short HEAD))
+	$(eval DYNAMIC_TAG := brojonat/abb-cli:$(GIT_HASH))
+	@echo "Building and pushing image: $(DYNAMIC_TAG)"
+	docker build -f Dockerfile -t $(DYNAMIC_TAG) .
+	docker push $(DYNAMIC_TAG)
 
 refresh-token-debug:
 	$(call setup_env, .env.server.debug)
@@ -75,21 +78,29 @@ run-worker-local:
 deploy-server:
 	$(call setup_env, .env.server.prod)
 	@$(MAKE) build-push-cli
+	$(eval GIT_HASH := $(shell git rev-parse --short HEAD))
+	$(eval DYNAMIC_TAG := brojonat/abb-cli:$(GIT_HASH))
+	@echo "Applying server deployment with image: $(DYNAMIC_TAG)"
 	kustomize build --load-restrictor=LoadRestrictionsNone server/k8s/prod | \
 	sed -e "s;{{DOCKER_REPO}};$(DOCKER_REPO);g" \
-		-e "s;{{CLI_IMG_TAG}};$(CLI_IMG_TAG);g" | \
+		-e "s;{{CLI_IMG_TAG}};$(DYNAMIC_TAG);g" | \
 		kubectl apply -f -
-	kubectl rollout restart deployment affiliate-bounty-board-backend
+	# No need to patch anymore, the image tag change forces the rollout
+	@echo "Server deployment applied."
 
 # Deploy worker component
 deploy-worker:
 	$(call setup_env, .env.worker.prod)
 	@$(MAKE) build-push-cli
+	$(eval GIT_HASH := $(shell git rev-parse --short HEAD))
+	$(eval DYNAMIC_TAG := brojonat/abb-cli:$(GIT_HASH))
+	@echo "Applying worker deployment with image: $(DYNAMIC_TAG)"
 	kustomize build --load-restrictor=LoadRestrictionsNone worker/k8s/prod | \
 	sed -e "s;{{DOCKER_REPO}};$(DOCKER_REPO);g" \
-		-e "s;{{CLI_IMG_TAG}};$(CLI_IMG_TAG);g" | \
+		-e "s;{{CLI_IMG_TAG}};$(DYNAMIC_TAG);g" | \
 		kubectl apply -f -
-	kubectl rollout restart deployment affiliate-bounty-board-workers
+	# No need to patch anymore, the image tag change forces the rollout
+	@echo "Worker deployment applied."
 
 # Deploy all components
 deploy-all: deploy-server deploy-worker

@@ -14,15 +14,16 @@ import (
 
 // Search Attribute Keys
 var (
-	BountyOwnerWalletKey   = temporal.NewSearchAttributeKeyString("BountyOwnerWallet")
-	BountyFunderWalletKey  = temporal.NewSearchAttributeKeyString("BountyFunderWallet")
-	BountyPlatformKey      = temporal.NewSearchAttributeKeyString("BountyPlatform")
-	BountyTotalAmountKey   = temporal.NewSearchAttributeKeyFloat64("BountyTotalAmount")
-	BountyPerPostAmountKey = temporal.NewSearchAttributeKeyFloat64("BountyPerPostAmount")
-	BountyCreationTimeKey  = temporal.NewSearchAttributeKeyTime("BountyCreationTime")
-	BountyTimeoutTimeKey   = temporal.NewSearchAttributeKeyTime("BountyTimeoutTime")
-	BountyStatusKey        = temporal.NewSearchAttributeKeyString("BountyStatus")
-	EnvironmentKey         = temporal.NewSearchAttributeKeyString("Environment")
+	EnvironmentKey          = temporal.NewSearchAttributeKeyString("Environment")
+	BountyOwnerWalletKey    = temporal.NewSearchAttributeKeyString("BountyOwnerWallet")
+	BountyFunderWalletKey   = temporal.NewSearchAttributeKeyString("BountyFunderWallet")
+	BountyPlatformKey       = temporal.NewSearchAttributeKeyString("BountyPlatform")
+	BountyTotalAmountKey    = temporal.NewSearchAttributeKeyFloat64("BountyTotalAmount")
+	BountyPerPostAmountKey  = temporal.NewSearchAttributeKeyFloat64("BountyPerPostAmount")
+	BountyCreationTimeKey   = temporal.NewSearchAttributeKeyTime("BountyCreationTime")
+	BountyTimeoutTimeKey    = temporal.NewSearchAttributeKeyTime("BountyTimeoutTime")
+	BountyStatusKey         = temporal.NewSearchAttributeKeyString("BountyStatus")
+	BountyValueRemainingKey = temporal.NewSearchAttributeKeyFloat64("BountyValueRemaining")
 )
 
 // BountyStatus defines the possible states of a bounty workflow.
@@ -413,9 +414,19 @@ func awaitLoopUntilEmptyOrTimeout(
 				} else {
 					logger.Info("Successfully returned remaining bounty to owner on timeout")
 					remainingBounty = solana.Zero() // Set remaining bounty to zero after successful refund
+					// Update remaining value SA
+					err = workflow.UpsertTypedSearchAttributes(ctx, BountyValueRemainingKey.ValueSet(0.0))
+					if err != nil {
+						logger.Error("Failed to update search attribute BountyValueRemaining to 0 on timeout refund", "error", err)
+					}
 				}
 			} else {
 				logger.Info("Timeout occurred, but remaining bounty was already zero.")
+				// Ensure SA is 0 if it somehow wasn't already
+				err = workflow.UpsertTypedSearchAttributes(ctx, BountyValueRemainingKey.ValueSet(0.0))
+				if err != nil {
+					logger.Error("Failed to update search attribute BountyValueRemaining to 0 on timeout (already zero bounty)", "error", err)
+				}
 			}
 			// Workflow will naturally end after this selector branch finishes
 		})
@@ -543,6 +554,11 @@ func awaitLoopUntilEmptyOrTimeout(
 							remainingBounty = remainingBounty.Sub(input.BountyPerPost)
 						}
 						logger.Info("Remaining bounty after payout", "amount", remainingBounty.ToUSDC())
+						// Update remaining value SA
+						err = workflow.UpsertTypedSearchAttributes(ctx, BountyValueRemainingKey.ValueSet(remainingBounty.ToUSDC()))
+						if err != nil {
+							logger.Error("Failed to update search attribute BountyValueRemaining after payout", "error", err)
+						}
 						// Update status back to Listening after successful payout
 						errUpdate := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusListening)))
 						if errUpdate != nil {
@@ -602,6 +618,11 @@ func awaitLoopUntilEmptyOrTimeout(
 				} else {
 					logger.Info("Successfully returned remaining bounty to owner")
 					remainingBounty = solana.Zero()
+					// Update remaining value SA
+					err = workflow.UpsertTypedSearchAttributes(ctx, BountyValueRemainingKey.ValueSet(0.0))
+					if err != nil {
+						logger.Error("Failed to update search attribute BountyValueRemaining to 0 on cancellation refund", "error", err)
+					}
 				}
 			}
 			logger.Info("Workflow cancelled by signal.")

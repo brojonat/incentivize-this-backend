@@ -133,25 +133,27 @@ func TestHandleListBounties(t *testing.T) {
 			mockClient := &mocks.Client{}
 			tt.setupMock(mockClient)
 
-			handler := handleListBounties(slog.Default(), mockClient)
-			req := httptest.NewRequest(http.MethodGet, "/bounties", nil)
-			w := httptest.NewRecorder()
+			// Create a ResponseRecorder
+			rec := httptest.NewRecorder()
 
-			// Execute
-			handler.ServeHTTP(w, req)
+			// Create the handler with the mock client and a test environment
+			handler := handleListBounties(slog.Default(), mockClient, "test")
+
+			// Serve the HTTP request
+			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/bounties", nil))
 
 			// Assert
-			assert.Equal(t, tt.expectedStatus, w.Code)
+			assert.Equal(t, tt.expectedStatus, rec.Code)
 
 			var response interface{}
 			if tt.expectedStatus == http.StatusOK {
 				var bounties []BountyListItem
-				err := json.NewDecoder(w.Body).Decode(&bounties)
+				err := json.NewDecoder(rec.Body).Decode(&bounties)
 				assert.NoError(t, err)
 				response = bounties
 			} else {
 				var resp DefaultJSONResponse
-				err := json.NewDecoder(w.Body).Decode(&resp)
+				err := json.NewDecoder(rec.Body).Decode(&resp)
 				assert.NoError(t, err)
 				response = resp
 			}

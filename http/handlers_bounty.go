@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -19,6 +20,7 @@ import (
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
 	"go.temporal.io/api/enums/v1"
+	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
@@ -60,6 +62,7 @@ type BountyListItem struct {
 	BountyOwnerWallet string           `json:"bounty_owner_wallet"`
 	PlatformType      abb.PlatformKind `json:"platform_type"`
 	CreatedAt         time.Time        `json:"created_at"`
+	EndTime           time.Time        `json:"end_time,omitempty"`
 }
 
 // PaidBountyItem represents a single paid bounty in the list response
@@ -69,16 +72,6 @@ type PaidBountyItem struct {
 	RecipientOwnerWallet string    `json:"recipient_owner_wallet"`
 	Amount               float64   `json:"amount"`         // Amount in USDC
 	Memo                 string    `json:"memo,omitempty"` // Transaction memo, if any
-}
-
-// lamportsToUSDC converts lamports (uint64) to USDC (float64) assuming 6 decimal places.
-func lamportsToUSDC(lamports uint64) float64 {
-	return float64(lamports) / math.Pow10(6)
-}
-
-// BountyLister defines the interface for listing bounties
-type BountyLister interface {
-	ListBounties(ctx context.Context) ([]BountyListItem, error)
 }
 
 // AssessContentRequest represents the request body for assessing content against requirements
@@ -245,7 +238,7 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 
 		// Conditionally add timestamp requirement for prod environment
 		if env == "prod" {
-			currentTime := time.Now().UTC().Format(time.RFC3339) // Use ISO 8601 format
+			currentTime := time.Now().UTC().Format("2006-01-02")
 			timestampReq := fmt.Sprintf("Content must be created after %s", currentTime)
 			req.Requirements = append(req.Requirements, timestampReq)
 		}
@@ -294,6 +287,7 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 
 		// Create typed search attributes using defined keys
 		saMap := temporal.NewSearchAttributes(
+			abb.EnvironmentKey.ValueSet(env),
 			abb.BountyOwnerWalletKey.ValueSet(input.BountyOwnerWallet),
 			abb.BountyFunderWalletKey.ValueSet(input.BountyFunderWallet),
 			abb.BountyPlatformKey.ValueSet(string(input.Platform)),
@@ -301,8 +295,8 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 			abb.BountyPerPostAmountKey.ValueSet(input.BountyPerPost.ToUSDC()),
 			abb.BountyCreationTimeKey.ValueSet(now),
 			abb.BountyTimeoutTimeKey.ValueSet(now.Add(input.Timeout)),
-			abb.BountyStatusKey.ValueSet(string(abb.BountyStatusAwaitingFunding)), // Set initial status
-			abb.EnvironmentKey.ValueSet(env),
+			abb.BountyStatusKey.ValueSet(string(abb.BountyStatusAwaitingFunding)),
+			abb.BountyValueRemainingKey.ValueSet(input.TotalBounty.ToUSDC()),
 		)
 
 		workflowOptions := client.StartWorkflowOptions{
@@ -324,7 +318,7 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 }
 
 // handleListBounties handles listing all bounties
-func handleListBounties(l *slog.Logger, tc client.Client) http.HandlerFunc {
+func handleListBounties(l *slog.Logger, tc client.Client, env string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		// List workflows of type BountyAssessmentWorkflow
@@ -332,8 +326,9 @@ func handleListBounties(l *slog.Logger, tc client.Client) http.HandlerFunc {
 		listCtx, listCancel := context.WithTimeout(context.Background(), 30*time.Second) // Timeout for the whole list operation
 		defer listCancel()
 
-		// Combine WorkflowType and ExecutionStatus for the query
-		query := fmt.Sprintf(`WorkflowType = '%s' AND ExecutionStatus = 'Running'`, "BountyAssessmentWorkflow")
+		// Combine WorkflowType, ExecutionStatus, and Environment for the query
+		query := fmt.Sprintf(`WorkflowType = '%s' AND ExecutionStatus = 'Running' AND %s = '%s'`,
+			"BountyAssessmentWorkflow", abb.EnvironmentKey.GetName(), env)
 		executions, err := tc.ListWorkflow(listCtx, &workflowservice.ListWorkflowExecutionsRequest{
 			Query: query,
 		})
@@ -612,5 +607,102 @@ func handleListPaidBounties(
 		// --- End Update Cache ---
 
 		writeJSONResponse(w, paidBounties, http.StatusOK)
+	}
+}
+
+// handleGetBountyByID handles fetching details for a single bounty by its ID
+func handleGetBountyByID(l *slog.Logger, tc client.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		workflowID := r.PathValue("id") // Extract ID from path e.g., /bounties/{id}
+		if workflowID == "" {
+			writeBadRequestError(w, fmt.Errorf("missing bounty ID in path"))
+			return
+		}
+
+		// Use a background context with timeout for Temporal calls
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		// Describe the workflow execution first to get status and potentially run ID
+		descResp, err := tc.DescribeWorkflowExecution(ctx, workflowID, "") // RunID can be empty
+		if err != nil {
+			var notFoundErr *serviceerror.NotFound
+			if errors.As(err, &notFoundErr) {
+				writeEmptyResultError(w) // Use 404 for not found
+			} else {
+				writeInternalError(l, w, fmt.Errorf("failed to describe workflow %s: %w", workflowID, err))
+			}
+			return
+		}
+
+		// Ensure we have a valid execution info
+		if descResp == nil || descResp.WorkflowExecutionInfo == nil || descResp.WorkflowExecutionInfo.Execution == nil {
+			writeInternalError(l, w, fmt.Errorf("invalid description received for workflow %s", workflowID))
+			return
+		}
+
+		// Get workflow input from history (similar to list handler)
+		var input abb.BountyAssessmentWorkflowInput
+		historyIterator := tc.GetWorkflowHistory(ctx, workflowID, descResp.WorkflowExecutionInfo.Execution.RunId, false, enums.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
+		if !historyIterator.HasNext() {
+			writeInternalError(l, w, fmt.Errorf("failed to get workflow history or history is empty for %s", workflowID))
+			return
+		}
+
+		event, err := historyIterator.Next()
+		if err != nil {
+			writeInternalError(l, w, fmt.Errorf("failed to get first history event for %s: %w", workflowID, err))
+			return
+		}
+
+		if event.GetEventType() != enums.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED {
+			writeInternalError(l, w, fmt.Errorf("first history event is not WorkflowExecutionStarted for %s", workflowID))
+			return
+		}
+
+		attrs := event.GetWorkflowExecutionStartedEventAttributes()
+		if attrs == nil || attrs.Input == nil || len(attrs.Input.Payloads) == 0 {
+			writeInternalError(l, w, fmt.Errorf("WorkflowExecutionStarted event missing input attributes for %s", workflowID))
+			return
+		}
+
+		err = converter.GetDefaultDataConverter().FromPayload(attrs.Input.Payloads[0], &input)
+		if err != nil {
+			writeInternalError(l, w, fmt.Errorf("failed to decode workflow input from history for %s: %w", workflowID, err))
+			return
+		}
+
+		// Construct the response using BountyListItem
+		// Extract EndTime from Search Attributes
+		var endTime time.Time
+		if saPayload, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyTimeoutTimeKey.GetName()]; ok {
+			err = converter.GetDefaultDataConverter().FromPayload(saPayload, &endTime)
+			if err != nil {
+				// Log error but maybe don't fail the request? Or return partial data?
+				l.Warn("Failed to decode BountyTimeoutTime search attribute", "workflow_id", workflowID, "error", err)
+				// Set endTime to zero value if decoding fails
+				endTime = time.Time{}
+			} else {
+				l.Debug("Successfully decoded end time from search attribute", "workflow_id", workflowID, "end_time", endTime)
+			}
+		} else {
+			l.Warn("BountyTimeoutTime search attribute not found", "workflow_id", workflowID)
+			// Set endTime to zero value if attribute is missing
+			endTime = time.Time{}
+		}
+
+		bountyDetail := BountyListItem{
+			WorkflowID:        workflowID,
+			Status:            descResp.WorkflowExecutionInfo.Status.String(),
+			Requirements:      input.Requirements,
+			BountyPerPost:     input.BountyPerPost.ToUSDC(),
+			TotalBounty:       input.TotalBounty.ToUSDC(),
+			BountyOwnerWallet: input.BountyOwnerWallet,
+			PlatformType:      input.Platform,
+			CreatedAt:         descResp.WorkflowExecutionInfo.StartTime.AsTime(),
+			EndTime:           endTime,
+		}
+
+		writeJSONResponse(w, bountyDetail, http.StatusOK)
 	}
 }
