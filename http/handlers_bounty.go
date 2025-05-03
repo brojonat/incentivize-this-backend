@@ -388,6 +388,24 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 
 			histCancel() // Cancel context as soon as history is fetched
 
+			// Extract EndTime from Search Attributes (from the ListWorkflow response)
+			var endTime time.Time
+			if execution.SearchAttributes != nil {
+				if saPayload, ok := execution.SearchAttributes.GetIndexedFields()[abb.BountyTimeoutTimeKey.GetName()]; ok {
+					err = converter.GetDefaultDataConverter().FromPayload(saPayload, &endTime)
+					if err != nil {
+						l.Warn("Failed to decode BountyTimeoutTime search attribute for list item", "workflow_id", execution.Execution.WorkflowId, "error", err)
+						endTime = time.Time{} // Set zero value on error
+					}
+				} else {
+					l.Warn("BountyTimeoutTime search attribute not found for list item", "workflow_id", execution.Execution.WorkflowId)
+					endTime = time.Time{} // Set zero value if missing
+				}
+			} else {
+				l.Warn("SearchAttributes missing in ListWorkflow response item", "workflow_id", execution.Execution.WorkflowId)
+				endTime = time.Time{} // Set zero value if missing
+			}
+
 			bounties = append(bounties, BountyListItem{
 				WorkflowID:        execution.Execution.WorkflowId,
 				Status:            execution.Status.String(),
@@ -397,6 +415,7 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 				BountyOwnerWallet: input.BountyOwnerWallet,
 				PlatformType:      input.Platform,
 				CreatedAt:         execution.StartTime.AsTime(),
+				EndTime:           endTime, // Populate EndTime here
 			})
 		}
 
