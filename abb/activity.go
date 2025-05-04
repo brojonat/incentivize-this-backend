@@ -1433,6 +1433,7 @@ type RedditContent struct {
 	IsNSFW      bool      `json:"is_nsfw"`
 	IsSpoiler   bool      `json:"is_spoiler"`
 	Flair       string    `json:"flair"`
+	Thumbnail   string    `json:"thumbnail"` // Added Thumbnail field
 }
 
 // UnmarshalJSON implements custom unmarshaling for RedditContent
@@ -1467,7 +1468,9 @@ func (r *RedditContent) UnmarshalJSON(data []byte) error {
 		}
 		createdTime = time.Unix(int64(timestamp), 0)
 	default:
-		return fmt.Errorf("unexpected type for created_utc: %T", v)
+		// Allow for created_utc to be missing or null, default to zero time
+		createdTime = time.Time{}
+		// return fmt.Errorf("unexpected type for created_utc: %T", v)
 	}
 
 	// Create an auxiliary struct for the rest of the fields
@@ -1488,11 +1491,15 @@ func (r *RedditContent) UnmarshalJSON(data []byte) error {
 		IsNSFW      bool   `json:"over_18"`
 		IsSpoiler   bool   `json:"spoiler"`
 		Flair       string `json:"link_flair_text"`
+		Thumbnail   string `json:"thumbnail"` // Added Thumbnail field mapping
 	}
 
 	var aux Aux
 	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
+		// Log the raw data if unmarshal fails
+		// logger := activity.GetLogger(context.Background()) // Need context for logger?
+		// logger.Error("Failed to unmarshal Reddit aux struct", "error", err, "rawData", string(data))
+		return fmt.Errorf("failed to unmarshal reddit aux struct: %w (data: %s)", err, string(data))
 	}
 
 	// Copy all fields from aux to r
@@ -1513,6 +1520,7 @@ func (r *RedditContent) UnmarshalJSON(data []byte) error {
 	r.IsNSFW = aux.IsNSFW
 	r.IsSpoiler = aux.IsSpoiler
 	r.Flair = aux.Flair
+	r.Thumbnail = aux.Thumbnail // Copy the thumbnail field
 
 	return nil
 }
@@ -2119,8 +2127,8 @@ func getTwitchAppAccessToken(client *http.Client, deps TwitchDependencies) (stri
 }
 
 // AnalyzeImageUrlActivity downloads an image from a URL and uses a configured image LLM
-// to analyze it based on a provided text prompt.
-func (a *Activities) AnalyzeImageUrlActivity(ctx context.Context, imageUrl string, prompt string) (string, error) {
+// to analyze it based on a provided text prompt, returning a structured result.
+func (a *Activities) AnalyzeImageUrlActivity(ctx context.Context, imageUrl string, prompt string) (CheckContentRequirementsResult, error) {
 	logger := activity.GetLogger(ctx)
 	logger.Info("Starting image analysis", "imageUrl", imageUrl)
 
@@ -2133,8 +2141,9 @@ func (a *Activities) AnalyzeImageUrlActivity(ctx context.Context, imageUrl strin
 		logger.Error("Image LLM environment variables not fully configured",
 			"provider_env", EnvLLMImageProvider, "key_env", EnvLLMImageAPIKey, "model_env", EnvLLMImageModel)
 		// Fail the activity if essential config is missing
-		return "", fmt.Errorf("image LLM provider configuration incomplete (check env vars %s, %s, %s)",
-			EnvLLMImageProvider, EnvLLMImageAPIKey, EnvLLMImageModel)
+		return CheckContentRequirementsResult{Satisfies: false, Reason: fmt.Sprintf("Image LLM provider configuration incomplete (check env vars %s, %s, %s)",
+				EnvLLMImageProvider, EnvLLMImageAPIKey, EnvLLMImageModel)}, fmt.Errorf("image LLM provider configuration incomplete (check env vars %s, %s, %s)",
+				EnvLLMImageProvider, EnvLLMImageAPIKey, EnvLLMImageModel)
 	}
 
 	// --- Create Image LLM Provider --- (Using a hypothetical NewImageLLMProvider)
@@ -2149,7 +2158,7 @@ func (a *Activities) AnalyzeImageUrlActivity(ctx context.Context, imageUrl strin
 	imageProvider, err := NewImageLLMProvider(imageLLMConfig) // Needs implementation in llm.go
 	if err != nil {
 		logger.Error("Failed to create image LLM provider", "error", err)
-		return "", fmt.Errorf("failed to create image LLM provider: %w", err)
+		return CheckContentRequirementsResult{Satisfies: false, Reason: fmt.Sprintf("Image LLM provider failed: %v", err)}, fmt.Errorf("failed to create image LLM provider: %w", err)
 	}
 
 	// --- Download Image ---
@@ -2158,7 +2167,7 @@ func (a *Activities) AnalyzeImageUrlActivity(ctx context.Context, imageUrl strin
 	req, err := http.NewRequestWithContext(ctx, "GET", imageUrl, nil)
 	if err != nil {
 		logger.Error("Failed to create image download request", "url", imageUrl, "error", err)
-		return "", fmt.Errorf("failed to create image request for %s: %w", imageUrl, err)
+		return CheckContentRequirementsResult{Satisfies: false, Reason: fmt.Sprintf("Failed to download image: %v", err)}, fmt.Errorf("failed to create image request for %s: %w", imageUrl, err)
 	}
 	// Add a generic User-Agent
 	req.Header.Set("User-Agent", "AffiliateBountyBoard-Worker/1.0")
@@ -2166,30 +2175,31 @@ func (a *Activities) AnalyzeImageUrlActivity(ctx context.Context, imageUrl strin
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
 		logger.Error("Failed to download image", "url", imageUrl, "error", err)
-		return "", fmt.Errorf("failed to download image from %s: %w", imageUrl, err)
+		return CheckContentRequirementsResult{Satisfies: false, Reason: fmt.Sprintf("Failed to download image: %v", err)}, fmt.Errorf("failed to download image from %s: %w", imageUrl, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		logger.Error("Failed to download image, bad status", "url", imageUrl, "status_code", resp.StatusCode)
-		return "", fmt.Errorf("failed to download image from %s, status: %d", imageUrl, resp.StatusCode)
+		return CheckContentRequirementsResult{Satisfies: false, Reason: fmt.Sprintf("Failed to download image, status: %d", resp.StatusCode)}, fmt.Errorf("failed to download image from %s, status: %d", imageUrl, resp.StatusCode)
 	}
 
 	imageData, err := io.ReadAll(resp.Body)
 	if err != nil {
 		logger.Error("Failed to read image data", "url", imageUrl, "error", err)
-		return "", fmt.Errorf("failed to read image data from %s: %w", imageUrl, err)
+		return CheckContentRequirementsResult{Satisfies: false, Reason: fmt.Sprintf("Failed to read image data: %v", err)}, fmt.Errorf("failed to read image data from %s: %w", imageUrl, err)
 	}
 	logger.Debug("Image downloaded successfully", "url", imageUrl, "size_bytes", len(imageData))
 
 	// --- Analyze Image using Image LLM Provider ---
 	logger.Info("Sending image data to image LLM for analysis", "provider", providerName, "model", modelName)
-	analysisResult, err := imageProvider.AnalyzeImage(ctx, imageData, prompt) // Needs implementation in llm.go
+	analysisResult, err := imageProvider.AnalyzeImage(ctx, imageData, prompt)
 	if err != nil {
 		logger.Error("Image LLM analysis failed", "error", err)
-		return "", fmt.Errorf("image LLM analysis failed: %w", err)
+		// Return a default 'false' result along with the error
+		return CheckContentRequirementsResult{Satisfies: false, Reason: fmt.Sprintf("Image LLM provider failed: %v", err)}, fmt.Errorf("image LLM analysis failed: %w", err)
 	}
 
-	logger.Info("Image analysis successful")
-	return analysisResult, nil
+	logger.Info("Image analysis successful", "satisfies", analysisResult.Satisfies, "reason", analysisResult.Reason)
+	return analysisResult, nil // Return the structured result and nil error
 }

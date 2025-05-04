@@ -464,6 +464,9 @@ func awaitLoopUntilEmptyOrTimeout(
 				return // Skip processing
 			}
 
+			thumbnailAnalysisFailed := false                     // Declare flag here, before the switch
+			var imgAnalysisResult CheckContentRequirementsResult // Declare result struct here
+
 			actOpts := workflow.ActivityOptions{
 				StartToCloseTimeout: time.Minute,
 				RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 2},
@@ -478,13 +481,93 @@ func awaitLoopUntilEmptyOrTimeout(
 				var redditContent *RedditContent
 				pullErr = workflow.ExecuteActivity(loopCtx, (*Activities).PullRedditContent, signal.ContentID, signal.ContentKind).Get(loopCtx, &redditContent)
 				if pullErr == nil {
-					contentBytes, pullErr = json.Marshal(redditContent)
+					// Marshal the received content to bytes first
+					marshaledDataForCheck, marshalErr := json.Marshal(redditContent)
+					if marshalErr != nil {
+						pullErr = fmt.Errorf("failed to marshal reddit content: %w", marshalErr)
+					} else {
+						// Attempt to use the URL field as the potential thumbnail URL
+						// thumbnailURL := redditContent.URL // Assuming URL might be the thumbnail or image itself
+						// Use the actual Thumbnail field now
+						thumbnailURL := redditContent.Thumbnail
+						contentBytes = marshaledDataForCheck // Start with original marshaled data
+
+						// --- Image Analysis (if thumbnail URL exists and seems relevant) ---
+						// Simple check: only analyze if URL is not empty and likely an image/direct link
+						// if thumbnailURL != "" && (strings.HasSuffix(thumbnailURL, ".jpg") || strings.HasSuffix(thumbnailURL, ".png") || strings.HasSuffix(thumbnailURL, ".gif") || !strings.Contains(thumbnailURL, "reddit.com")) {
+						// Check if thumbnail URL is present and not a default/placeholder like "self" or "default"
+						if thumbnailURL != "" && thumbnailURL != "self" && thumbnailURL != "default" && thumbnailURL != "image" && thumbnailURL != "nsfw" {
+							logger.Info("Reddit content has potential thumbnail/image URL, analyzing...", "ContentID", signal.ContentID, "URL", thumbnailURL)
+							imageUrl := thumbnailURL // Use the URL directly
+
+							imageAnalysisPrompt := fmt.Sprintf(
+								"Analyze this Reddit thumbnail/image based on the following bounty "+
+									"requirements (you only need to consider the requirements pertaining "+
+									"to the image): %s", strings.Join(input.Requirements, "; "))
+
+							imgActOpts := workflow.ActivityOptions{
+								StartToCloseTimeout: 120 * time.Second,
+								RetryPolicy: &temporal.RetryPolicy{
+									InitialInterval:    time.Second,
+									BackoffCoefficient: 2.0,
+									MaximumInterval:    time.Minute,
+									MaximumAttempts:    3,
+								},
+							}
+							imgAnalysisErr := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, imgActOpts), (*Activities).AnalyzeImageUrlActivity, imageUrl, imageAnalysisPrompt).Get(loopCtx, &imgAnalysisResult)
+
+							if imgAnalysisErr != nil {
+								logger.Error("Image analysis activity execution failed for Reddit content", "ContentID", signal.ContentID, "error", imgAnalysisErr)
+								thumbnailAnalysisFailed = true
+							} else if !imgAnalysisResult.Satisfies {
+								logger.Info("Image analysis determined Reddit thumbnail/image does not meet requirements", "ContentID", signal.ContentID, "reason", imgAnalysisResult.Reason)
+								thumbnailAnalysisFailed = true
+							}
+						}
+					}
 				}
 			case PlatformYouTube:
 				var youtubeContent *YouTubeContent
 				pullErr = workflow.ExecuteActivity(loopCtx, (*Activities).PullYouTubeContent, signal.ContentID, signal.ContentKind).Get(loopCtx, &youtubeContent)
 				if pullErr == nil {
-					contentBytes, pullErr = json.Marshal(youtubeContent)
+					// Marshal the received content to bytes first
+					marshaledDataForCheck, marshalErr := json.Marshal(youtubeContent)
+					if marshalErr != nil {
+						pullErr = fmt.Errorf("failed to marshal youtube content: %w", marshalErr)
+					} else {
+						thumbnailURL := youtubeContent.ThumbnailURL
+						contentBytes = marshaledDataForCheck // Start with original marshaled data
+
+						// --- Image Analysis (if thumbnail exists) ---
+						if thumbnailURL != "" {
+							logger.Info("YouTube content has thumbnail, analyzing image...", "ContentID", signal.ContentID, "ThumbnailURL", thumbnailURL)
+							imageUrl := thumbnailURL // Use the URL directly (YouTube thumbnails don't need formatting like Twitch)
+
+							imageAnalysisPrompt := fmt.Sprintf(
+								"Analyze this YouTube thumbnail image based on the following bounty "+
+									"requirements (you only need to consider the requirements pertaining "+
+									"to the image): %s", strings.Join(input.Requirements, "; "))
+
+							imgActOpts := workflow.ActivityOptions{
+								StartToCloseTimeout: 120 * time.Second,
+								RetryPolicy: &temporal.RetryPolicy{
+									InitialInterval:    time.Second,
+									BackoffCoefficient: 2.0,
+									MaximumInterval:    time.Minute,
+									MaximumAttempts:    3,
+								},
+							}
+							imgAnalysisErr := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, imgActOpts), (*Activities).AnalyzeImageUrlActivity, imageUrl, imageAnalysisPrompt).Get(loopCtx, &imgAnalysisResult)
+
+							if imgAnalysisErr != nil {
+								logger.Error("Image analysis activity execution failed for YouTube content", "ContentID", signal.ContentID, "error", imgAnalysisErr)
+								thumbnailAnalysisFailed = true
+							} else if !imgAnalysisResult.Satisfies {
+								logger.Info("Image analysis determined YouTube thumbnail does not meet requirements", "ContentID", signal.ContentID, "reason", imgAnalysisResult.Reason)
+								thumbnailAnalysisFailed = true
+							}
+						}
+					}
 				}
 			case PlatformTwitch:
 				var twitchContentInterface interface{}
@@ -514,35 +597,40 @@ func awaitLoopUntilEmptyOrTimeout(
 						if thumbnailURL != "" {
 							logger.Info("Twitch content has thumbnail, analyzing image...", "ContentID", signal.ContentID, "ThumbnailURL", thumbnailURL)
 							// Format URL for 100x100
-							imageUrl := strings.ReplaceAll(thumbnailURL, "{width}", "100")
-							imageUrl = strings.ReplaceAll(imageUrl, "%{width}", "100") // Handle potential % encoding
-							imageUrl = strings.ReplaceAll(imageUrl, "{height}", "100")
-							imageUrl = strings.ReplaceAll(imageUrl, "%{height}", "100") // Handle potential % encoding
+							imageUrl := thumbnailURL
+							imageUrl = strings.ReplaceAll(imageUrl, "%{width}", "100")
+							imageUrl = strings.ReplaceAll(imageUrl, "%{height}", "100")
 
 							imageAnalysisPrompt := fmt.Sprintf(
 								"Analyze this Twitch thumbnail image based on the following bounty "+
 									"requirements (you only need to consider the requirements pertaining "+
 									"to the image): %s", strings.Join(input.Requirements, "; "))
 
-							var analysisResult string
-							imgActOpts := workflow.ActivityOptions{StartToCloseTimeout: 2 * time.Minute}
-							imgAnalysisErr := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, imgActOpts), (*Activities).AnalyzeImageUrlActivity, imageUrl, imageAnalysisPrompt).Get(loopCtx, &analysisResult)
+							imgActOpts := workflow.ActivityOptions{
+								StartToCloseTimeout: 120 * time.Second,
+								RetryPolicy: &temporal.RetryPolicy{
+									// Keep default timing but limit attempts
+									InitialInterval:    time.Second,
+									BackoffCoefficient: 2.0,
+									MaximumInterval:    time.Minute,
+									MaximumAttempts:    3, // Limit AnalyzeImageUrlActivity attempts
+								},
+							}
+							imgAnalysisErr := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, imgActOpts), (*Activities).AnalyzeImageUrlActivity, imageUrl, imageAnalysisPrompt).Get(loopCtx, &imgAnalysisResult)
 
 							if imgAnalysisErr != nil {
-								logger.Error("Image analysis activity failed", "ContentID", signal.ContentID, "error", imgAnalysisErr)
-								analysisResult = "Error during thumbnail analysis: " + imgAnalysisErr.Error()
+								// The activity now returns a default result on error, so we use that
+								logger.Error("Image analysis activity execution failed", "ContentID", signal.ContentID, "error", imgAnalysisErr)
+								thumbnailAnalysisFailed = true // Still flag it, but we have the result struct now
+								// imgAnalysisResult already contains Satisfies:false and a reason
+							} else if !imgAnalysisResult.Satisfies {
+								// Image analysis successful, but requirements not met
+								logger.Info("Image analysis determined thumbnail does not meet requirements", "ContentID", signal.ContentID, "reason", imgAnalysisResult.Reason)
+								thumbnailAnalysisFailed = true // Treat as failure for overall check
 							}
+							// If analysis succeeded and Satisfies is true, we don't need to do anything here
+							// We no longer combine the analysis result text into contentBytes
 
-							// Combine analysis result with original content data
-							var contentMap map[string]interface{}
-							if combineErr := json.Unmarshal(marshaledDataForCheck, &contentMap); combineErr != nil {
-								logger.Error("Failed to unmarshal content for adding thumbnail analysis", "ContentID", signal.ContentID, "error", combineErr)
-								pullErr = combineErr // Propagate error
-							} else {
-								contentMap["thumbnail_analysis"] = analysisResult
-								// Marshal the modified map back into contentBytes for the requirement check
-								contentBytes, pullErr = json.Marshal(contentMap)
-							}
 						} // End if thumbnailURL != ""
 					} // End else (marshalErr == nil)
 				}
@@ -552,28 +640,52 @@ func awaitLoopUntilEmptyOrTimeout(
 
 			if pullErr != nil {
 				logger.Error("Failed to pull or marshal content", "ContentID", signal.ContentID, "Platform", signal.Platform, "error", pullErr)
+				processedContentIDs[signal.ContentID] = true // Mark as processed even on pull/marshal error
+				logger.Debug("Marked content ID as processed after pull/marshal error", "ContentID", signal.ContentID)
 				return // Continue loop
 			}
 
-			// 2. Check Requirements
+			// --- Check Requirements or skip if image analysis failed ---
 			var checkResult CheckContentRequirementsResult
-			checkOpts := workflow.ActivityOptions{StartToCloseTimeout: 90 * time.Second}
-			// Use original CheckContentRequirements signature
-			err = workflow.ExecuteActivity(
-				workflow.WithActivityOptions(ctx, checkOpts),
-				(*Activities).CheckContentRequirements,
-				contentBytes,
-				input.Requirements,
-			).Get(loopCtx, &checkResult)
-			if err != nil {
-				logger.Error("Failed to check content requirements", "ContentID", signal.ContentID, "error", err)
-				return // Continue loop
+			requirementsMet := false // Default to false
+
+			if thumbnailAnalysisFailed {
+				logger.Info("Skipping content requirement check due to thumbnail analysis failure", "ContentID", signal.ContentID)
+				// requirementsMet remains false
+				// Explicitly set reason for failure using the result from image analysis
+				checkResult = imgAnalysisResult // Use the result from image analysis
+			} else {
+				// Only run CheckContentRequirements if image analysis didn't fail and was satisfied
+				checkOpts := workflow.ActivityOptions{
+					StartToCloseTimeout: 120 * time.Second,
+					RetryPolicy: &temporal.RetryPolicy{
+						// Keep default timing but limit attempts
+						InitialInterval:    time.Second,
+						BackoffCoefficient: 2.0,
+						MaximumInterval:    time.Minute,
+						MaximumAttempts:    3, // Limit CheckContentRequirements attempts
+					},
+				}
+				checkErr := workflow.ExecuteActivity(
+					workflow.WithActivityOptions(ctx, checkOpts),
+					(*Activities).CheckContentRequirements,
+					contentBytes,
+					input.Requirements,
+				).Get(loopCtx, &checkResult)
+
+				if checkErr != nil {
+					logger.Error("Failed to check content requirements", "ContentID", signal.ContentID, "error", checkErr)
+					// requirementsMet remains false
+				} else {
+					requirementsMet = checkResult.Satisfies
+				}
 			}
 
-			// 3. Pay Bounty if requirements met
-			if checkResult.Satisfies {
+			// --- Payout Logic ---
+			if requirementsMet {
 				logger.Info("Content satisfies requirements, attempting payout.", "ContentID", signal.ContentID, "Reason", checkResult.Reason)
-
+				// ... (rest of the existing payout logic remains the same)
+				// ... calculates payoutAmount, checks remainingBounty, calls TransferUSDC, updates remainingBounty ...
 				payoutAmount := input.BountyPerPost
 				shouldCap := false
 				if remainingBounty.Cmp(payoutAmount) < 0 {

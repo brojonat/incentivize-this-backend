@@ -167,6 +167,7 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	env.RegisterActivity(activities.TransferUSDC)
 	env.RegisterActivity(activities.PullRedditContent)
 	env.RegisterActivity(activities.CheckContentRequirements)
+	env.RegisterActivity(activities.AnalyzeImageUrlActivity)
 
 	// Register workflows
 	env.RegisterWorkflow(PullContentWorkflow)
@@ -204,6 +205,7 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 		Return(nil).Once()
 
 	// Mock PullRedditContent
+	mockThumbnailURL := "https://example.com/reddit_thumb.jpg"
 	mockedRedditContent := &RedditContent{
 		ID:          "test-id",
 		Title:       "Test Title",
@@ -216,16 +218,21 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 		IsComment:   false,
 		Permalink:   "test-permalink",
 		NumComments: 10,
+		Thumbnail:   mockThumbnailURL,
 	}
 	env.OnActivity(activities.PullRedditContent, mock.Anything, "test-content", ContentKindPost).
-		Return(mockedRedditContent, nil)
+		Return(mockedRedditContent, nil).Once()
 
-	// Mock CheckContentRequirements (expect context, []byte, []string)
+	// Mock AnalyzeImageUrlActivity
+	mockImgAnalysisResult := CheckContentRequirementsResult{Satisfies: true, Reason: "Image visually acceptable"}
+	env.OnActivity(activities.AnalyzeImageUrlActivity, mock.Anything, mockThumbnailURL, mock.AnythingOfType("string")).Return(mockImgAnalysisResult, nil).Once()
+
+	// Mock CheckContentRequirements (expect ORIGINAL content data now, not combined)
 	env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.AnythingOfType("[]uint8"), mock.AnythingOfType("[]string")).
 		Return(CheckContentRequirementsResult{
 			Satisfies: true,
 			Reason:    "Content meets requirements",
-		}, nil)
+		}, nil).Once()
 
 	// Set up mock expectations
 	// Payout mock (assuming one signal is sent) - Expect memo
@@ -322,7 +329,7 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 
 	// Mock TransferUSDC for Fee Transfer (Escrow -> Treasury) - Executed in main workflow, maybe
 	// Expect: context, recipientWallet (string), amount (float64), memo (string)
-	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), mock.AnythingOfType("string")).
+	env.OnActivity(activities.TransferUSDC, mock.Anything, mock.AnythingOfType("string"), feeAmount.ToUSDC(), mock.AnythingOfType("string")).
 		Return(nil).Maybe()
 
 	// Mock content pulling/checking - basic success mocks, may not be called
@@ -922,16 +929,18 @@ func TestAnalyzeImageUrlActivity(t *testing.T) {
 	// Mock the activity behavior
 	mockImageUrl := "https://example.com/image.jpg"
 	mockPrompt := "Analyze this image based on requirements: Be funny"
-	mockAnalysis := "This image is quite humorous."
+	// mockAnalysis := "This image is quite humorous." // Old string return
+	// Return the expected struct type now
+	mockAnalysisResult := CheckContentRequirementsResult{Satisfies: true, Reason: "This image is quite humorous."}
 	env.OnActivity(activities.AnalyzeImageUrlActivity, mock.Anything, mockImageUrl, mockPrompt).
-		Return(mockAnalysis, nil)
+		Return(mockAnalysisResult, nil) // Return the struct
 
 	// Execute a simple workflow that calls the activity
-	env.ExecuteWorkflow(func(ctx workflow.Context) (string, error) {
+	env.ExecuteWorkflow(func(ctx workflow.Context) (CheckContentRequirementsResult, error) { // Update workflow return type
 		ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: time.Minute,
 		})
-		var result string
+		var result CheckContentRequirementsResult // Update result variable type
 		err := workflow.ExecuteActivity(ctx, activities.AnalyzeImageUrlActivity, mockImageUrl, mockPrompt).Get(ctx, &result)
 		return result, err
 	})
@@ -939,9 +948,9 @@ func TestAnalyzeImageUrlActivity(t *testing.T) {
 	require.True(t, env.IsWorkflowCompleted())
 	require.NoError(t, env.GetWorkflowError())
 
-	var workflowResult string
+	var workflowResult CheckContentRequirementsResult // Update result variable type
 	require.NoError(t, env.GetWorkflowResult(&workflowResult))
-	assert.Equal(t, mockAnalysis, workflowResult)
+	assert.Equal(t, mockAnalysisResult, workflowResult) // Compare structs
 
 	env.AssertExpectations(t)
 }
@@ -973,13 +982,16 @@ func TestBountyAssessmentWorkflow_Twitch(t *testing.T) {
 	escrowWallet := solanago.NewWallet()
 	treasuryWallet := solanago.NewWallet()
 	contentID := "twitch-video-assess-test"
-	mockThumbnailURL := "https://static-cdn.jtvnw.net/previews-ttv/live_user_teststreamer-{width}x{height}.jpg"
+	// Ensure this mock URL uses the placeholders the workflow code expects to replace (%{...})
+	mockThumbnailURL := "https://static-cdn.jtvnw.net/previews-ttv/live_user_teststreamer-%{width}x%{height}.jpg"
+	// This remains the expected URL *after* replacement
 	mockFormattedThumbnailURL := "https://static-cdn.jtvnw.net/previews-ttv/live_user_teststreamer-100x100.jpg"
-	mockAnalysisResult := "Thumbnail analysis: Looks good!"
+	// mockAnalysisResult := "Thumbnail analysis: Looks good!" // Removed unused variable
 	requirements := []string{"Must be about streaming", "Thumbnail must show gameplay"}
 
 	// --- Mock Setups ---
 	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty}, nil).Once()
+	// Fee Transfer (Amount = 5.0) - Use SPECIFIC treasury wallet
 	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Once()
 
 	// Mock PullTwitchContent (return content with a thumbnail)
@@ -992,16 +1004,25 @@ func TestBountyAssessmentWorkflow_Twitch(t *testing.T) {
 	}
 	env.OnActivity(activities.PullTwitchContent, mock.Anything, contentID, ContentKindVideo).Return(mockedTwitchVideo, nil).Once()
 
-	// Mock AnalyzeImageUrlActivity
-	env.OnActivity(activities.AnalyzeImageUrlActivity, mock.Anything, mockFormattedThumbnailURL, mock.AnythingOfType("string")).Return(mockAnalysisResult, nil).Once()
+	// Mock AnalyzeImageUrlActivity (return structured result)
+	// Expect the *formatted* URL here
+	mockImgAnalysisResult := CheckContentRequirementsResult{Satisfies: true, Reason: "Image visually acceptable"}
+	env.OnActivity(activities.AnalyzeImageUrlActivity, mock.Anything, mockFormattedThumbnailURL, mock.AnythingOfType("string")).Return(mockImgAnalysisResult, nil).Once()
 
-	// Mock CheckContentRequirements (expect combined data, but use simpler mock matching)
-	env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.AnythingOfType("[]uint8"), requirements).Return(CheckContentRequirementsResult{Satisfies: true, Reason: "All good"}, nil).Once()
+	// Mock CheckContentRequirements (expect ORIGINAL content data now, not combined)
+	// originalContentBytes, err := json.Marshal(mockedTwitchVideo) // Marshal the original video object - Removed as unused
+	// require.NoError(t, err)
+	// Use mock.AnythingOfType for the byte slice to avoid issues with JSON field ordering
+	env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.AnythingOfType("[]uint8"), requirements).
+		Return(CheckContentRequirementsResult{Satisfies: true, Reason: "All good"}, nil).Once()
 
-	// Mock TransferUSDC (Payout)
-	env.OnActivity(activities.TransferUSDC, mock.Anything, mock.AnythingOfType("string"), bountyPerPost.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Once()
+	// Mock TransferUSDC (Payout) - Use SPECIFIC payout wallet
+	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Once()
 
-	// Mock Refund (Maybe called on timeout or cancellation)
+	// Mock Refund (Maybe called on timeout or cancellation) - Uses specific owner wallet already
+	// If timeout happens before payout, the full totalBounty (user payable) is refunded.
+	// If cancellation happens after payout, remainingBountyAfterPayout is refunded.
+	// In this test, a payout HAPPENS, so the refund should be the remaining amount.
 	remainingBountyAfterPayout := totalBounty.Sub(bountyPerPost)
 	env.OnActivity(activities.TransferUSDC, mock.Anything, ownerWallet.PublicKey().String(), remainingBountyAfterPayout.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Maybe()
 

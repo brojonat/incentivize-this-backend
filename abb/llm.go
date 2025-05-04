@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 // LLMProvider represents a generic LLM service provider for text completion
@@ -27,7 +28,8 @@ type LLMConfig struct {
 
 // ImageLLMProvider represents a generic LLM service provider for image analysis
 type ImageLLMProvider interface {
-	AnalyzeImage(ctx context.Context, imageData []byte, prompt string) (string, error)
+	// AnalyzeImage analyzes the image data based on the prompt and returns a structured result.
+	AnalyzeImage(ctx context.Context, imageData []byte, prompt string) (CheckContentRequirementsResult, error)
 }
 
 // ImageLLMConfig holds configuration for image LLM providers
@@ -147,10 +149,17 @@ type OpenAIImageProvider struct {
 	cfg ImageLLMConfig // Uses ImageLLMConfig
 }
 
-func (p *OpenAIImageProvider) AnalyzeImage(ctx context.Context, imageData []byte, prompt string) (string, error) {
+func (p *OpenAIImageProvider) AnalyzeImage(ctx context.Context, imageData []byte, prompt string) (CheckContentRequirementsResult, error) {
 	// Encode image to base64
 	base64Image := base64.StdEncoding.EncodeToString(imageData)
 	imageUrl := fmt.Sprintf("data:image/jpeg;base64,%s", base64Image) // Assuming JPEG, adjust if needed or detect mime type
+
+	// Construct the structured prompt asking for JSON output
+	structuredPrompt := fmt.Sprintf(`%s
+
+You must analyze the image based ONLY on the requirements related to visual content. Ignore requirements about text, links, or other non-visual aspects.
+Respond ONLY with a valid JSON object containing two keys: "satisfies" (a boolean indicating if the image meets the relevant requirements) and "reason" (a string explaining your decision). Example: {"satisfies": true, "reason": "Image meets all visual criteria."}
+If there are no specific visual requirements mentioned, respond with {"satisfies": true, "reason": "No specific visual requirements specified."}`, prompt)
 
 	// Create request body for GPT-4 Vision API
 	// Reference: https://platform.openai.com/docs/guides/vision
@@ -170,7 +179,7 @@ func (p *OpenAIImageProvider) AnalyzeImage(ctx context.Context, imageData []byte
 			{
 				Role: "user",
 				Content: []interface{}{
-					map[string]string{"type": "text", "text": prompt},
+					map[string]string{"type": "text", "text": structuredPrompt},
 					map[string]interface{}{"type": "image_url", "image_url": map[string]string{"url": imageUrl}},
 				},
 			},
@@ -181,13 +190,13 @@ func (p *OpenAIImageProvider) AnalyzeImage(ctx context.Context, imageData []byte
 	// Marshal request body
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal OpenAI vision request body: %w", err)
+		return CheckContentRequirementsResult{}, fmt.Errorf("failed to marshal OpenAI vision request body: %w", err)
 	}
 
 	// Create request (Use the standard chat completions endpoint)
 	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", fmt.Errorf("failed to create OpenAI vision request: %w", err)
+		return CheckContentRequirementsResult{}, fmt.Errorf("failed to create OpenAI vision request: %w", err)
 	}
 
 	// Set headers
@@ -198,33 +207,46 @@ func (p *OpenAIImageProvider) AnalyzeImage(ctx context.Context, imageData []byte
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to send OpenAI vision request: %w", err)
+		return CheckContentRequirementsResult{}, fmt.Errorf("failed to send OpenAI vision request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Check response status
 	bodyBytes, _ := io.ReadAll(resp.Body) // Read body for potential error messages
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("OpenAI Vision API returned status %d: %s", resp.StatusCode, string(bodyBytes))
+		return CheckContentRequirementsResult{}, fmt.Errorf("OpenAI Vision API returned status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	// Parse standard chat completion response
-	var result struct {
+	// Parse standard chat completion response to get the raw text content
+	var completionResponse struct {
 		Choices []struct {
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := json.Unmarshal(bodyBytes, &result); err != nil {
-		return "", fmt.Errorf("failed to parse OpenAI vision response: %w (body: %s)", err, string(bodyBytes))
+	if err := json.Unmarshal(bodyBytes, &completionResponse); err != nil {
+		return CheckContentRequirementsResult{}, fmt.Errorf("failed to parse OpenAI vision completion response: %w (body: %s)", err, string(bodyBytes))
 	}
 
-	if len(result.Choices) == 0 || result.Choices[0].Message.Content == "" {
-		return "", fmt.Errorf("no analysis content in OpenAI vision response")
+	if len(completionResponse.Choices) == 0 || completionResponse.Choices[0].Message.Content == "" {
+		return CheckContentRequirementsResult{}, fmt.Errorf("no analysis content in OpenAI vision response")
 	}
 
-	return result.Choices[0].Message.Content, nil
+	// Now, parse the message content as JSON into CheckContentRequirementsResult
+	llmResponseContent := strings.TrimSpace(completionResponse.Choices[0].Message.Content)
+	if strings.HasPrefix(llmResponseContent, "```json") {
+		llmResponseContent = strings.TrimPrefix(llmResponseContent, "```json")
+		llmResponseContent = strings.TrimSuffix(llmResponseContent, "```")
+	}
+	llmResponseContent = strings.TrimSpace(llmResponseContent)
+
+	var result CheckContentRequirementsResult
+	if err := json.Unmarshal([]byte(llmResponseContent), &result); err != nil {
+		return CheckContentRequirementsResult{}, fmt.Errorf("failed to parse LLM JSON response for image analysis: %w (raw_content: %s)", err, llmResponseContent)
+	}
+
+	return result, nil
 }
 
 // AnthropicProvider implements LLMProvider for Anthropic (Text)
