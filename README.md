@@ -1,5 +1,8 @@
 # affiliate-bounty-board
 
+# NOTE FOR FUTURE: the llm should construct the promp for the image llm!
+# ALSO NOTE FOR FUTURE: we should use this to Incentive the ProductHunt launch
+
 I was watching this new show on Apple with Seth Rogan where he has to make a cinematic Koolaid movie. This got me thinking about advertising on Reddit. Advertisers would pay for favorable mentions of their product. We can facilitate that. This is a collection of Temporal workflows and activities that provide a sort of "bounty" board for producing content on the Internet.
 
 1. Funder (e.g., a business owner) creates a bounty with a reward amount and stipulations.

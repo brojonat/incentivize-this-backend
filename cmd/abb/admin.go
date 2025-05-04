@@ -131,6 +131,7 @@ func createBounty(ctx *cli.Context) error {
 		"bounty_owner_wallet":  bountyOwnerWallet,
 		"bounty_funder_wallet": bountyFunderWallet,
 		"platform_type":        ctx.String("platform"),
+		"content_kind":         ctx.String("content-kind"),
 	}
 
 	// Marshal to JSON
@@ -220,6 +221,7 @@ func assessContent(ctx *cli.Context) error {
 		"content_id":    contentID,
 		"payout_wallet": payoutWalletStr,
 		"platform":      platform,
+		"content_kind":  kind,
 	}
 
 	// Marshal to JSON
@@ -517,6 +519,11 @@ func adminCommands() []*cli.Command {
 							Required: true,
 							Usage:    "Platform type (reddit, youtube, yelp, google)",
 							Value:    "reddit",
+						},
+						&cli.StringFlag{
+							Name:     "content-kind",
+							Required: true,
+							Usage:    "Kind of content for the platform (e.g., post, comment, video, clip)",
 						},
 					},
 					Action: createBounty,

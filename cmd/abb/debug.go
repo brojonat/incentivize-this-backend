@@ -86,6 +86,11 @@ func debugCommands() []*cli.Command {
 					Usage:    "Content ID for the specified platform",
 				},
 				&cli.StringFlag{
+					Name:     "kind",
+					Required: true,
+					Usage:    "Kind of content (e.g., post, comment, video, clip)",
+				},
+				&cli.StringFlag{
 					Name:    "temporal-address",
 					Aliases: []string{"ta"},
 					Usage:   "Temporal server address",
@@ -358,15 +363,42 @@ func testPullContent(c *cli.Context) error {
 	if platformStr == "" {
 		return fmt.Errorf("--platform flag is required")
 	}
+	kindStr := c.String("kind") // Get kind flag
+	if kindStr == "" {
+		return fmt.Errorf("--kind flag is required")
+	}
 
 	var platformType abb.PlatformKind
+	var contentKind abb.ContentKind // Declare ContentKind
 	switch strings.ToLower(platformStr) {
 	case "reddit":
 		platformType = abb.PlatformReddit
+		switch strings.ToLower(kindStr) {
+		case "post":
+			contentKind = abb.ContentKindPost
+		case "comment":
+			contentKind = abb.ContentKindComment
+		default:
+			return fmt.Errorf("unsupported kind for Reddit: %s", kindStr)
+		}
 	case "youtube":
 		platformType = abb.PlatformYouTube
+		if strings.ToLower(kindStr) != "video" {
+			return fmt.Errorf("unsupported kind for YouTube: %s (only 'video' supported)", kindStr)
+		}
+		contentKind = abb.ContentKindVideo
+	case "twitch":
+		platformType = abb.PlatformTwitch
+		switch strings.ToLower(kindStr) {
+		case "video":
+			contentKind = abb.ContentKindVideo
+		case "clip":
+			contentKind = abb.ContentKindClip
+		default:
+			return fmt.Errorf("unsupported kind for Twitch: %s", kindStr)
+		}
 	default:
-		return fmt.Errorf("unsupported platform: %s. Supported platforms: reddit, youtube, yelp, google", platformStr)
+		return fmt.Errorf("unsupported platform: %s. Supported platforms: reddit, youtube, twitch", platformStr)
 	}
 
 	// Create Temporal client with debug logging
@@ -383,6 +415,7 @@ func testPullContent(c *cli.Context) error {
 	// Create workflow input (only PlatformType and ContentID needed)
 	var input abb.PullContentWorkflowInput
 	input.PlatformType = platformType
+	input.ContentKind = contentKind // Set ContentKind in input
 	input.ContentID = contentID
 
 	// Skip validating Solana configuration for content testing

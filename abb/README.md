@@ -183,16 +183,67 @@ Run the tests with:
 
 ```bash
 make test-abb
+# Or using go test directly
+go test ./... -v
 ```
 
-For workflow-specific tests:
+## Environment Variables
 
-```bash
-make test-workflow
-```
+The following environment variables are needed to run the activities:
 
-For testing content pulling directly:
+**Solana:**
 
-```bash
-./bin/abb debug pull-content --platform reddit --content-id t3_abcdef --reddit-user-agent "MyApp/1.0" --reddit-username "username" --reddit-password "password" --reddit-client-id "client_id" --reddit-client-secret "client_secret"
-```
+- `SOLANA_ESCROW_PRIVATE_KEY`: Base58 encoded private key for the escrow wallet.
+- `SOLANA_ESCROW_WALLET`: Base58 encoded public key of the escrow wallet.
+- `SOLANA_TREASURY_WALLET`: (Optional) Base58 encoded public key of the treasury wallet for fees.
+- `SOLANA_USDC_MINT_ADDRESS`: Base58 encoded public key of the USDC mint.
+- `SOLANA_RPC_ENDPOINT`: URL for the Solana RPC endpoint.
+- `SOLANA_WS_ENDPOINT`: URL for the Solana WebSocket endpoint.
+
+**LLM (Text Analysis):**
+
+- `LLM_PROVIDER`: Name of the text LLM provider (e.g., `openai`).
+- `LLM_API_KEY`: API key for the text LLM provider.
+- `LLM_MODEL`: Specific text model to use (e.g., `gpt-4`).
+- `LLM_CHECK_REQ_PROMPT_BASE`: (Optional) Base64 encoded custom base prompt for `CheckContentRequirements`.
+
+**LLM (Image Analysis):**
+
+- `LLM_IMAGE_PROVIDER`: Name of the image LLM provider (e.g., `openai`).
+- `LLM_IMAGE_API_KEY`: API key for the image LLM provider.
+- `LLM_IMAGE_MODEL`: Specific image model to use (e.g., `gpt-4-vision-preview`).
+
+**Reddit:**
+
+- `REDDIT_USER_AGENT`: Custom User-Agent string for Reddit API requests.
+- `REDDIT_USERNAME`: Reddit account username.
+- `REDDIT_PASSWORD`: Reddit account password.
+- `REDDIT_CLIENT_ID`: Reddit App Client ID.
+- `REDDIT_CLIENT_SECRET`: Reddit App Client Secret.
+
+**YouTube:**
+
+- `YOUTUBE_API_KEY`: Google API Key with YouTube Data API v3 enabled.
+- `YOUTUBE_APP_NAME`: Application name registered with Google Cloud.
+
+**Twitch:**
+
+- `TWITCH_CLIENT_ID`: Twitch Application Client ID.
+- `TWITCH_CLIENT_SECRET`: Twitch Application Client Secret.
+
+**Server/Auth:**
+
+- `SERVER_ENDPOINT`: URL of the Affiliate Bounty Board server API.
+- `AUTH_TOKEN`: Authentication token for server communication (if required by activities).
+- `SERVER_SECRET_KEY`: Secret key used by the periodic bounty publisher for authentication with the ABB server.
+
+**Periodic Publisher:**
+
+- `PUBLISH_TARGET_SUBREDDIT`: The subreddit where the periodic publisher should post bounties.
+- `PERIODIC_PUBLISHER_SCHEDULE_ID`: (Optional) Temporal Schedule ID for the publisher.
+- `PERIODIC_PUBLISHER_SCHEDULE_INTERVAL`: (Optional) Interval for the periodic publisher (e.g., "24h").
+
+**Debugging/Local Testing:**
+
+- Consider using a `.env` file and a tool like `godotenv` for local development.
+- For Solana, use the devnet or testnet endpoints and wallets.

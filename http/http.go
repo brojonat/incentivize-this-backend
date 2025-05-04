@@ -225,6 +225,13 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		atLeastOneAuth(oauthAuthorizerForm(getSecretKey)),
 	))
 
+	// Route for getting a specific bounty by ID
+	mux.HandleFunc("GET /bounties/{id}", stools.AdaptHandler(
+		handleGetBountyByID(logger, tc),
+		withLogging(logger),
+	))
+
+	// listing bounties routes
 	mux.HandleFunc("GET /bounties", stools.AdaptHandler(
 		handleListBounties(logger, tc, currentEnv),
 		withLogging(logger),
@@ -237,28 +244,24 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
 	))
 
+	// create bounty routes
 	mux.HandleFunc("POST /bounties", stools.AdaptHandler(
 		handleCreateBounty(logger, tc, DefaultPayoutCalculator(), currentEnv),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
 	))
 
-	mux.HandleFunc("POST /assess", stools.AdaptHandler(
-		handleAssessContent(logger, tc),
-		withLogging(logger),
-		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-	))
-
+	// pay/funding/transactional bounty routes
 	mux.HandleFunc("POST /bounties/pay", stools.AdaptHandler(
 		handlePayBounty(logger, tc),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
 	))
 
-	// Route for getting a specific bounty by ID
-	mux.HandleFunc("GET /bounties/{id}", stools.AdaptHandler(
-		handleGetBountyByID(logger, tc),
+	mux.HandleFunc("POST /bounties/assess", stools.AdaptHandler(
+		handleAssessContent(logger, tc),
 		withLogging(logger),
+		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
 	))
 
 	// Apply CORS globally

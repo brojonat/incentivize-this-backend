@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -43,6 +44,14 @@ func TestHandleListBounties(t *testing.T) {
 						Execution: execution,
 						Status:    enums.WORKFLOW_EXECUTION_STATUS_RUNNING,
 						StartTime: timestamppb.New(now),
+						SearchAttributes: &commonpb.SearchAttributes{
+							IndexedFields: map[string]*commonpb.Payload{
+								"BountyStatus":         mustPayload(converter.GetDefaultDataConverter(), string(abb.BountyStatusListening)),
+								"BountyOwnerWallet":    mustPayload(converter.GetDefaultDataConverter(), "test-owner"),
+								"BountyPlatform":       mustPayload(converter.GetDefaultDataConverter(), string(abb.PlatformReddit)),
+								"BountyValueRemaining": mustPayload(converter.GetDefaultDataConverter(), 0.0),
+							},
+						},
 					},
 				}
 				mtc.On("ListWorkflow", mock.Anything, mock.AnythingOfType("*workflowservice.ListWorkflowExecutionsRequest")).
@@ -102,14 +111,15 @@ func TestHandleListBounties(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			expectedBody: []BountyListItem{
 				{
-					WorkflowID:        "test-workflow-1",
-					Status:            "Running",
-					Requirements:      []string{"Test requirement 1", "Test requirement 2"},
-					BountyPerPost:     10.0,
-					TotalBounty:       100.0,
-					BountyOwnerWallet: "test-owner",
-					PlatformType:      abb.PlatformReddit,
-					CreatedAt:         now.UTC(),
+					WorkflowID:           "test-workflow-1",
+					Status:               "Running",
+					Requirements:         []string{"Test requirement 1", "Test requirement 2"},
+					BountyPerPost:        10.0,
+					TotalBounty:          100.0,
+					BountyOwnerWallet:    "test-owner",
+					PlatformType:         abb.PlatformReddit,
+					CreatedAt:            now.UTC(),
+					RemainingBountyValue: 0.0,
 				},
 			},
 		},
@@ -162,4 +172,13 @@ func TestHandleListBounties(t *testing.T) {
 			mockClient.AssertExpectations(t)
 		})
 	}
+}
+
+// Helper function to panic on payload conversion error in tests
+func mustPayload(dc converter.DataConverter, value interface{}) *commonpb.Payload {
+	payload, err := dc.ToPayload(value)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to convert value %v to payload: %v", value, err))
+	}
+	return payload
 }

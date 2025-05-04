@@ -32,6 +32,7 @@ const (
 	ContentKindComment ContentKind = "comment"
 	ContentKindPost    ContentKind = "post"
 	ContentKindVideo   ContentKind = "video"
+	ContentKindClip    ContentKind = "clip"
 	ContentKindText    ContentKind = "text"
 	ContentKindImage   ContentKind = "image"
 	ContentKindAudio   ContentKind = "gif"
@@ -42,6 +43,8 @@ const (
 	PlatformReddit PlatformKind = "reddit"
 	// PlatformYouTube represents the YouTube platform
 	PlatformYouTube PlatformKind = "youtube"
+	// PlatformTwitch represents the Twitch platform
+	PlatformTwitch PlatformKind = "twitch"
 )
 
 // Environment Variable Keys for Activities
@@ -57,6 +60,10 @@ const (
 	EnvLLMAPIKey   = "LLM_API_KEY"
 	EnvLLMModel    = "LLM_MODEL"
 
+	EnvLLMImageProvider = "LLM_IMAGE_PROVIDER"
+	EnvLLMImageAPIKey   = "LLM_IMAGE_API_KEY"
+	EnvLLMImageModel    = "LLM_IMAGE_MODEL"
+
 	EnvRedditUserAgent    = "REDDIT_USER_AGENT"
 	EnvRedditUsername     = "REDDIT_USERNAME"
 	EnvRedditPassword     = "REDDIT_PASSWORD"
@@ -65,6 +72,9 @@ const (
 
 	EnvYouTubeAPIKey  = "YOUTUBE_API_KEY"
 	EnvYouTubeAppName = "YOUTUBE_APP_NAME"
+
+	EnvTwitchClientID     = "TWITCH_CLIENT_ID"     // Added Twitch Client ID env var
+	EnvTwitchClientSecret = "TWITCH_CLIENT_SECRET" // Changed from App Access Token
 
 	EnvServerURL       = "SERVER_ENDPOINT"
 	EnvAuthToken       = "AUTH_TOKEN"
@@ -90,6 +100,7 @@ type Configuration struct {
 	LLMConfig              LLMConfig           `json:"llm_config"`
 	RedditDeps             RedditDependencies  `json:"reddit_deps"`
 	YouTubeDeps            YouTubeDependencies `json:"youtube_deps"`
+	TwitchDeps             TwitchDependencies  `json:"twitch_deps"` // Added Twitch dependencies
 	ServerURL              string              `json:"server_url"`
 	AuthToken              string              `json:"auth_token"`
 	Prompt                 string              `json:"prompt"`
@@ -205,6 +216,18 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		ApplicationName: os.Getenv(EnvYouTubeAppName),
 	}
 
+	// --- Twitch Deps ---
+	twitchDeps := TwitchDependencies{
+		ClientID:     os.Getenv(EnvTwitchClientID),
+		ClientSecret: os.Getenv(EnvTwitchClientSecret), // Changed from AppAccessToken
+	}
+	if twitchDeps.ClientID == "" {
+		logger.Warn("Twitch Client ID not found in environment", "env_var", EnvTwitchClientID)
+	}
+	if twitchDeps.ClientSecret == "" { // Changed check
+		logger.Warn("Twitch Client Secret not found in environment", "env_var", EnvTwitchClientSecret)
+	}
+
 	// --- Other Config ---
 	serverURL := os.Getenv(EnvServerURL)
 	authToken := os.Getenv(EnvAuthToken) // Sensitive
@@ -248,6 +271,7 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		LLMConfig:              llmConfig,
 		RedditDeps:             redditDeps,
 		YouTubeDeps:            youtubeDeps,
+		TwitchDeps:             twitchDeps, // Added Twitch dependencies
 		ServerURL:              serverURL,
 		AuthToken:              authToken,
 		Prompt:                 promptBase,
@@ -1858,4 +1882,314 @@ func (a *Activities) postToReddit(ctx context.Context, logger temporal_log.Logge
 	}
 
 	return nil
+}
+
+// --- Twitch Content Structures ---
+
+// TwitchVideoContent represents the extracted content for a Twitch Video (VOD/Archive)
+type TwitchVideoContent struct {
+	ID            string      `json:"id"`
+	StreamID      string      `json:"stream_id,omitempty"` // May not always be present
+	UserID        string      `json:"user_id"`
+	UserLogin     string      `json:"user_login"`
+	UserName      string      `json:"user_name"`
+	Title         string      `json:"title"`
+	Description   string      `json:"description"`
+	CreatedAt     time.Time   `json:"created_at"`
+	PublishedAt   time.Time   `json:"published_at"`
+	URL           string      `json:"url"`
+	ThumbnailURL  string      `json:"thumbnail_url"`
+	Viewable      string      `json:"viewable"`
+	ViewCount     int64       `json:"view_count"` // Using int64 for direct parsing
+	Language      string      `json:"language"`
+	Type          string      `json:"type"`     // e.g., "archive", "highlight", "upload"
+	Duration      string      `json:"duration"` // Twitch API provides duration as string (e.g., "3h15m20s")
+	MutedSegments *[]struct { // Pointer to slice, can be null
+		Duration int `json:"duration"`
+		Offset   int `json:"offset"`
+	} `json:"muted_segments"`
+}
+
+// TwitchClipContent represents the extracted content for a Twitch Clip
+type TwitchClipContent struct {
+	ID              string    `json:"id"`
+	URL             string    `json:"url"`
+	EmbedURL        string    `json:"embed_url"`
+	BroadcasterID   string    `json:"broadcaster_id"`
+	BroadcasterName string    `json:"broadcaster_name"`
+	CreatorID       string    `json:"creator_id"`
+	CreatorName     string    `json:"creator_name"`
+	VideoID         string    `json:"video_id,omitempty"` // Can be empty if the VOD is deleted
+	GameID          string    `json:"game_id"`
+	Language        string    `json:"language"`
+	Title           string    `json:"title"`
+	ViewCount       int64     `json:"view_count"` // Using int64
+	CreatedAt       time.Time `json:"created_at"`
+	ThumbnailURL    string    `json:"thumbnail_url"`
+	Duration        float64   `json:"duration"`   // Duration in seconds
+	VODOffset       *int      `json:"vod_offset"` // Offset in seconds from the start of the VOD (can be null)
+}
+
+// PullTwitchContent pulls content from Twitch (Video or Clip)
+func (a *Activities) PullTwitchContent(ctx context.Context, contentID string, contentKind ContentKind) (interface{}, error) {
+	logger := activity.GetLogger(ctx)
+
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get configuration in PullTwitchContent: %w", err)
+	}
+	twitchDeps := cfg.TwitchDeps
+	if twitchDeps.ClientID == "" || twitchDeps.ClientSecret == "" { // Changed check
+		return nil, fmt.Errorf("twitch ClientID or ClientSecret not configured")
+	}
+
+	logger.Info("Pulling Twitch content", "content_id", contentID, "content_kind", contentKind)
+
+	// --- Fetch App Access Token --- dynamically
+	accessToken, err := getTwitchAppAccessToken(a.httpClient, twitchDeps)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Twitch App Access Token: %w", err)
+	}
+	// ---------------------------------
+
+	var apiURL string
+	params := url.Values{}
+	params.Add("id", contentID) // Use the 'id' parameter for both videos and clips
+
+	switch contentKind {
+	case ContentKindVideo:
+		apiURL = "https://api.twitch.tv/helix/videos"
+	case ContentKindClip:
+		apiURL = "https://api.twitch.tv/helix/clips"
+	default:
+		return nil, fmt.Errorf("unsupported Twitch content kind: %s", contentKind)
+	}
+
+	fullURL := apiURL + "?" + params.Encode()
+	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Twitch API request: %w", err)
+	}
+
+	// Set required headers
+	req.Header.Set("Client-Id", twitchDeps.ClientID)
+	req.Header.Set("Authorization", "Bearer "+accessToken) // Use dynamically fetched token
+	req.Header.Set("Accept", "application/json")
+
+	// Use the shared httpClient
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make Twitch API request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Twitch API response body: %w", err)
+	}
+
+	logger.Debug("Twitch API Response", "status_code", resp.StatusCode, "response", string(body))
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Twitch API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse the response - Structure is {"data": [item], "pagination": {}}
+	var responseData struct {
+		Data       []json.RawMessage `json:"data"`
+		Pagination struct{}          `json:"pagination"` // Ignore pagination for single ID lookup
+	}
+
+	if err := json.Unmarshal(body, &responseData); err != nil {
+		return nil, fmt.Errorf("failed to decode Twitch API response structure: %w (body: %s)", err, string(body))
+	}
+
+	if len(responseData.Data) == 0 {
+		return nil, fmt.Errorf("no content found for ID %s (Kind: %s)", contentID, contentKind)
+	}
+
+	// Unmarshal the actual content item based on Kind
+	contentItemJSON := responseData.Data[0]
+	switch contentKind {
+	case ContentKindVideo:
+		var videoContent TwitchVideoContent
+		if err := json.Unmarshal(contentItemJSON, &videoContent); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Twitch video content: %w (json: %s)", err, string(contentItemJSON))
+		}
+		return &videoContent, nil // Return pointer to the struct
+	case ContentKindClip:
+		var clipContent TwitchClipContent
+		if err := json.Unmarshal(contentItemJSON, &clipContent); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Twitch clip content: %w (json: %s)", err, string(contentItemJSON))
+		}
+		return &clipContent, nil // Return pointer to the struct
+	default:
+		// Should be caught earlier, but defensive check
+		return nil, fmt.Errorf("internal error: unsupported Twitch content kind reached parsing: %s", contentKind)
+	}
+}
+
+// TwitchDependencies holds the dependencies for Twitch-related activities
+type TwitchDependencies struct {
+	ClientID     string
+	ClientSecret string // Changed from AppAccessToken
+}
+
+// Type returns the platform type for TwitchDependencies
+func (deps TwitchDependencies) Type() PlatformKind {
+	return PlatformTwitch
+}
+
+// MarshalJSON implements json.Marshaler for TwitchDependencies
+func (deps TwitchDependencies) MarshalJSON() ([]byte, error) {
+	type Aux struct {
+		ClientID     string `json:"client_id"`
+		ClientSecret string `json:"client_secret"` // Changed
+	}
+	aux := Aux{
+		ClientID:     deps.ClientID,
+		ClientSecret: deps.ClientSecret, // Changed
+	}
+	return json.Marshal(aux)
+}
+
+// UnmarshalJSON implements json.Unmarshaler for TwitchDependencies
+func (deps *TwitchDependencies) UnmarshalJSON(data []byte) error {
+	type Aux struct {
+		ClientID     string `json:"client_id"`
+		ClientSecret string `json:"client_secret"` // Changed
+	}
+	var aux Aux
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	deps.ClientID = aux.ClientID
+	deps.ClientSecret = aux.ClientSecret // Changed
+	return nil
+}
+
+// getTwitchAppAccessToken obtains an App Access Token from Twitch using Client Credentials Flow
+func getTwitchAppAccessToken(client *http.Client, deps TwitchDependencies) (string, error) {
+	formData := url.Values{
+		"client_id":     {deps.ClientID},
+		"client_secret": {deps.ClientSecret},
+		"grant_type":    {"client_credentials"},
+	}
+
+	tokenURL := "https://id.twitch.tv/oauth2/token"
+	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(formData.Encode()))
+	if err != nil {
+		return "", fmt.Errorf("failed to create Twitch token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("Twitch token request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read Twitch token response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Twitch token request returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"` // We are not using expiry for now, fetching fresh token each time
+		TokenType   string `json:"token_type"`
+	}
+
+	if err := json.Unmarshal(bodyBytes, &tokenResp); err != nil {
+		return "", fmt.Errorf("failed to decode Twitch token response: %w (body: %s)", err, string(bodyBytes))
+	}
+
+	if tokenResp.AccessToken == "" {
+		return "", fmt.Errorf("Twitch token response did not contain an access token")
+	}
+
+	// Could potentially log expiry/type if needed for debugging
+	// logger.Debug("Fetched Twitch App Access Token", "expires_in", tokenResp.ExpiresIn, "type", tokenResp.TokenType)
+
+	return tokenResp.AccessToken, nil
+}
+
+// AnalyzeImageUrlActivity downloads an image from a URL and uses a configured image LLM
+// to analyze it based on a provided text prompt.
+func (a *Activities) AnalyzeImageUrlActivity(ctx context.Context, imageUrl string, prompt string) (string, error) {
+	logger := activity.GetLogger(ctx)
+	logger.Info("Starting image analysis", "imageUrl", imageUrl)
+
+	// --- Load Image LLM Configuration --- (Directly using os.Getenv for simplicity here)
+	providerName := os.Getenv(EnvLLMImageProvider)
+	apiKey := os.Getenv(EnvLLMImageAPIKey)
+	modelName := os.Getenv(EnvLLMImageModel)
+
+	if providerName == "" || apiKey == "" || modelName == "" {
+		logger.Error("Image LLM environment variables not fully configured",
+			"provider_env", EnvLLMImageProvider, "key_env", EnvLLMImageAPIKey, "model_env", EnvLLMImageModel)
+		// Fail the activity if essential config is missing
+		return "", fmt.Errorf("image LLM provider configuration incomplete (check env vars %s, %s, %s)",
+			EnvLLMImageProvider, EnvLLMImageAPIKey, EnvLLMImageModel)
+	}
+
+	// --- Create Image LLM Provider --- (Using a hypothetical NewImageLLMProvider)
+	// We'll need to implement this provider logic in llm.go
+	// For now, assume it takes a simple config struct
+	imageLLMConfig := ImageLLMConfig{
+		Provider: providerName,
+		APIKey:   apiKey,
+		Model:    modelName,
+		// Add other potential image-specific config here (e.g., detail level for vision models)
+	}
+	imageProvider, err := NewImageLLMProvider(imageLLMConfig) // Needs implementation in llm.go
+	if err != nil {
+		logger.Error("Failed to create image LLM provider", "error", err)
+		return "", fmt.Errorf("failed to create image LLM provider: %w", err)
+	}
+
+	// --- Download Image ---
+	logger.Debug("Downloading image", "url", imageUrl)
+	// Use the shared httpClient, but create a new request specific to this activity context
+	req, err := http.NewRequestWithContext(ctx, "GET", imageUrl, nil)
+	if err != nil {
+		logger.Error("Failed to create image download request", "url", imageUrl, "error", err)
+		return "", fmt.Errorf("failed to create image request for %s: %w", imageUrl, err)
+	}
+	// Add a generic User-Agent
+	req.Header.Set("User-Agent", "AffiliateBountyBoard-Worker/1.0")
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		logger.Error("Failed to download image", "url", imageUrl, "error", err)
+		return "", fmt.Errorf("failed to download image from %s: %w", imageUrl, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		logger.Error("Failed to download image, bad status", "url", imageUrl, "status_code", resp.StatusCode)
+		return "", fmt.Errorf("failed to download image from %s, status: %d", imageUrl, resp.StatusCode)
+	}
+
+	imageData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		logger.Error("Failed to read image data", "url", imageUrl, "error", err)
+		return "", fmt.Errorf("failed to read image data from %s: %w", imageUrl, err)
+	}
+	logger.Debug("Image downloaded successfully", "url", imageUrl, "size_bytes", len(imageData))
+
+	// --- Analyze Image using Image LLM Provider ---
+	logger.Info("Sending image data to image LLM for analysis", "provider", providerName, "model", modelName)
+	analysisResult, err := imageProvider.AnalyzeImage(ctx, imageData, prompt) // Needs implementation in llm.go
+	if err != nil {
+		logger.Error("Image LLM analysis failed", "error", err)
+		return "", fmt.Errorf("image LLM analysis failed: %w", err)
+	}
+
+	logger.Info("Image analysis successful")
+	return analysisResult, nil
 }

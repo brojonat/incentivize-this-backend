@@ -231,11 +231,10 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	// Payout mock (assuming one signal is sent) - Expect memo
 	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Once()
 
-	// Refund mock - Expect remaining amount (totalBounty = 9.0)
-	// After one payout of 1.0, remaining should be 8.0 - Expect memo
-	remainingBounty, err := solana.NewUSDCAmount(8.0)
-	require.NoError(t, err)
-	env.OnActivity(activities.TransferUSDC, mock.Anything, ownerWallet.PublicKey().String(), remainingBounty.ToUSDC(), mock.AnythingOfType("string")).
+	// Refund mock - Expect remaining amount
+	// After one payout of 1.0, remaining user payable (9.0) should be 8.0 - Expect memo
+	remainingBountyAfterPayout := totalBounty.Sub(bountyPerPost)
+	env.OnActivity(activities.TransferUSDC, mock.Anything, ownerWallet.PublicKey().String(), remainingBountyAfterPayout.ToUSDC(), mock.AnythingOfType("string")).
 		Run(func(args mock.Arguments) {
 			// t.Logf("Refund Mock .Run() called: owner=%s, amount=%v (type: %T)", args.String(1), args.Get(2), args.Get(2))
 		}).
@@ -718,6 +717,117 @@ func TestPlatformActivities(t *testing.T) {
 		// Verify activity calls
 		env.AssertExpectations(t)
 	})
+
+	// Test Twitch content pulling
+	t.Run("PullTwitchContent_Video", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		activities, err := NewActivities()
+		require.NoError(t, err)
+
+		env.RegisterActivity(activities.PullTwitchContent)
+
+		mockedVideo := &TwitchVideoContent{
+			ID:           "twitch-video-id",
+			UserID:       "12345",
+			UserLogin:    "teststreamer",
+			UserName:     "TestStreamer",
+			Title:        "Test Twitch VOD",
+			Description:  "Description of the VOD",
+			ViewCount:    1500,
+			Language:     "en",
+			Duration:     "1h30m0s",
+			PublishedAt:  time.Now().Add(-24 * time.Hour),
+			ThumbnailURL: "https://example.com/thumb.jpg",
+		}
+
+		env.OnActivity(activities.PullTwitchContent, mock.Anything, "twitch-video-id", ContentKindVideo).
+			Return(mockedVideo, nil)
+
+		env.ExecuteWorkflow(func(ctx workflow.Context) ([]byte, error) {
+			ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: time.Minute,
+			})
+			var twitchContent interface{}
+			err := workflow.ExecuteActivity(ctx, activities.PullTwitchContent, "twitch-video-id", ContentKindVideo).Get(ctx, &twitchContent)
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(twitchContent)
+		})
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+
+		var result []byte
+		require.NoError(t, env.GetWorkflowResult(&result))
+
+		var parsed TwitchVideoContent
+		err = json.Unmarshal(result, &parsed)
+		require.NoError(t, err)
+		assert.Equal(t, "twitch-video-id", parsed.ID)
+		assert.Equal(t, "Test Twitch VOD", parsed.Title)
+		assert.Equal(t, "teststreamer", parsed.UserLogin)
+		assert.EqualValues(t, 1500, parsed.ViewCount)
+
+		env.AssertExpectations(t)
+	})
+
+	t.Run("PullTwitchContent_Clip", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		activities, err := NewActivities()
+		require.NoError(t, err)
+
+		env.RegisterActivity(activities.PullTwitchContent)
+
+		mockedClip := &TwitchClipContent{
+			ID:              "twitch-clip-id",
+			BroadcasterID:   "54321",
+			BroadcasterName: "AnotherStreamer",
+			CreatorID:       "98765",
+			CreatorName:     "ClipCreator",
+			Title:           "Amazing Twitch Clip",
+			ViewCount:       50000,
+			Language:        "en",
+			Duration:        30.5,
+			CreatedAt:       time.Now().Add(-2 * time.Hour),
+			ThumbnailURL:    "https://example.com/clip_thumb.jpg",
+		}
+
+		env.OnActivity(activities.PullTwitchContent, mock.Anything, "twitch-clip-id", ContentKindClip).
+			Return(mockedClip, nil)
+
+		env.ExecuteWorkflow(func(ctx workflow.Context) ([]byte, error) {
+			ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: time.Minute,
+			})
+			var twitchContent interface{}
+			err := workflow.ExecuteActivity(ctx, activities.PullTwitchContent, "twitch-clip-id", ContentKindClip).Get(ctx, &twitchContent)
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(twitchContent)
+		})
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+
+		var result []byte
+		require.NoError(t, env.GetWorkflowResult(&result))
+
+		var parsed TwitchClipContent
+		err = json.Unmarshal(result, &parsed)
+		require.NoError(t, err)
+		assert.Equal(t, "twitch-clip-id", parsed.ID)
+		assert.Equal(t, "Amazing Twitch Clip", parsed.Title)
+		assert.Equal(t, "AnotherStreamer", parsed.BroadcasterName)
+		assert.EqualValues(t, 50000, parsed.ViewCount)
+
+		env.AssertExpectations(t)
+	})
 }
 
 func TestCheckContentRequirementsWorkflow(t *testing.T) {
@@ -796,5 +906,134 @@ func TestPayBountyWorkflow(t *testing.T) {
 	require.NoError(t, env.GetWorkflowError())
 
 	// Verify activity calls
+	env.AssertExpectations(t)
+}
+
+// TestAnalyzeImageUrlActivity tests the new image analysis activity
+func TestAnalyzeImageUrlActivity(t *testing.T) {
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestWorkflowEnvironment()
+
+	activities, err := NewActivities()
+	require.NoError(t, err)
+
+	env.RegisterActivity(activities.AnalyzeImageUrlActivity)
+
+	// Mock the activity behavior
+	mockImageUrl := "https://example.com/image.jpg"
+	mockPrompt := "Analyze this image based on requirements: Be funny"
+	mockAnalysis := "This image is quite humorous."
+	env.OnActivity(activities.AnalyzeImageUrlActivity, mock.Anything, mockImageUrl, mockPrompt).
+		Return(mockAnalysis, nil)
+
+	// Execute a simple workflow that calls the activity
+	env.ExecuteWorkflow(func(ctx workflow.Context) (string, error) {
+		ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: time.Minute,
+		})
+		var result string
+		err := workflow.ExecuteActivity(ctx, activities.AnalyzeImageUrlActivity, mockImageUrl, mockPrompt).Get(ctx, &result)
+		return result, err
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+
+	var workflowResult string
+	require.NoError(t, env.GetWorkflowResult(&workflowResult))
+	assert.Equal(t, mockAnalysis, workflowResult)
+
+	env.AssertExpectations(t)
+}
+
+// TestBountyAssessmentWorkflow_Twitch tests the workflow with Twitch platform including image analysis
+func TestBountyAssessmentWorkflow_Twitch(t *testing.T) {
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestWorkflowEnvironment()
+
+	activities, err := NewActivities()
+	require.NoError(t, err)
+
+	// Register activities (including the new one)
+	env.RegisterActivity(activities.VerifyPayment)
+	env.RegisterActivity(activities.TransferUSDC)
+	env.RegisterActivity(activities.PullTwitchContent)       // Platform specific
+	env.RegisterActivity(activities.AnalyzeImageUrlActivity) // New image analysis
+	env.RegisterActivity(activities.CheckContentRequirements)
+
+	// Define bounty amounts
+	originalTotalBounty, _ := solana.NewUSDCAmount(10.0)
+	totalBounty, _ := solana.NewUSDCAmount(5.0) // User payable
+	bountyPerPost, _ := solana.NewUSDCAmount(1.0)
+	feeAmount := originalTotalBounty.Sub(totalBounty)
+
+	funderWallet := solanago.NewWallet()
+	ownerWallet := solanago.NewWallet()
+	payoutWallet := solanago.NewWallet()
+	escrowWallet := solanago.NewWallet()
+	treasuryWallet := solanago.NewWallet()
+	contentID := "twitch-video-assess-test"
+	mockThumbnailURL := "https://static-cdn.jtvnw.net/previews-ttv/live_user_teststreamer-{width}x{height}.jpg"
+	mockFormattedThumbnailURL := "https://static-cdn.jtvnw.net/previews-ttv/live_user_teststreamer-100x100.jpg"
+	mockAnalysisResult := "Thumbnail analysis: Looks good!"
+	requirements := []string{"Must be about streaming", "Thumbnail must show gameplay"}
+
+	// --- Mock Setups ---
+	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty}, nil).Once()
+	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Once()
+
+	// Mock PullTwitchContent (return content with a thumbnail)
+	mockedTwitchVideo := &TwitchVideoContent{
+		ID:           contentID,
+		Title:        "Streaming Fun Times",
+		Description:  "Playing games and having fun",
+		UserLogin:    "teststreamer",
+		ThumbnailURL: mockThumbnailURL,
+	}
+	env.OnActivity(activities.PullTwitchContent, mock.Anything, contentID, ContentKindVideo).Return(mockedTwitchVideo, nil).Once()
+
+	// Mock AnalyzeImageUrlActivity
+	env.OnActivity(activities.AnalyzeImageUrlActivity, mock.Anything, mockFormattedThumbnailURL, mock.AnythingOfType("string")).Return(mockAnalysisResult, nil).Once()
+
+	// Mock CheckContentRequirements (expect combined data, but use simpler mock matching)
+	env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.AnythingOfType("[]uint8"), requirements).Return(CheckContentRequirementsResult{Satisfies: true, Reason: "All good"}, nil).Once()
+
+	// Mock TransferUSDC (Payout)
+	env.OnActivity(activities.TransferUSDC, mock.Anything, mock.AnythingOfType("string"), bountyPerPost.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Once()
+
+	// Mock Refund (Maybe called on timeout or cancellation)
+	remainingBountyAfterPayout := totalBounty.Sub(bountyPerPost)
+	env.OnActivity(activities.TransferUSDC, mock.Anything, ownerWallet.PublicKey().String(), remainingBountyAfterPayout.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Maybe()
+
+	// --- Workflow Input ---
+	input := BountyAssessmentWorkflowInput{
+		Requirements:       requirements,
+		BountyPerPost:      bountyPerPost,
+		TotalBounty:        totalBounty,
+		TotalCharged:       originalTotalBounty,
+		BountyOwnerWallet:  ownerWallet.PublicKey().String(),
+		BountyFunderWallet: funderWallet.PublicKey().String(),
+		EscrowWallet:       escrowWallet.PublicKey().String(),
+		TreasuryWallet:     treasuryWallet.PublicKey().String(),
+		Platform:           PlatformTwitch,
+		ContentKind:        ContentKindVideo,
+		Timeout:            30 * time.Second,
+		PaymentTimeout:     5 * time.Second,
+	}
+
+	// --- Signal Workflow ---
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow("assessment", AssessContentSignal{
+			ContentID:    contentID,
+			PayoutWallet: payoutWallet.PublicKey().String(),
+			Platform:     PlatformTwitch,
+			ContentKind:  ContentKindVideo,
+		})
+	}, time.Second)
+
+	// --- Execute & Assert ---
+	env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
+	assert.True(t, env.IsWorkflowCompleted())
+	assert.NoError(t, env.GetWorkflowError())
 	env.AssertExpectations(t)
 }

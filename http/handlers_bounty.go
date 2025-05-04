@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -49,20 +50,23 @@ type CreateBountyRequest struct {
 	BountyOwnerWallet  string           `json:"bounty_owner_wallet"`
 	BountyFunderWallet string           `json:"bounty_funder_wallet"`
 	PlatformType       abb.PlatformKind `json:"platform_type"`
+	ContentKind        abb.ContentKind  `json:"content_kind"`
 	TimeoutDuration    string           `json:"timeout_duration"` // Bounty active duration (e.g., "72h", "7d")
 }
 
 // BountyListItem represents a single bounty in the list response
 type BountyListItem struct {
-	WorkflowID        string           `json:"workflow_id"`
-	Status            string           `json:"status"`
-	Requirements      []string         `json:"requirements"`
-	BountyPerPost     float64          `json:"bounty_per_post"`
-	TotalBounty       float64          `json:"total_bounty"`
-	BountyOwnerWallet string           `json:"bounty_owner_wallet"`
-	PlatformType      abb.PlatformKind `json:"platform_type"`
-	CreatedAt         time.Time        `json:"created_at"`
-	EndTime           time.Time        `json:"end_time,omitempty"`
+	WorkflowID           string           `json:"workflow_id"`
+	Status               string           `json:"status"`
+	Requirements         []string         `json:"requirements"`
+	BountyPerPost        float64          `json:"bounty_per_post"`
+	TotalBounty          float64          `json:"total_bounty"`
+	BountyOwnerWallet    string           `json:"bounty_owner_wallet"`
+	PlatformType         abb.PlatformKind `json:"platform_type"`
+	ContentKind          abb.ContentKind  `json:"content_kind"`
+	CreatedAt            time.Time        `json:"created_at"`
+	EndTime              time.Time        `json:"end_time,omitempty"`
+	RemainingBountyValue float64          `json:"remaining_bounty_value"`
 }
 
 // PaidBountyItem represents a single paid bounty in the list response
@@ -80,6 +84,7 @@ type AssessContentRequest struct {
 	ContentID    string           `json:"content_id"`
 	PayoutWallet string           `json:"payout_wallet"`
 	Platform     abb.PlatformKind `json:"platform"`
+	ContentKind  abb.ContentKind  `json:"content_kind"`
 }
 
 // AssessContentResponse represents the response from content assessment
@@ -210,12 +215,29 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 			return
 		}
 
-		// Validate platform type
-		switch req.PlatformType {
-		case abb.PlatformReddit, abb.PlatformYouTube:
-			// Valid platform type
+		// Normalize platform and content kind to lowercase for consistent handling
+		normalizedPlatform := abb.PlatformKind(strings.ToLower(string(req.PlatformType)))
+		normalizedContentKind := abb.ContentKind(strings.ToLower(string(req.ContentKind)))
+
+		// Validate platform type and content kind using normalized values
+		switch normalizedPlatform {
+		case abb.PlatformReddit:
+			if normalizedContentKind != abb.ContentKindPost && normalizedContentKind != abb.ContentKindComment {
+				writeBadRequestError(w, fmt.Errorf("invalid content_kind for Reddit: must be '%s' or '%s'", abb.ContentKindPost, abb.ContentKindComment))
+				return
+			}
+		case abb.PlatformYouTube:
+			if normalizedContentKind != abb.ContentKindVideo {
+				writeBadRequestError(w, fmt.Errorf("invalid content_kind for YouTube: must be '%s'", abb.ContentKindVideo))
+				return
+			}
+		case abb.PlatformTwitch:
+			if normalizedContentKind != abb.ContentKindVideo && normalizedContentKind != abb.ContentKindClip {
+				writeBadRequestError(w, fmt.Errorf("invalid content_kind for Twitch: must be '%s' or '%s'", abb.ContentKindVideo, abb.ContentKindClip))
+				return
+			}
 		default:
-			writeBadRequestError(w, fmt.Errorf("invalid platform_type: must be one of reddit or youtube"))
+			writeBadRequestError(w, fmt.Errorf("invalid platform_type: must be one of %s, %s, or %s", abb.PlatformReddit, abb.PlatformYouTube, abb.PlatformTwitch))
 			return
 		}
 
@@ -274,7 +296,8 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 			TotalCharged:       totalCharged,
 			BountyOwnerWallet:  req.BountyOwnerWallet,
 			BountyFunderWallet: req.BountyFunderWallet,
-			Platform:           req.PlatformType,
+			Platform:           normalizedPlatform,
+			ContentKind:        normalizedContentKind,
 			Timeout:            bountyTimeoutDuration,
 			PaymentTimeout:     10 * time.Minute,
 			TreasuryWallet:     os.Getenv(EnvSolanaTreasuryWallet),
@@ -406,16 +429,31 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 				endTime = time.Time{} // Set zero value if missing
 			}
 
+			var remainingBountyValue float64
+			if val, ok := execution.SearchAttributes.GetIndexedFields()[abb.BountyValueRemainingKey.GetName()]; ok {
+				err = converter.GetDefaultDataConverter().FromPayload(val, &remainingBountyValue)
+				if err != nil {
+					l.Error("Failed to decode BountyValueRemainingKey", "error", err, "workflow_id", execution.Execution.WorkflowId)
+					remainingBountyValue = 0.0 // Default to 0 on error
+				}
+			} else {
+				l.Warn("BountyValueRemainingKey not found", "workflow_id", execution.Execution.WorkflowId)
+				// Default remaining to total if not found (might happen for older workflows or before initial set)
+				remainingBountyValue = input.TotalBounty.ToUSDC()
+			}
+
 			bounties = append(bounties, BountyListItem{
-				WorkflowID:        execution.Execution.WorkflowId,
-				Status:            execution.Status.String(),
-				Requirements:      input.Requirements,
-				BountyPerPost:     input.BountyPerPost.ToUSDC(),
-				TotalBounty:       input.TotalBounty.ToUSDC(),
-				BountyOwnerWallet: input.BountyOwnerWallet,
-				PlatformType:      input.Platform,
-				CreatedAt:         execution.StartTime.AsTime(),
-				EndTime:           endTime, // Populate EndTime here
+				WorkflowID:           execution.Execution.WorkflowId,
+				Status:               execution.Status.String(),
+				Requirements:         input.Requirements,
+				BountyPerPost:        input.BountyPerPost.ToUSDC(),
+				TotalBounty:          input.TotalBounty.ToUSDC(),
+				RemainingBountyValue: remainingBountyValue,
+				BountyOwnerWallet:    input.BountyOwnerWallet,
+				PlatformType:         input.Platform,
+				ContentKind:          input.ContentKind,
+				CreatedAt:            execution.StartTime.AsTime(),
+				EndTime:              endTime, // Populate EndTime here
 			})
 		}
 
@@ -443,11 +481,16 @@ func handleAssessContent(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			return
 		}
 
+		// Normalize platform and content kind to lowercase for consistent handling
+		normalizedPlatform := abb.PlatformKind(strings.ToLower(string(req.Platform)))
+		normalizedContentKind := abb.ContentKind(strings.ToLower(string(req.ContentKind)))
+
 		// Signal the workflow
 		err := tc.SignalWorkflow(r.Context(), req.BountyID, "", abb.AssessmentSignalName, abb.AssessContentSignal{
 			ContentID:    req.ContentID,
 			PayoutWallet: req.PayoutWallet,
-			Platform:     req.Platform,
+			Platform:     normalizedPlatform,    // Use normalized value
+			ContentKind:  normalizedContentKind, // Use normalized value
 		})
 		if err != nil {
 			writeInternalError(l, w, fmt.Errorf("failed to signal workflow: %w", err))
@@ -710,16 +753,31 @@ func handleGetBountyByID(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			endTime = time.Time{}
 		}
 
+		var remainingBountyValue float64
+		if val, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyValueRemainingKey.GetName()]; ok {
+			err = converter.GetDefaultDataConverter().FromPayload(val, &remainingBountyValue)
+			if err != nil {
+				l.Error("Failed to decode BountyValueRemainingKey", "error", err, "workflow_id", workflowID)
+				remainingBountyValue = 0.0 // Default to 0 on error
+			}
+		} else {
+			l.Warn("BountyValueRemainingKey not found", "workflow_id", workflowID)
+			// Default remaining to total if not found (might happen for older workflows or before initial set)
+			remainingBountyValue = input.TotalBounty.ToUSDC()
+		}
+
 		bountyDetail := BountyListItem{
-			WorkflowID:        workflowID,
-			Status:            descResp.WorkflowExecutionInfo.Status.String(),
-			Requirements:      input.Requirements,
-			BountyPerPost:     input.BountyPerPost.ToUSDC(),
-			TotalBounty:       input.TotalBounty.ToUSDC(),
-			BountyOwnerWallet: input.BountyOwnerWallet,
-			PlatformType:      input.Platform,
-			CreatedAt:         descResp.WorkflowExecutionInfo.StartTime.AsTime(),
-			EndTime:           endTime,
+			WorkflowID:           workflowID,
+			Status:               descResp.WorkflowExecutionInfo.Status.String(),
+			Requirements:         input.Requirements,
+			BountyPerPost:        input.BountyPerPost.ToUSDC(),
+			TotalBounty:          input.TotalBounty.ToUSDC(),
+			RemainingBountyValue: remainingBountyValue,
+			BountyOwnerWallet:    input.BountyOwnerWallet,
+			PlatformType:         input.Platform,
+			ContentKind:          input.ContentKind,
+			CreatedAt:            descResp.WorkflowExecutionInfo.StartTime.AsTime(),
+			EndTime:              endTime,
 		}
 
 		writeJSONResponse(w, bountyDetail, http.StatusOK)

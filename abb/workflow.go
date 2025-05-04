@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/solana"
@@ -147,6 +148,17 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	}
 	// ---------------------------------------------
 
+	// Set initial search attributes for bounty values
+	err = workflow.UpsertTypedSearchAttributes(ctx,
+		BountyTotalAmountKey.ValueSet(input.TotalBounty.ToUSDC()),
+		BountyPerPostAmountKey.ValueSet(input.BountyPerPost.ToUSDC()),
+		BountyValueRemainingKey.ValueSet(input.TotalBounty.ToUSDC()), // Initially, remaining equals total
+	)
+	if err != nil {
+		logger.Error("Failed to upsert initial bounty value search attributes", "error", err)
+		// Decide if this should be fatal or just a warning
+	}
+
 	// Update status after fee transfer (or skip) before listening loop
 	err = workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusListening)))
 	if err != nil {
@@ -210,6 +222,12 @@ func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) (
 		err = workflow.ExecuteActivity(ctx, (*Activities).PullYouTubeContent, input.ContentID, input.ContentKind).Get(ctx, &youtubeContent)
 		if err == nil {
 			contentBytes, err = json.Marshal(youtubeContent)
+		}
+	case PlatformTwitch:
+		var twitchContent interface{}
+		err = workflow.ExecuteActivity(ctx, (*Activities).PullTwitchContent, input.ContentID, input.ContentKind).Get(ctx, &twitchContent)
+		if err == nil {
+			contentBytes, err = json.Marshal(twitchContent)
 		}
 	default:
 		return nil, fmt.Errorf("unsupported platform type: %s", input.PlatformType)
@@ -467,6 +485,66 @@ func awaitLoopUntilEmptyOrTimeout(
 				pullErr = workflow.ExecuteActivity(loopCtx, (*Activities).PullYouTubeContent, signal.ContentID, signal.ContentKind).Get(loopCtx, &youtubeContent)
 				if pullErr == nil {
 					contentBytes, pullErr = json.Marshal(youtubeContent)
+				}
+			case PlatformTwitch:
+				var twitchContentInterface interface{}
+				pullErr = workflow.ExecuteActivity(loopCtx, (*Activities).PullTwitchContent, signal.ContentID, signal.ContentKind).Get(loopCtx, &twitchContentInterface)
+				if pullErr == nil {
+
+					// Marshal the received interface to bytes first for robust extraction
+					marshaledDataForCheck, marshalErr := json.Marshal(twitchContentInterface)
+					if marshalErr != nil {
+						pullErr = fmt.Errorf("failed to marshal twitch content interface: %w", marshalErr)
+					} else {
+						// Attempt to extract thumbnail URL by unmarshalling into specific types
+						thumbnailURL := ""
+						var videoContent TwitchVideoContent
+						if err := json.Unmarshal(marshaledDataForCheck, &videoContent); err == nil {
+							thumbnailURL = videoContent.ThumbnailURL
+						} else {
+							var clipContent TwitchClipContent
+							if err := json.Unmarshal(marshaledDataForCheck, &clipContent); err == nil {
+								thumbnailURL = clipContent.ThumbnailURL
+							}
+						}
+						// thumbnailURL now holds the extracted URL, or is empty if not found/unmarshal failed
+
+						// --- Image Analysis (if thumbnail exists) ---
+						contentBytes = marshaledDataForCheck // Start with the original marshaled data
+						if thumbnailURL != "" {
+							logger.Info("Twitch content has thumbnail, analyzing image...", "ContentID", signal.ContentID, "ThumbnailURL", thumbnailURL)
+							// Format URL for 100x100
+							imageUrl := strings.ReplaceAll(thumbnailURL, "{width}", "100")
+							imageUrl = strings.ReplaceAll(imageUrl, "%{width}", "100") // Handle potential % encoding
+							imageUrl = strings.ReplaceAll(imageUrl, "{height}", "100")
+							imageUrl = strings.ReplaceAll(imageUrl, "%{height}", "100") // Handle potential % encoding
+
+							imageAnalysisPrompt := fmt.Sprintf(
+								"Analyze this Twitch thumbnail image based on the following bounty "+
+									"requirements (you only need to consider the requirements pertaining "+
+									"to the image): %s", strings.Join(input.Requirements, "; "))
+
+							var analysisResult string
+							imgActOpts := workflow.ActivityOptions{StartToCloseTimeout: 2 * time.Minute}
+							imgAnalysisErr := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, imgActOpts), (*Activities).AnalyzeImageUrlActivity, imageUrl, imageAnalysisPrompt).Get(loopCtx, &analysisResult)
+
+							if imgAnalysisErr != nil {
+								logger.Error("Image analysis activity failed", "ContentID", signal.ContentID, "error", imgAnalysisErr)
+								analysisResult = "Error during thumbnail analysis: " + imgAnalysisErr.Error()
+							}
+
+							// Combine analysis result with original content data
+							var contentMap map[string]interface{}
+							if combineErr := json.Unmarshal(marshaledDataForCheck, &contentMap); combineErr != nil {
+								logger.Error("Failed to unmarshal content for adding thumbnail analysis", "ContentID", signal.ContentID, "error", combineErr)
+								pullErr = combineErr // Propagate error
+							} else {
+								contentMap["thumbnail_analysis"] = analysisResult
+								// Marshal the modified map back into contentBytes for the requirement check
+								contentBytes, pullErr = json.Marshal(contentMap)
+							}
+						} // End if thumbnailURL != ""
+					} // End else (marshalErr == nil)
 				}
 			default:
 				pullErr = fmt.Errorf("unsupported platform type in loop: %s", signal.Platform)
