@@ -2126,9 +2126,9 @@ func getTwitchAppAccessToken(client *http.Client, deps TwitchDependencies) (stri
 	return tokenResp.AccessToken, nil
 }
 
-// AnalyzeImageUrlActivity downloads an image from a URL and uses a configured image LLM
+// AnalyzeImageURL downloads an image from a URL and uses a configured image LLM
 // to analyze it based on a provided text prompt, returning a structured result.
-func (a *Activities) AnalyzeImageUrlActivity(ctx context.Context, imageUrl string, prompt string) (CheckContentRequirementsResult, error) {
+func (a *Activities) AnalyzeImageURL(ctx context.Context, imageUrl string, prompt string) (CheckContentRequirementsResult, error) {
 	logger := activity.GetLogger(ctx)
 	logger.Info("Starting image analysis", "imageUrl", imageUrl)
 

@@ -233,3 +233,73 @@ stop-dev-session:
 	@sleep 1 # Give processes a moment to terminate
 	@echo "Stopping tmux development session: $(TMUX_SESSION)"
 	@/usr/local/bin/tmux kill-session -t $(TMUX_SESSION) || true # Ignore error if session doesn't exist
+
+# Variables (customize as needed)
+ABB_CMD = abb
+PER_POST_AMOUNT = 0.05
+TOTAL_AMOUNT = 1.0
+FUND_AMOUNT = $(TOTAL_AMOUNT) # Amount to fund via fund-escrow, assuming it matches total bounty for this script
+
+# Target to create and fund one bounty for each platform
+create-and-fund-bounties: create-reddit-bounty create-youtube-bounty create-twitch-bounty
+
+create-reddit-bounty:
+	@echo "--- Creating and Funding Reddit Bounty ---"
+	@OUTPUT=`$(ABB_CMD) admin bounty create \
+		-r "Post must mention 'Temporal'" \
+		-r "Must have positive score" \
+		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT) \
+		--platform reddit --content-kind post`; \
+	echo "Create Output: $$OUTPUT"; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
+	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
+	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
+		echo "Error: Could not extract Workflow ID from create command output." >&2; \
+		exit 1; \
+	fi; \
+	$(ABB_CMD) admin util fund-escrow \
+		--workflow-id $$WORKFLOW_ID \
+		--amount $(FUND_AMOUNT)
+	@echo "--- Reddit Bounty Funded ---"
+
+create-youtube-bounty:
+	@echo "--- Creating and Funding YouTube Bounty ---"
+	@OUTPUT=`$(ABB_CMD) admin bounty create \
+		-r "Video must be about 'Go Programming'" \
+		-r "Video must have transcript" \
+		-r "Must have at least 10 views" \
+		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT) \
+		--platform youtube --content-kind video`; \
+	echo "Create Output: $$OUTPUT"; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
+	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
+	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
+		echo "Error: Could not extract Workflow ID from create command output." >&2; \
+		exit 1; \
+	fi; \
+	$(ABB_CMD) admin util fund-escrow \
+		--workflow-id $$WORKFLOW_ID \
+		--amount $(FUND_AMOUNT)
+	@echo "--- YouTube Bounty Funded ---"
+
+create-twitch-bounty:
+	@echo "--- Creating and Funding Twitch Bounty ---"
+	@OUTPUT=`$(ABB_CMD) admin bounty create \
+		-r "Video must be about dota2" \
+		-r "Video must include a thumbail with a TI (The International) trophy" \
+		-r "Video must have at least 100 views" \
+		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT) \
+		--platform twitch --content-kind video`; \
+	echo "Create Output: $$OUTPUT"; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
+	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
+	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
+		echo "Error: Could not extract Workflow ID from create command output." >&2; \
+		exit 1; \
+	fi; \
+	$(ABB_CMD) admin util fund-escrow \
+		--workflow-id $$WORKFLOW_ID \
+		--amount $(FUND_AMOUNT)
+	@echo "--- Twitch Bounty Funded ---"
+
+.PHONY: create-and-fund-bounties create-reddit-bounty create-youtube-bounty create-twitch-bounty

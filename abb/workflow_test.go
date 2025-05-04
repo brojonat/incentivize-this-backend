@@ -167,7 +167,7 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	env.RegisterActivity(activities.TransferUSDC)
 	env.RegisterActivity(activities.PullRedditContent)
 	env.RegisterActivity(activities.CheckContentRequirements)
-	env.RegisterActivity(activities.AnalyzeImageUrlActivity)
+	env.RegisterActivity(activities.AnalyzeImageURL)
 
 	// Register workflows
 	env.RegisterWorkflow(PullContentWorkflow)
@@ -225,7 +225,7 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 
 	// Mock AnalyzeImageUrlActivity
 	mockImgAnalysisResult := CheckContentRequirementsResult{Satisfies: true, Reason: "Image visually acceptable"}
-	env.OnActivity(activities.AnalyzeImageUrlActivity, mock.Anything, mockThumbnailURL, mock.AnythingOfType("string")).Return(mockImgAnalysisResult, nil).Once()
+	env.OnActivity(activities.AnalyzeImageURL, mock.Anything, mockThumbnailURL, mock.AnythingOfType("string")).Return(mockImgAnalysisResult, nil).Once()
 
 	// Mock CheckContentRequirements (expect ORIGINAL content data now, not combined)
 	env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.AnythingOfType("[]uint8"), mock.AnythingOfType("[]string")).
@@ -924,7 +924,7 @@ func TestAnalyzeImageUrlActivity(t *testing.T) {
 	activities, err := NewActivities()
 	require.NoError(t, err)
 
-	env.RegisterActivity(activities.AnalyzeImageUrlActivity)
+	env.RegisterActivity(activities.AnalyzeImageURL)
 
 	// Mock the activity behavior
 	mockImageUrl := "https://example.com/image.jpg"
@@ -932,7 +932,7 @@ func TestAnalyzeImageUrlActivity(t *testing.T) {
 	// mockAnalysis := "This image is quite humorous." // Old string return
 	// Return the expected struct type now
 	mockAnalysisResult := CheckContentRequirementsResult{Satisfies: true, Reason: "This image is quite humorous."}
-	env.OnActivity(activities.AnalyzeImageUrlActivity, mock.Anything, mockImageUrl, mockPrompt).
+	env.OnActivity(activities.AnalyzeImageURL, mock.Anything, mockImageUrl, mockPrompt).
 		Return(mockAnalysisResult, nil) // Return the struct
 
 	// Execute a simple workflow that calls the activity
@@ -941,7 +941,7 @@ func TestAnalyzeImageUrlActivity(t *testing.T) {
 			StartToCloseTimeout: time.Minute,
 		})
 		var result CheckContentRequirementsResult // Update result variable type
-		err := workflow.ExecuteActivity(ctx, activities.AnalyzeImageUrlActivity, mockImageUrl, mockPrompt).Get(ctx, &result)
+		err := workflow.ExecuteActivity(ctx, activities.AnalyzeImageURL, mockImageUrl, mockPrompt).Get(ctx, &result)
 		return result, err
 	})
 
@@ -966,8 +966,8 @@ func TestBountyAssessmentWorkflow_Twitch(t *testing.T) {
 	// Register activities (including the new one)
 	env.RegisterActivity(activities.VerifyPayment)
 	env.RegisterActivity(activities.TransferUSDC)
-	env.RegisterActivity(activities.PullTwitchContent)       // Platform specific
-	env.RegisterActivity(activities.AnalyzeImageUrlActivity) // New image analysis
+	env.RegisterActivity(activities.PullTwitchContent) // Platform specific
+	env.RegisterActivity(activities.AnalyzeImageURL)   // New image analysis
 	env.RegisterActivity(activities.CheckContentRequirements)
 
 	// Define bounty amounts
@@ -1007,7 +1007,7 @@ func TestBountyAssessmentWorkflow_Twitch(t *testing.T) {
 	// Mock AnalyzeImageUrlActivity (return structured result)
 	// Expect the *formatted* URL here
 	mockImgAnalysisResult := CheckContentRequirementsResult{Satisfies: true, Reason: "Image visually acceptable"}
-	env.OnActivity(activities.AnalyzeImageUrlActivity, mock.Anything, mockFormattedThumbnailURL, mock.AnythingOfType("string")).Return(mockImgAnalysisResult, nil).Once()
+	env.OnActivity(activities.AnalyzeImageURL, mock.Anything, mockFormattedThumbnailURL, mock.AnythingOfType("string")).Return(mockImgAnalysisResult, nil).Once()
 
 	// Mock CheckContentRequirements (expect ORIGINAL content data now, not combined)
 	// originalContentBytes, err := json.Marshal(mockedTwitchVideo) // Marshal the original video object - Removed as unused

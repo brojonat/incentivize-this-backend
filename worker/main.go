@@ -61,7 +61,7 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 	w.RegisterActivity(activities.TransferUSDC)
 	w.RegisterActivity(activities.PublishBountiesReddit)
 	w.RegisterActivity(activities.PullTwitchContent)
-	w.RegisterActivity(activities.AnalyzeImageUrlActivity)
+	w.RegisterActivity(activities.AnalyzeImageURL)
 
 	// Run the single worker
 	l.Info("Starting worker", "TaskQueue", taskQueue)

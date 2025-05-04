@@ -200,7 +200,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	logger.Debug("Successfully connected to Solana RPC", "endpoint", rpcEndpoint)
 
 	// --- Setup Temporal Schedule for Periodic Publisher ---
-	if err := setupPeriodicPublisherSchedule(ctx, logger, tc, "periodic-publisher"); err != nil {
+	if err := setupPeriodicPublisherSchedule(ctx, logger, tc, "bounty-publisher"); err != nil {
 		// Log error but don't prevent server startup
 		logger.Error("Failed to set up periodic publisher schedule", "error", err)
 	}
@@ -344,6 +344,7 @@ func setupPeriodicPublisherSchedule(ctx context.Context, logger *slog.Logger, tc
 		},
 		Action: &client.ScheduleWorkflowAction{
 			Workflow:  abb.PublishBountiesWorkflow,
+			ID:        fmt.Sprintf("bounty-publisher"),
 			TaskQueue: taskQueue,
 		},
 	})

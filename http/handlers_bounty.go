@@ -314,6 +314,7 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 			abb.BountyOwnerWalletKey.ValueSet(input.BountyOwnerWallet),
 			abb.BountyFunderWalletKey.ValueSet(input.BountyFunderWallet),
 			abb.BountyPlatformKey.ValueSet(string(input.Platform)),
+			abb.BountyContentKindKey.ValueSet(string(input.ContentKind)),
 			abb.BountyTotalAmountKey.ValueSet(input.TotalCharged.ToUSDC()),
 			abb.BountyPerPostAmountKey.ValueSet(input.BountyPerPost.ToUSDC()),
 			abb.BountyCreationTimeKey.ValueSet(now),

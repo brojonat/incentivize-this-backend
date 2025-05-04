@@ -19,6 +19,7 @@ var (
 	BountyOwnerWalletKey    = temporal.NewSearchAttributeKeyString("BountyOwnerWallet")
 	BountyFunderWalletKey   = temporal.NewSearchAttributeKeyString("BountyFunderWallet")
 	BountyPlatformKey       = temporal.NewSearchAttributeKeyString("BountyPlatform")
+	BountyContentKindKey    = temporal.NewSearchAttributeKeyString("BountyContentKind")
 	BountyTotalAmountKey    = temporal.NewSearchAttributeKeyFloat64("BountyTotalAmount")
 	BountyPerPostAmountKey  = temporal.NewSearchAttributeKeyFloat64("BountyPerPostAmount")
 	BountyCreationTimeKey   = temporal.NewSearchAttributeKeyTime("BountyCreationTime")
@@ -514,7 +515,7 @@ func awaitLoopUntilEmptyOrTimeout(
 									MaximumAttempts:    3,
 								},
 							}
-							imgAnalysisErr := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, imgActOpts), (*Activities).AnalyzeImageUrlActivity, imageUrl, imageAnalysisPrompt).Get(loopCtx, &imgAnalysisResult)
+							imgAnalysisErr := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, imgActOpts), (*Activities).AnalyzeImageURL, imageUrl, imageAnalysisPrompt).Get(loopCtx, &imgAnalysisResult)
 
 							if imgAnalysisErr != nil {
 								logger.Error("Image analysis activity execution failed for Reddit content", "ContentID", signal.ContentID, "error", imgAnalysisErr)
@@ -557,7 +558,7 @@ func awaitLoopUntilEmptyOrTimeout(
 									MaximumAttempts:    3,
 								},
 							}
-							imgAnalysisErr := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, imgActOpts), (*Activities).AnalyzeImageUrlActivity, imageUrl, imageAnalysisPrompt).Get(loopCtx, &imgAnalysisResult)
+							imgAnalysisErr := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, imgActOpts), (*Activities).AnalyzeImageURL, imageUrl, imageAnalysisPrompt).Get(loopCtx, &imgAnalysisResult)
 
 							if imgAnalysisErr != nil {
 								logger.Error("Image analysis activity execution failed for YouTube content", "ContentID", signal.ContentID, "error", imgAnalysisErr)
@@ -616,7 +617,7 @@ func awaitLoopUntilEmptyOrTimeout(
 									MaximumAttempts:    3, // Limit AnalyzeImageUrlActivity attempts
 								},
 							}
-							imgAnalysisErr := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, imgActOpts), (*Activities).AnalyzeImageUrlActivity, imageUrl, imageAnalysisPrompt).Get(loopCtx, &imgAnalysisResult)
+							imgAnalysisErr := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, imgActOpts), (*Activities).AnalyzeImageURL, imageUrl, imageAnalysisPrompt).Get(loopCtx, &imgAnalysisResult)
 
 							if imgAnalysisErr != nil {
 								// The activity now returns a default result on error, so we use that
