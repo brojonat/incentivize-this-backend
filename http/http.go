@@ -206,6 +206,9 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	}
 	// --- End Schedule Setup ---
 
+	// Create Rate Limiter for JWT-based assessment endpoint
+	jwtAssessLimiter := NewRateLimiter(1*time.Hour, 10) // 10 requests per hour per JWT
+
 	// Get current environment (e.g., "dev", "prod")
 	currentEnv := os.Getenv("ENV") // Read the ENV variable
 	if currentEnv == "" {
@@ -229,6 +232,8 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	mux.HandleFunc("GET /bounties/{id}", stools.AdaptHandler(
 		handleGetBountyByID(logger, tc),
 		withLogging(logger),
+		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		requireStatus(UserStatusDefault),
 	))
 
 	// listing bounties routes
@@ -236,12 +241,14 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		handleListBounties(logger, tc, currentEnv),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		requireStatus(UserStatusDefault),
 	))
 
 	mux.HandleFunc("GET /bounties/paid", stools.AdaptHandler(
 		handleListPaidBounties(logger, rpcClient, escrowWallet, usdcMintAddress, 1*time.Minute),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		requireStatus(UserStatusDefault),
 	))
 
 	// create bounty routes
@@ -249,6 +256,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		handleCreateBounty(logger, tc, DefaultPayoutCalculator(), currentEnv),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		requireStatus(UserStatusSudo),
 	))
 
 	// pay/funding/transactional bounty routes
@@ -256,12 +264,15 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		handlePayBounty(logger, tc),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		requireStatus(UserStatusSudo),
 	))
 
 	mux.HandleFunc("POST /bounties/assess", stools.AdaptHandler(
 		handleAssessContent(logger, tc),
 		withLogging(logger),
+		jwtRateLimitMiddleware(jwtAssessLimiter, "email"),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		requireStatus(UserStatusDefault),
 	))
 
 	// Apply CORS globally

@@ -309,6 +309,21 @@ func (a *Activities) CheckContentRequirements(ctx context.Context, content []byt
 	// Convert content bytes to string for the prompt
 	contentStr := string(content)
 
+	// --- Input Size Checks ---
+	if len(contentStr) > MaxContentCharsForLLMCheck {
+		reason := fmt.Sprintf("Content exceeds maximum character limit (%d > %d)", len(contentStr), MaxContentCharsForLLMCheck)
+		logger.Warn(reason)
+		return CheckContentRequirementsResult{Satisfies: false, Reason: reason}, nil // Not an error, just failed check
+	}
+
+	requirementsStr := strings.Join(requirements, "\n")
+	if len(requirementsStr) > MaxRequirementsCharsForLLMCheck {
+		reason := fmt.Sprintf("Requirements exceed maximum character limit (%d > %d)", len(requirementsStr), MaxRequirementsCharsForLLMCheck)
+		logger.Warn(reason)
+		return CheckContentRequirementsResult{Satisfies: false, Reason: reason}, nil // Not an error, just failed check
+	}
+	// --- End Input Size Checks ---
+
 	// Construct the final prompt. This part of the prompt includes the specification
 	// for the LLM to follow when checking the content against the requirements. That
 	// is to say, you may influence the LLM's behavior by changing the base prompt
@@ -2260,3 +2275,9 @@ func (a *Activities) SendTokenEmail(ctx context.Context, email string, token str
 
 	return nil
 }
+
+// Maximum character limits for LLM inputs
+const (
+	MaxContentCharsForLLMCheck      = 20000 // Approx 5k tokens
+	MaxRequirementsCharsForLLMCheck = 5000  // Approx 1.25k tokens
+)

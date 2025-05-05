@@ -20,15 +20,6 @@ import (
 	"github.com/gorilla/handlers"
 )
 
-type UserStatus int
-
-const (
-	UserStatusRestricted = -4
-	UserStatusDefault    = 0
-	UserStatusPremium    = 4
-	UserStatusSudo       = 8
-)
-
 // context keys
 type contextKey int
 
@@ -112,14 +103,14 @@ func rateLimitMiddleware(rl *RateLimiter) func(http.HandlerFunc) http.HandlerFun
 // wraps the handler with the usual CORS settings.
 func apiMode(l *slog.Logger, maxBytes int64, headers, methods, origins []string) func(http.HandlerFunc) http.HandlerFunc {
 	// Create rate limiter with reasonable defaults
-	// rl := NewRateLimiter(1*time.Minute, 100) // 100 requests per minute (temporarily commented out)
+	rl := NewRateLimiter(1*time.Minute, 100) // 100 requests per minute
 
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			next = makeGraceful(l)(next)
 			next = setMaxBytesReader(maxBytes)(next)
 			next = setContentType("application/json")(next)
-			// next = rateLimitMiddleware(rl)(next) // Temporarily comment out rate limiter
+			next = rateLimitMiddleware(rl)(next) // Uncommented IP rate limiter
 
 			// Apply CORS middleware
 			handlers.CORS(
@@ -336,5 +327,74 @@ func bmcWebhookAuthorizer(logger *slog.Logger, getSecret func() string) func(htt
 		// Signature is valid
 		logger.Debug("Webhook signature verified successfully")
 		return true
+	}
+}
+
+// jwtRateLimitMiddleware creates a middleware that applies rate limiting based on JWT claims
+func jwtRateLimitMiddleware(rl *RateLimiter, keyType string) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			var identifier string
+
+			switch keyType {
+			case "email":
+				claims, ok := r.Context().Value(ctxKeyJWT).(*authJWTClaims) // Assert type
+				if !ok || claims == nil || claims.Email == "" {
+					// If JWT claims are missing or email is empty, fall back to IP limiting
+					slog.Warn("JWT claims missing or email empty for rate limiting, falling back to IP")
+					identifier = r.RemoteAddr // Use IP as fallback key
+					if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
+						identifier = strings.Split(forwardedFor, ",")[0]
+					}
+				} else {
+					identifier = claims.Email // Use email as the key
+				}
+			default:
+				// Default to IP if keyType is not recognized
+				slog.Warn("Unrecognized keyType for jwtRateLimitMiddleware, falling back to IP", "keyType", keyType)
+				identifier = r.RemoteAddr
+				if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
+					identifier = strings.Split(forwardedFor, ",")[0]
+				}
+			}
+
+			// Check if request is allowed
+			if !rl.isAllowed(identifier) {
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Retry-After", fmt.Sprintf("%d", int(rl.window.Seconds())))
+				w.WriteHeader(http.StatusTooManyRequests)
+				json.NewEncoder(w).Encode(DefaultJSONResponse{
+					Error: "rate limit exceeded for this action",
+				})
+				return
+			}
+
+			next(w, r)
+		}
+	}
+}
+
+// requireStatus creates a middleware that checks if the user has the required status level.
+func requireStatus(requiredStatus UserStatus) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := r.Context().Value(ctxKeyJWT).(*authJWTClaims) // Extract claims
+			if !ok || claims == nil {
+				// This should ideally not happen if bearerAuthorizerCtxSetToken ran successfully
+				slog.Warn("JWT claims missing in context for status check")
+				writeUnauthorized(w) // Treat as unauthorized if claims are missing
+				return
+			}
+
+			if claims.Status < int(requiredStatus) {
+				slog.Info("User status insufficient for endpoint", "email", claims.Email, "user_status", claims.Status, "required_status", requiredStatus)
+				w.WriteHeader(http.StatusForbidden)
+				json.NewEncoder(w).Encode(DefaultJSONResponse{Error: "forbidden: insufficient permissions"})
+				return
+			}
+
+			// User has required status, proceed to the next handler
+			next(w, r)
+		}
 	}
 }

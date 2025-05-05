@@ -10,8 +10,24 @@ import (
 	"github.com/golang-jwt/jwt"
 )
 
-func sendTokenEmail(logger *slog.Logger, to string, token string) error {
-	return nil
+type UserStatus int
+
+const (
+	UserStatusRestricted = -4
+	UserStatusDefault    = 0
+	UserStatusPremium    = 4
+	UserStatusSudo       = 8
+)
+
+func createSudoToken(email string) (string, error) {
+	claims := authJWTClaims{
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: time.Now().Add(2 * 7 * 24 * time.Hour).Unix(), // 2 weeks
+		},
+		Email:  email,
+		Status: UserStatusSudo,
+	}
+	return generateAccessToken(claims)
 }
 
 func createUserToken(email string, expiresAt time.Time) (string, error) {
@@ -19,6 +35,8 @@ func createUserToken(email string, expiresAt time.Time) (string, error) {
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: expiresAt.Unix(),
 		},
+		Email:  email,
+		Status: UserStatusPremium,
 	}
 	return generateAccessToken(claims)
 }
@@ -36,17 +54,8 @@ func handleIssueSudoToken(l *slog.Logger) http.HandlerFunc {
 			writeInternalError(l, w, fmt.Errorf("missing context key for basic auth email"))
 			return
 		}
-		sc := jwt.StandardClaims{
-			ExpiresAt: time.Now().Add(2 * 7 * 24 * time.Hour).Unix(), // 2 weeks
-		}
-		c := authJWTClaims{
-			StandardClaims: sc,
-			Email:          email,
-			Status:         UserStatusSudo,
-		}
-		token, err := generateAccessToken(c)
+		token, err := createSudoToken(email)
 		if err != nil {
-			// Handle potential error during token signing
 			writeInternalError(l, w, fmt.Errorf("failed to generate token: %w", err))
 			return
 		}

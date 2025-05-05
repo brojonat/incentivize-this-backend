@@ -215,6 +215,16 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 			return
 		}
 
+		// --- Requirements Length Check ---
+		requirementsStr := strings.Join(req.Requirements, "\n") // Join with newline for length check
+		if len(requirementsStr) > abb.MaxRequirementsCharsForLLMCheck {
+			warnMsg := fmt.Sprintf("Total length of requirements exceeds maximum limit (%d > %d)", len(requirementsStr), abb.MaxRequirementsCharsForLLMCheck)
+			logger.Warn(warnMsg)
+			writeBadRequestError(w, fmt.Errorf(warnMsg))
+			return
+		}
+		// --- End Requirements Length Check ---
+
 		// Normalize platform and content kind to lowercase for consistent handling
 		normalizedPlatform := abb.PlatformKind(strings.ToLower(string(req.PlatformType)))
 		normalizedContentKind := abb.ContentKind(strings.ToLower(string(req.ContentKind)))

@@ -207,6 +207,12 @@ The following environment variables are needed to run the activities:
 - `LLM_MODEL`: Specific text model to use (e.g., `gpt-4`).
 - `LLM_CHECK_REQ_PROMPT_BASE`: (Optional) Base64 encoded custom base prompt for `CheckContentRequirements`.
 
+**Note on LLM Limits:** To prevent excessive token usage, internal limits are applied:
+
+- Content provided to `CheckContentRequirements` is limited to `MaxContentCharsForLLMCheck` (currently 20,000 characters).
+- Requirements provided to `CheckContentRequirements` are limited to `MaxRequirementsCharsForLLMCheck` (currently 5,000 characters).
+- Requirements used in the prompt for image analysis (`AnalyzeImageURL`) are also truncated based on `MaxRequirementsCharsForLLMCheck`.
+
 **LLM (Image Analysis):**
 
 - `LLM_IMAGE_PROVIDER`: Name of the image LLM provider (e.g., `openai`).

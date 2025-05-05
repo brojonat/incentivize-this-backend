@@ -501,10 +501,18 @@ func awaitLoopUntilEmptyOrTimeout(
 							logger.Info("Reddit content has potential thumbnail/image URL, analyzing...", "ContentID", signal.ContentID, "URL", thumbnailURL)
 							imageUrl := thumbnailURL // Use the URL directly
 
+							// --- Truncate Requirements for Image Prompt ---
+							requirementsString := strings.Join(input.Requirements, "; ")
+							if len(requirementsString) > MaxRequirementsCharsForLLMCheck { // Reuse constant
+								requirementsString = requirementsString[:MaxRequirementsCharsForLLMCheck] + "..."
+								logger.Warn("Truncated requirements for image analysis prompt due to length limit", "ContentID", signal.ContentID, "limit", MaxRequirementsCharsForLLMCheck)
+							}
+							// --- End Truncation ---
+
 							imageAnalysisPrompt := fmt.Sprintf(
 								"Analyze this Reddit thumbnail/image based on the following bounty "+
 									"requirements (you only need to consider the requirements pertaining "+
-									"to the image): %s", strings.Join(input.Requirements, "; "))
+									"to the image): %s", requirementsString) // Use potentially truncated string
 
 							imgActOpts := workflow.ActivityOptions{
 								StartToCloseTimeout: 120 * time.Second,
@@ -544,10 +552,18 @@ func awaitLoopUntilEmptyOrTimeout(
 							logger.Info("YouTube content has thumbnail, analyzing image...", "ContentID", signal.ContentID, "ThumbnailURL", thumbnailURL)
 							imageUrl := thumbnailURL // Use the URL directly (YouTube thumbnails don't need formatting like Twitch)
 
+							// --- Truncate Requirements for Image Prompt ---
+							requirementsString := strings.Join(input.Requirements, "; ")
+							if len(requirementsString) > MaxRequirementsCharsForLLMCheck { // Reuse constant
+								requirementsString = requirementsString[:MaxRequirementsCharsForLLMCheck] + "..."
+								logger.Warn("Truncated requirements for image analysis prompt due to length limit", "ContentID", signal.ContentID, "limit", MaxRequirementsCharsForLLMCheck)
+							}
+							// --- End Truncation ---
+
 							imageAnalysisPrompt := fmt.Sprintf(
 								"Analyze this YouTube thumbnail image based on the following bounty "+
 									"requirements (you only need to consider the requirements pertaining "+
-									"to the image): %s", strings.Join(input.Requirements, "; "))
+									"to the image): %s", requirementsString) // Use potentially truncated string
 
 							imgActOpts := workflow.ActivityOptions{
 								StartToCloseTimeout: 120 * time.Second,
@@ -602,10 +618,18 @@ func awaitLoopUntilEmptyOrTimeout(
 							imageUrl = strings.ReplaceAll(imageUrl, "%{width}", "100")
 							imageUrl = strings.ReplaceAll(imageUrl, "%{height}", "100")
 
+							// --- Truncate Requirements for Image Prompt ---
+							requirementsString := strings.Join(input.Requirements, "; ")
+							if len(requirementsString) > MaxRequirementsCharsForLLMCheck { // Reuse constant
+								requirementsString = requirementsString[:MaxRequirementsCharsForLLMCheck] + "..."
+								logger.Warn("Truncated requirements for image analysis prompt due to length limit", "ContentID", signal.ContentID, "limit", MaxRequirementsCharsForLLMCheck)
+							}
+							// --- End Truncation ---
+
 							imageAnalysisPrompt := fmt.Sprintf(
 								"Analyze this Twitch thumbnail image based on the following bounty "+
 									"requirements (you only need to consider the requirements pertaining "+
-									"to the image): %s", strings.Join(input.Requirements, "; "))
+									"to the image): %s", requirementsString) // Use potentially truncated string
 
 							imgActOpts := workflow.ActivityOptions{
 								StartToCloseTimeout: 120 * time.Second,
