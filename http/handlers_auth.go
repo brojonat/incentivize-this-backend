@@ -10,6 +10,19 @@ import (
 	"github.com/golang-jwt/jwt"
 )
 
+func sendTokenEmail(logger *slog.Logger, to string, token string) error {
+	return nil
+}
+
+func createUserToken(email string, expiresAt time.Time) (string, error) {
+	claims := authJWTClaims{
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: expiresAt.Unix(),
+		},
+	}
+	return generateAccessToken(claims)
+}
+
 func generateAccessToken(claims authJWTClaims) (string, error) {
 	t := jwt.New(jwt.SigningMethodHS256)
 	t.Claims = claims

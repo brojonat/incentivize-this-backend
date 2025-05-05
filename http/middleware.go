@@ -1,9 +1,14 @@
 package http
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -271,4 +276,65 @@ type DefaultJSONResponse struct {
 
 func getSecretKey() string {
 	return os.Getenv(EnvServerSecretKey)
+}
+
+// Environment Variable Keys for Middleware
+const (
+	EnvBMCWebhookSecret = "BMC_WEBHOOK_SECRET"
+)
+
+// getWebhookSecret retrieves the Buy Me a Coffee webhook secret from environment variables.
+func getWebhookSecret() string {
+	return os.Getenv(EnvBMCWebhookSecret)
+}
+
+// bmcWebhookAuthorizer creates a function that verifies Buy Me a Coffee webhook signatures.
+// It reads the X-Signature-SHA256 header and compares it against a computed HMAC-SHA256 hash
+// of the request body using the secret stored in the BMC_WEBHOOK_SECRET environment variable.
+// Returns true if the signature is valid, false otherwise (and writes an error response).
+func bmcWebhookAuthorizer(logger *slog.Logger, getSecret func() string) func(http.ResponseWriter, *http.Request) bool {
+	return func(w http.ResponseWriter, r *http.Request) bool {
+		// Get the signature from the X-Signature-SHA256 header (adjust header name if BMC uses a different one)
+		signature := r.Header.Get("X-Signature-SHA256") // Verify this is the correct header BMC uses
+		if signature == "" {
+			logger.Warn("Missing webhook signature header", "header", "X-Signature-SHA256")
+			writeBadRequestError(w, fmt.Errorf("missing webhook signature header"))
+			return false
+		}
+
+		// Read the raw body
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			logger.Error("Failed to read request body for signature verification", "error", err)
+			writeInternalError(logger, w, fmt.Errorf("failed to read request body: %w", err))
+			return false
+		}
+
+		// Important: Restore the body for subsequent reads by the actual handler
+		r.Body = io.NopCloser(bytes.NewBuffer(body))
+
+		// Get the webhook secret
+		secret := getSecret()
+		if secret == "" {
+			logger.Error("Buy Me a Coffee webhook secret not configured", "env_var", EnvBMCWebhookSecret)
+			writeInternalError(logger, w, fmt.Errorf("webhook secret not configured"))
+			return false
+		}
+
+		// Calculate expected signature using HMAC-SHA256
+		mac := hmac.New(sha256.New, []byte(secret))
+		mac.Write(body) // Write the raw body bytes to the HMAC
+		expectedSignature := hex.EncodeToString(mac.Sum(nil))
+
+		// Compare signatures using a constant-time comparison
+		if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
+			logger.Warn("Invalid webhook signature received", "received_signature", signature)
+			writeBadRequestError(w, fmt.Errorf("invalid webhook signature"))
+			return false
+		}
+
+		// Signature is valid
+		logger.Debug("Webhook signature verified successfully")
+		return true
+	}
 }

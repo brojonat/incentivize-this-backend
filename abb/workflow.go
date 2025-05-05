@@ -855,3 +855,39 @@ func PublishBountiesWorkflow(ctx workflow.Context) error {
 	logger.Info("PublishBountiesWorkflow completed successfully")
 	return nil
 }
+
+// --- Email Token Workflow ---
+
+// EmailTokenWorkflowInput defines the input for the email sending workflow.
+type EmailTokenWorkflowInput struct {
+	Email string
+	Token string
+}
+
+// EmailTokenWorkflow sends an email containing a token to the specified address.
+func EmailTokenWorkflow(ctx workflow.Context, input EmailTokenWorkflowInput) error {
+	logger := workflow.GetLogger(ctx)
+	logger.Info("EmailTokenWorkflow started", "email", input.Email)
+
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 1 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    5 * time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumInterval:    time.Minute,
+			MaximumAttempts:    3,
+		},
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	err := workflow.ExecuteActivity(ctx, (*Activities).SendTokenEmail, input.Email, input.Token).Get(ctx, nil)
+	if err != nil {
+		logger.Error("SendEmailActivity failed", "error", err)
+		return fmt.Errorf("failed to send token email: %w", err)
+	}
+
+	logger.Info("EmailTokenWorkflow completed successfully")
+	return nil
+}
+
+// --- End Email Token Workflow ---

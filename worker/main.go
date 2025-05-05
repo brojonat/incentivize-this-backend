@@ -52,6 +52,7 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 	w.RegisterWorkflow(abb.CheckContentRequirementsWorkflow)
 	w.RegisterWorkflow(abb.PayBountyWorkflow)
 	w.RegisterWorkflow(abb.PublishBountiesWorkflow)
+	w.RegisterWorkflow(abb.EmailTokenWorkflow)
 
 	// Register all activities
 	w.RegisterActivity(activities.PullRedditContent)
@@ -62,6 +63,7 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 	w.RegisterActivity(activities.PublishBountiesReddit)
 	w.RegisterActivity(activities.PullTwitchContent)
 	w.RegisterActivity(activities.AnalyzeImageURL)
+	w.RegisterActivity(activities.SendTokenEmail)
 
 	// Run the single worker
 	l.Info("Starting worker", "TaskQueue", taskQueue)

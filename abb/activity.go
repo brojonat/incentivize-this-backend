@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/smtp"
 	"net/url"
 	"os"
 	"strconv"
@@ -86,6 +87,12 @@ const (
 	EnvTargetSubreddit                   = "PUBLISH_TARGET_SUBREDDIT"
 	EnvPeriodicPublisherScheduleID       = "PERIODIC_PUBLISHER_SCHEDULE_ID"
 	EnvPeriodicPublisherScheduleInterval = "PERIODIC_PUBLISHER_SCHEDULE_INTERVAL"
+
+	// Env vars for email sending activity
+	EnvEmailSMTP     = "GMAIL_SMTP_HOST"
+	EnvEmailSMTPPort = "GMAIL_SMTP_PORT"
+	EnvEmailPassword = "GMAIL_EMAILER_PWD"
+	EnvEmailSender   = "GMAIL_EMAILER_ADDR"
 )
 
 // Default base prompt for CheckContentRequirements
@@ -98,9 +105,11 @@ The content to evaluate is provided as a JSON object below.`
 type Configuration struct {
 	SolanaConfig           SolanaConfig        `json:"solana_config"`
 	LLMConfig              LLMConfig           `json:"llm_config"`
+	ImageLLMConfig         ImageLLMConfig      `json:"image_llm_config"`
 	RedditDeps             RedditDependencies  `json:"reddit_deps"`
 	YouTubeDeps            YouTubeDependencies `json:"youtube_deps"`
 	TwitchDeps             TwitchDependencies  `json:"twitch_deps"` // Added Twitch dependencies
+	EmailConfig            EmailConfig         `json:"email_config"`
 	ServerURL              string              `json:"server_url"`
 	AuthToken              string              `json:"auth_token"`
 	Prompt                 string              `json:"prompt"`
@@ -2202,4 +2211,52 @@ func (a *Activities) AnalyzeImageURL(ctx context.Context, imageUrl string, promp
 
 	logger.Info("Image analysis successful", "satisfies", analysisResult.Satisfies, "reason", analysisResult.Reason)
 	return analysisResult, nil // Return the structured result and nil error
+}
+
+// EmailConfig holds configuration for sending emails.
+type EmailConfig struct {
+	Provider string `json:"provider"` // e.g., "sendgrid", "ses"
+	APIKey   string `json:"api_key"`
+	Sender   string `json:"sender"` // The 'From' email address
+}
+
+// SendTokenEmail sends an email containing a token to the specified address.
+func (a *Activities) SendTokenEmail(ctx context.Context, email string, token string) error {
+	logger := activity.GetLogger(ctx)
+	logger.Info("Sending token email", "email", email, "token", token)
+
+	// Get SMTP server and port from env
+	smtpServer := os.Getenv(EnvEmailSMTP)
+	if smtpServer == "" {
+		return fmt.Errorf("EMAIL_SMTP environment variable not set")
+	}
+	smtpPort := os.Getenv(EnvEmailSMTPPort)
+	if smtpPort == "" {
+		return fmt.Errorf("EMAIL_SMTP_PORT environment variable not set")
+	}
+
+	// Get password from env
+	pwd := os.Getenv(EnvEmailPassword)
+	if pwd == "" {
+		return fmt.Errorf("EMAIL_PASSWORD environment variable not set")
+	}
+
+	// Get sender email from env
+	sender := os.Getenv(EnvEmailSender)
+	if sender == "" {
+		return fmt.Errorf("EMAIL_SENDER environment variable not set")
+	}
+
+	// Send using vanilla smtp client
+	auth := smtp.PlainAuth("", sender, pwd, smtpServer)
+	msg := []byte("To: " + email + "\r\n" +
+		"Subject: Your IncentivizeThis Token\r\n" +
+		"\r\n" +
+		"Your token is: " + token + "\r\n")
+	err := smtp.SendMail(smtpServer+":"+smtpPort, auth, sender, []string{email}, msg)
+	if err != nil {
+		return fmt.Errorf("failed to send email: %w", err)
+	}
+
+	return nil
 }

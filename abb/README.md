@@ -243,6 +243,12 @@ The following environment variables are needed to run the activities:
 - `PERIODIC_PUBLISHER_SCHEDULE_ID`: (Optional) Temporal Schedule ID for the publisher.
 - `PERIODIC_PUBLISHER_SCHEDULE_INTERVAL`: (Optional) Interval for the periodic publisher (e.g., "24h").
 
+**Email Sending:**
+
+- `EMAIL_PROVIDER`: The email service provider to use (e.g., "sendgrid", "ses").
+- `EMAIL_API_KEY`: API key for the chosen email service provider.
+- `EMAIL_SENDER`: The email address from which emails will be sent (e.g., "noreply@yourdomain.com").
+
 **Debugging/Local Testing:**
 
 - Consider using a `.env` file and a tool like `godotenv` for local development.
