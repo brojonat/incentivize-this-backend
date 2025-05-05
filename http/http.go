@@ -22,18 +22,19 @@ import (
 
 // Environment Variable Keys
 const (
+	EnvServerSecretKey                   = "SERVER_SECRET_KEY"
+	EnvServerEnv                         = "ENV"
+	EnvTaskQueue                         = "TASK_QUEUE"
+	EnvUserRevenueSharePct               = "USER_REVENUE_SHARE_PCT"
+	EnvPublishTargetSubreddit            = "PUBLISH_TARGET_SUBREDDIT"
+	EnvPeriodicPublisherScheduleID       = "PERIODIC_PUBLISHER_SCHEDULE_ID"
+	EnvPeriodicPublisherScheduleInterval = "PERIODIC_PUBLISHER_SCHEDULE_INTERVAL"
 	EnvSolanaEscrowPrivateKey            = "SOLANA_ESCROW_PRIVATE_KEY"
 	EnvSolanaEscrowWallet                = "SOLANA_ESCROW_WALLET"
 	EnvSolanaRPCEndpoint                 = "SOLANA_RPC_ENDPOINT"
 	EnvSolanaWSEndpoint                  = "SOLANA_WS_ENDPOINT"
 	EnvSolanaUSDCMintAddress             = "SOLANA_USDC_MINT_ADDRESS"
-	EnvTaskQueue                         = "TASK_QUEUE"
-	EnvUserRevenueSharePct               = "USER_REVENUE_SHARE_PCT"
-	EnvServerSecretKey                   = "SERVER_SECRET_KEY"
 	EnvSolanaTreasuryWallet              = "SOLANA_TREASURY_WALLET"
-	EnvPeriodicPublisherScheduleID       = "PERIODIC_PUBLISHER_SCHEDULE_ID"
-	EnvPeriodicPublisherScheduleInterval = "PERIODIC_PUBLISHER_SCHEDULE_INTERVAL"
-	EnvPublishTargetSubreddit            = "PUBLISH_TARGET_SUBREDDIT"
 )
 
 type corsConfigKey struct{}
@@ -199,8 +200,15 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	}
 	logger.Debug("Successfully connected to Solana RPC", "endpoint", rpcEndpoint)
 
+	// Get current environment (e.g., "dev", "prod")
+	currentEnv := os.Getenv(EnvServerEnv) // Read the ENV variable
+	if currentEnv == "" {
+		currentEnv = "dev" // Default to "dev" if not set
+		logger.Warn("ENV environment variable not set, defaulting to 'dev'")
+	}
+
 	// --- Setup Temporal Schedule for Periodic Publisher ---
-	if err := setupPeriodicPublisherSchedule(ctx, logger, tc, "bounty-publisher"); err != nil {
+	if err := setupPeriodicPublisherSchedule(ctx, logger, tc, currentEnv); err != nil {
 		// Log error but don't prevent server startup
 		logger.Error("Failed to set up periodic publisher schedule", "error", err)
 	}
@@ -208,13 +216,6 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 
 	// Create Rate Limiter for JWT-based assessment endpoint
 	jwtAssessLimiter := NewRateLimiter(1*time.Hour, 10) // 10 requests per hour per JWT
-
-	// Get current environment (e.g., "dev", "prod")
-	currentEnv := os.Getenv("ENV") // Read the ENV variable
-	if currentEnv == "" {
-		currentEnv = "dev" // Default to "dev" if not set
-		logger.Warn("ENV environment variable not set, defaulting to 'dev'")
-	}
 
 	// Add routes
 	mux.HandleFunc("GET /ping", stools.AdaptHandler(
@@ -327,8 +328,11 @@ func handlePing() http.HandlerFunc {
 }
 
 // setupPeriodicPublisherSchedule sets up a Temporal schedule for periodic publisher
-func setupPeriodicPublisherSchedule(ctx context.Context, logger *slog.Logger, tc client.Client, scheduleID string) error {
+func setupPeriodicPublisherSchedule(ctx context.Context, logger *slog.Logger, tc client.Client, env string) error {
 	scheduleClient := tc.ScheduleClient()
+
+	// Construct environment-specific schedule ID
+	scheduleID := fmt.Sprintf("bounty-publisher-%s", env)
 
 	// Try to get a handle to the schedule to check if it exists
 	// Getting a handle doesn't guarantee existence, but Describe seems unavailable directly
