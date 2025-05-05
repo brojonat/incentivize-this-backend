@@ -220,7 +220,7 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 		if len(requirementsStr) > abb.MaxRequirementsCharsForLLMCheck {
 			warnMsg := fmt.Sprintf("Total length of requirements exceeds maximum limit (%d > %d)", len(requirementsStr), abb.MaxRequirementsCharsForLLMCheck)
 			logger.Warn(warnMsg)
-			writeBadRequestError(w, fmt.Errorf(warnMsg))
+			writeBadRequestError(w, fmt.Errorf("%s", warnMsg))
 			return
 		}
 		// --- End Requirements Length Check ---
