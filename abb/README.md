@@ -226,6 +226,7 @@ The following environment variables are needed to run the activities:
 - `REDDIT_PASSWORD`: Reddit account password.
 - `REDDIT_CLIENT_ID`: Reddit App Client ID.
 - `REDDIT_CLIENT_SECRET`: Reddit App Client Secret.
+- `REDDIT_FLAIR_ID`: Flair ID for bounty announcements.
 
 **YouTube:**
 
@@ -242,6 +243,8 @@ The following environment variables are needed to run the activities:
 - `SERVER_ENDPOINT`: URL of the Affiliate Bounty Board server API.
 - `AUTH_TOKEN`: Authentication token for server communication (if required by activities).
 - `SERVER_SECRET_KEY`: Secret key used by the periodic bounty publisher for authentication with the ABB server.
+- `ENV`: The deployment environment (e.g., "dev", "prod"). Used for search attributes and schedule IDs.
+- `PUBLIC_BASE_URL`: The public-facing base URL for the website (e.g., "https://incentivizethis.com"). Used for generating links in posts.
 
 **Periodic Publisher:**
 

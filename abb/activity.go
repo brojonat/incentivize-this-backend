@@ -70,6 +70,7 @@ const (
 	EnvRedditPassword     = "REDDIT_PASSWORD"
 	EnvRedditClientID     = "REDDIT_CLIENT_ID"
 	EnvRedditClientSecret = "REDDIT_CLIENT_SECRET"
+	EnvRedditFlairID      = "REDDIT_FLAIR_ID"
 
 	EnvYouTubeAPIKey  = "YOUTUBE_API_KEY"
 	EnvYouTubeAppName = "YOUTUBE_APP_NAME"
@@ -82,6 +83,11 @@ const (
 	EnvServerSecretKey = "SERVER_SECRET_KEY"
 
 	EnvLLMCheckReqPromptBase = "LLM_CHECK_REQ_PROMPT_BASE"
+
+	// Environment setting
+	EnvServerEnv = "ENV" // e.g., "dev", "prod"
+	// Public facing URL base
+	EnvPublicBaseURL = "PUBLIC_BASE_URL" // e.g., https://incentivizethis.com
 
 	// Env vars for periodic bounty publisher activity
 	EnvTargetSubreddit                   = "PUBLISH_TARGET_SUBREDDIT"
@@ -116,6 +122,9 @@ type Configuration struct {
 	ABBServerURL           string              `json:"abb_server_url"`
 	ABBServerSecretKey     string              `json:"abb_server_secret_key"`
 	PublishTargetSubreddit string              `json:"publish_target_subreddit"`
+	Environment            string              `json:"environment"`
+	RedditFlairID          string              `json:"reddit_flair_id"`
+	PublicBaseURL          string              `json:"public_base_url"` // Added: Public Base URL
 }
 
 // SolanaConfig holds the necessary configuration for Solana interactions.
@@ -274,6 +283,32 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		return nil, fmt.Errorf("missing env var: %s", EnvTargetSubreddit)
 	}
 
+	// --- Get Environment ---
+	environment := os.Getenv(EnvServerEnv)
+	if environment == "" {
+		environment = "dev" // Default to dev if not set
+		logger.Warn("ENV environment variable not set, defaulting to 'dev'", "env_var", EnvServerEnv)
+	}
+
+	flair_id := os.Getenv(EnvRedditFlairID)
+	if environment == "prod" && flair_id == "" {
+		logger.Error("Reddit Prod Flair ID not found in environment", "env_var", EnvRedditFlairID)
+		return nil, fmt.Errorf("missing env var: %s", EnvRedditFlairID)
+	}
+
+	// --- Get Public Base URL ---
+	publicBaseURL := os.Getenv(EnvPublicBaseURL)
+	if publicBaseURL == "" {
+		logger.Error("Public Base URL not found in environment", "env_var", EnvPublicBaseURL)
+		return nil, fmt.Errorf("missing required env var: %s", EnvPublicBaseURL)
+	}
+	// Ensure it has a scheme
+	if !strings.HasPrefix(publicBaseURL, "http://") && !strings.HasPrefix(publicBaseURL, "https://") {
+		logger.Error("Public Base URL must start with http:// or https://", "url", publicBaseURL)
+		return nil, fmt.Errorf("invalid %s: must start with http:// or https://", EnvPublicBaseURL)
+	}
+	publicBaseURL = strings.TrimSuffix(publicBaseURL, "/") // Remove trailing slash if present
+
 	// --- Assemble Configuration ---
 	config := &Configuration{
 		SolanaConfig:           solanaConfig,
@@ -287,6 +322,9 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		ABBServerURL:           abbServerURL,
 		ABBServerSecretKey:     abbServerSecretKey,
 		PublishTargetSubreddit: targetSubreddit,
+		Environment:            environment,
+		RedditFlairID:          flair_id,
+		PublicBaseURL:          publicBaseURL, // Added
 	}
 
 	return config, nil
@@ -1692,7 +1730,7 @@ func (a *Activities) PublishBountiesReddit(ctx context.Context) error {
 	logger.Info("Fetched bounties", "count", len(bounties))
 
 	// 3. Format Bounties
-	postTitle, postBody, err := a.formatBountiesForReddit(bounties, cfg.ABBServerURL)
+	postTitle, postBody, err := a.formatBountiesForReddit(bounties, cfg.PublicBaseURL)
 	if err != nil {
 		logger.Error("Failed to format bounties", "error", err)
 		return fmt.Errorf("internal error formatting bounties: %w", err) // Non-retryable likely
@@ -1708,7 +1746,7 @@ func (a *Activities) PublishBountiesReddit(ctx context.Context) error {
 	logger.Debug("Obtained Reddit auth token")
 
 	// 5. Post to Reddit
-	err = a.postToReddit(ctx, logger, cfg, client, redditToken, postTitle, postBody)
+	err = a.postToReddit(ctx, logger, cfg, client, redditToken, postTitle, postBody, cfg.RedditFlairID)
 	if err != nil {
 		logger.Error("Failed to post to Reddit", "error", err)
 		return err
@@ -1788,7 +1826,10 @@ func (a *Activities) fetchBounties(ctx context.Context, logger temporal_log.Logg
 }
 
 // Formats the list of bounties into a Reddit post title and body (Markdown)
-func (a *Activities) formatBountiesForReddit(bounties []api.BountyListItem, serverURL string) (string, string, error) {
+func (a *Activities) formatBountiesForReddit(bounties []api.BountyListItem, publicBaseURL string) (string, string, error) {
+	// Use the public facing domain for links from parameter
+	// publicBaseURL := cfg.PublicBaseURL // Removed direct cfg access
+
 	title := fmt.Sprintf("📢 Active Bounties (%s)", time.Now().Format("2006-01-02"))
 
 	var body strings.Builder
@@ -1801,9 +1842,11 @@ func (a *Activities) formatBountiesForReddit(bounties []api.BountyListItem, serv
 		if len(reqSummary) > 2048 {
 			reqSummary = reqSummary[:2045] + "..."
 		}
-		line := fmt.Sprintf("| [%s](%s) | %s | $%.2f | $%.2f | %s |\n",
+		// Construct link using publicBaseURL
+		line := fmt.Sprintf("| [%s](%s/bounties/%s) | %s | $%.2f | $%.2f | %s |\n",
 			b.WorkflowID,
-			fmt.Sprintf("%s/bounties/%s", strings.TrimSuffix(serverURL, "/"), b.WorkflowID),
+			publicBaseURL,
+			b.WorkflowID,
 			b.PlatformType,
 			b.BountyPerPost,
 			b.TotalBounty,
@@ -1863,7 +1906,7 @@ func (a *Activities) getRedditToken(ctx context.Context, logger temporal_log.Log
 }
 
 // Posts the formatted content to the specified subreddit
-func (a *Activities) postToReddit(ctx context.Context, logger temporal_log.Logger, cfg *Configuration, client *http.Client, token, title, body string) error {
+func (a *Activities) postToReddit(ctx context.Context, logger temporal_log.Logger, cfg *Configuration, client *http.Client, token, title, body, flairID string) error {
 	submitURL := "https://oauth.reddit.com/api/submit"
 
 	form := url.Values{}
@@ -1872,6 +1915,7 @@ func (a *Activities) postToReddit(ctx context.Context, logger temporal_log.Logge
 	form.Add("sr", cfg.PublishTargetSubreddit)
 	form.Add("title", title)
 	form.Add("text", body)
+	form.Add("flair_id", flairID)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", submitURL, strings.NewReader(form.Encode()))
 	if err != nil {
