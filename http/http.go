@@ -233,23 +233,17 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	mux.HandleFunc("GET /bounties/{id}", stools.AdaptHandler(
 		handleGetBountyByID(logger, tc),
 		withLogging(logger),
-		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-		requireStatus(UserStatusDefault),
 	))
 
 	// listing bounties routes
 	mux.HandleFunc("GET /bounties", stools.AdaptHandler(
 		handleListBounties(logger, tc, currentEnv),
 		withLogging(logger),
-		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-		requireStatus(UserStatusDefault),
 	))
 
 	mux.HandleFunc("GET /bounties/paid", stools.AdaptHandler(
 		handleListPaidBounties(logger, rpcClient, escrowWallet, usdcMintAddress, 1*time.Minute),
 		withLogging(logger),
-		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-		requireStatus(UserStatusDefault),
 	))
 
 	// create bounty routes
