@@ -557,11 +557,12 @@ func handleListPaidBounties(
 		limit := 100
 		limitStr := r.URL.Query().Get("limit")
 		if limitStr != "" {
-			limit, err := strconv.Atoi(limitStr)
-			if err != nil || limit <= 0 {
+			parsedLimit, err := strconv.Atoi(limitStr)
+			if err != nil || parsedLimit <= 0 {
 				writeBadRequestError(w, fmt.Errorf("invalid limit: %s", limitStr))
 				return
 			}
+			limit = parsedLimit // Assign to the outer 'limit'
 		}
 
 		// Derive the Associated Token Account (ATA) for the escrow wallet

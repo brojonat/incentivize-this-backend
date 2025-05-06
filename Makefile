@@ -241,7 +241,7 @@ TOTAL_AMOUNT = 1.0
 FUND_AMOUNT = $(TOTAL_AMOUNT) # Amount to fund via fund-escrow, assuming it matches total bounty for this script
 
 # Target to create and fund one bounty for each platform
-create-and-fund-bounties: create-reddit-bounty create-youtube-bounty create-twitch-bounty
+create-and-fund-bounties: create-reddit-bounty create-youtube-bounty create-twitch-bounty create-bluesky-bounty create-hackernews-bounty
 
 create-reddit-bounty:
 	@echo "--- Creating and Funding Reddit Bounty ---"
@@ -302,4 +302,42 @@ create-twitch-bounty:
 		--amount $(FUND_AMOUNT)
 	@echo "--- Twitch Bounty Funded ---"
 
-.PHONY: create-and-fund-bounties create-reddit-bounty create-youtube-bounty create-twitch-bounty
+create-bluesky-bounty:
+	@echo "--- Creating and Funding Bluesky Bounty ---"
+	@OUTPUT=`$(ABB_CMD) admin bounty create \
+		-r "Post must tag @incentivizethis.com" \
+		-r "Must include the hashtag #bounty" \
+		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT) \
+		--platform bluesky --content-kind post`; \
+	echo "Create Output: $$OUTPUT"; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
+	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
+	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
+		echo "Error: Could not extract Workflow ID from create command output." >&2; \
+		exit 1; \
+	fi; \
+	$(ABB_CMD) admin util fund-escrow \
+		--workflow-id $$WORKFLOW_ID \
+		--amount $(FUND_AMOUNT)
+	@echo "--- Bluesky Bounty Funded ---"
+
+create-hackernews-bounty:
+	@echo "--- Creating and Funding Hacker News Bounty ---"
+	@OUTPUT=`$(ABB_CMD) admin bounty create \
+		-r "Comment must be constructive feedback on the linked article" \
+		-r "Must be at least 50 characters long" \
+		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT) \
+		--platform hackernews --content-kind comment`; \
+	echo "Create Output: $$OUTPUT"; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
+	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
+	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
+		echo "Error: Could not extract Workflow ID from create command output." >&2; \
+		exit 1; \
+	fi; \
+	$(ABB_CMD) admin util fund-escrow \
+		--workflow-id $$WORKFLOW_ID \
+		--amount $(FUND_AMOUNT)
+	@echo "--- Hacker News Bounty Funded ---"
+
+.PHONY: create-and-fund-bounties create-reddit-bounty create-youtube-bounty create-twitch-bounty create-bluesky-bounty create-hackernews-bounty
