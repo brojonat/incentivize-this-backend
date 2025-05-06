@@ -40,6 +40,13 @@ The system supports multiple content platforms with a flexible architecture that
   - Requires OAuth2 authentication
   - Returns formatted content with author and subreddit information
 - **YouTube** (placeholder)
+- **Twitch**
+  - Supports Videos (VODs/Archives) and Clips
+  - Requires App Access Token (Client Credentials)
+- **Hacker News**
+  - Supports stories and comments
+  - No authentication required
+  - Returns item data including score, author, text/title/url
 
 ### Example: Starting a Bounty Assessment Workflow for Different Platforms
 
@@ -73,6 +80,28 @@ _, err = client.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
     ID:        redditWorkflowID,
     TaskQueue: abb.TaskQueueName,
 }, abb.BountyAssessmentWorkflow, redditBountyInput)
+
+// For Hacker News (No specific dependencies needed)
+hnInput := abb.BountyAssessmentWorkflowInput{
+	RequirementsDescription: "Comment must provide constructive feedback",
+	BountyPerPost:           solana.NewUSDCAmount(0.5), // e.g., per comment
+	TotalBounty:             solana.NewUSDCAmount(50),
+	OwnerID:                 "owner789",
+	SolanaWallet:            "owner_hn_wallet_address",
+	USDCAccount:             "owner_hn_usdc_account",
+	ServerURL:               "https://api.example.com",
+	AuthToken:               "auth_token",
+	PlatformType:            abb.PlatformHackerNews,
+	PlatformDependencies:    abb.HackerNewsDependencies{}, // Use empty struct
+	Timeout:                 7 * 24 * time.Hour,
+}
+
+// Start the Hacker News bounty workflow
+hnWorkflowID := "hn-bounty-" + uuid.New().String()
+_, err = client.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+    ID:        hnWorkflowID,
+    TaskQueue: abb.TaskQueueName,
+}, abb.BountyAssessmentWorkflow, hnInput)
 ```
 
 ### Content Pulling
@@ -237,6 +266,10 @@ The following environment variables are needed to run the activities:
 
 - `TWITCH_CLIENT_ID`: Twitch Application Client ID.
 - `TWITCH_CLIENT_SECRET`: Twitch Application Client Secret.
+
+**Hacker News:**
+
+- _No specific environment variables required for Hacker News._
 
 **Server/Auth:**
 

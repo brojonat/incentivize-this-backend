@@ -835,6 +835,124 @@ func TestPlatformActivities(t *testing.T) {
 
 		env.AssertExpectations(t)
 	})
+
+	// Test Hacker News content pulling
+	t.Run("PullHackerNewsContent_Story", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		activities, err := NewActivities()
+		require.NoError(t, err)
+
+		env.RegisterActivity(activities.PullHackerNewsContent)
+
+		// Mock returns the struct pointer, matching the activity signature
+		mockedStory := &HackerNewsContent{
+			ID:          123456,
+			Type:        "story",
+			By:          "pg",
+			Time:        time.Unix(1678886400, 0), // Provide time.Time directly
+			URL:         "http://example.com/hnstory",
+			Score:       150,
+			Title:       "Test Hacker News Story",
+			Descendants: 25,
+		}
+		contentIDStr := "123456"
+
+		// Mock returns *HackerNewsContent now
+		env.OnActivity(activities.PullHackerNewsContent, mock.Anything, contentIDStr, ContentKindPost).
+			Return(mockedStory, nil)
+
+		// Workflow now receives *HackerNewsContent
+		env.ExecuteWorkflow(func(ctx workflow.Context) (*HackerNewsContent, error) { // Return the struct pointer
+			ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: time.Minute,
+			})
+			var hnContent *HackerNewsContent
+			err := workflow.ExecuteActivity(ctx, activities.PullHackerNewsContent, contentIDStr, ContentKindPost).Get(ctx, &hnContent)
+			if err != nil {
+				return nil, fmt.Errorf("activity execution failed: %w", err)
+			}
+			// No need to unmarshal inside workflow test
+			return hnContent, nil
+		})
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+
+		var result *HackerNewsContent // Expect struct pointer
+		require.NoError(t, env.GetWorkflowResult(&result))
+
+		// Assert directly on the received struct fields
+		require.NotNil(t, result)
+		assert.Equal(t, 123456, result.ID)
+		assert.Equal(t, "Test Hacker News Story", result.Title)
+		assert.Equal(t, "pg", result.By)
+		assert.EqualValues(t, 150, result.Score)
+		assert.EqualValues(t, 25, result.Descendants)
+		// Check the time
+		assert.Equal(t, time.Unix(1678886400, 0), result.Time)
+
+		env.AssertExpectations(t)
+	})
+
+	t.Run("PullHackerNewsContent_Comment", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		activities, err := NewActivities()
+		require.NoError(t, err)
+
+		env.RegisterActivity(activities.PullHackerNewsContent)
+
+		// Mock returns the struct pointer
+		mockedComment := &HackerNewsContent{
+			ID:     654321,
+			Type:   "comment",
+			By:     "tptacek",
+			Time:   time.Unix(1678887000, 0), // Provide time.Time directly
+			Text:   "This is a test comment.",
+			Parent: 123456,
+			Score:  10,
+		}
+		contentIDStr := "654321"
+
+		// Mock returns *HackerNewsContent
+		env.OnActivity(activities.PullHackerNewsContent, mock.Anything, contentIDStr, ContentKindComment).
+			Return(mockedComment, nil)
+
+		// Workflow receives *HackerNewsContent
+		env.ExecuteWorkflow(func(ctx workflow.Context) (*HackerNewsContent, error) { // Return struct pointer
+			ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: time.Minute,
+			})
+			var hnContent *HackerNewsContent
+			err := workflow.ExecuteActivity(ctx, activities.PullHackerNewsContent, contentIDStr, ContentKindComment).Get(ctx, &hnContent)
+			if err != nil {
+				return nil, err
+			}
+			// No need to unmarshal
+			return hnContent, nil
+		})
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+
+		var result *HackerNewsContent // Expect struct pointer
+		require.NoError(t, env.GetWorkflowResult(&result))
+
+		// Assert directly on the received struct fields
+		require.NotNil(t, result)
+		assert.Equal(t, 654321, result.ID)
+		assert.Equal(t, "comment", result.Type)
+		assert.Equal(t, "tptacek", result.By)
+		assert.Equal(t, "This is a test comment.", result.Text)
+		assert.EqualValues(t, 10, result.Score)
+		// Check the time
+		assert.Equal(t, time.Unix(1678887000, 0), result.Time)
+
+		env.AssertExpectations(t)
+	})
 }
 
 func TestCheckContentRequirementsWorkflow(t *testing.T) {

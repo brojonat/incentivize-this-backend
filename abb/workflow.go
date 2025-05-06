@@ -230,6 +230,12 @@ func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) (
 		if err == nil {
 			contentBytes, err = json.Marshal(twitchContent)
 		}
+	case PlatformHackerNews:
+		var hackerNewsContent *HackerNewsContent
+		err = workflow.ExecuteActivity(ctx, (*Activities).PullHackerNewsContent, input.ContentID, input.ContentKind).Get(ctx, &hackerNewsContent)
+		if err == nil {
+			contentBytes, err = json.Marshal(hackerNewsContent)
+		}
 	default:
 		return nil, fmt.Errorf("unsupported platform type: %s", input.PlatformType)
 	}

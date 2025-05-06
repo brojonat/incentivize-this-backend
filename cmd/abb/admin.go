@@ -125,7 +125,7 @@ func createBounty(ctx *cli.Context) error {
 
 	// Create a map for the request to avoid type conversion issues
 	req := map[string]interface{}{
-		"requirements":         ctx.StringSlice("requirements"),
+		"requirements":         []string{ctx.String("requirements")},
 		"bounty_per_post":      ctx.Float64("per-post"),
 		"total_bounty":         ctx.Float64("total"),
 		"bounty_owner_wallet":  bountyOwnerWallet,
@@ -487,11 +487,11 @@ func adminCommands() []*cli.Command {
 							Usage:    "Authorization token",
 							EnvVars:  []string{EnvAuthToken},
 						},
-						&cli.StringSliceFlag{
+						&cli.StringFlag{
 							Name:     "requirements",
 							Aliases:  []string{"req", "r"},
 							Required: true,
-							Usage:    "Description of the bounty requirements",
+							Usage:    "String describing the bounty requirements",
 						},
 						&cli.Float64Flag{
 							Name:     "per-post",
