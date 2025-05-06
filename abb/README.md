@@ -47,6 +47,11 @@ The system supports multiple content platforms with a flexible architecture that
   - Supports stories and comments
   - No authentication required
   - Returns item data including score, author, text/title/url
+- **Bluesky**
+  - Supports individual posts (skeets)
+  - Fetches public posts via AT URI (e.g., `at://did:plc:.../app.bsky.feed.post/...`)
+  - No authentication required for public posts
+  - Returns post view including text, author, embeds, counts, etc.
 
 ### Example: Starting a Bounty Assessment Workflow for Different Platforms
 
@@ -102,6 +107,28 @@ _, err = client.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
     ID:        hnWorkflowID,
     TaskQueue: abb.TaskQueueName,
 }, abb.BountyAssessmentWorkflow, hnInput)
+
+// For Bluesky (No specific dependencies needed for public posts)
+blueskyInput := abb.BountyAssessmentWorkflowInput{
+	RequirementsDescription: "Post must mention AI ethics",
+	BountyPerPost:           solana.NewUSDCAmount(1.0),
+	TotalBounty:             solana.NewUSDCAmount(20),
+	OwnerID:                 "owner_bluesky",
+	SolanaWallet:            "owner_bluesky_wallet",
+	USDCAccount:             "owner_bluesky_usdc",
+	ServerURL:               "https://api.example.com",
+	AuthToken:               "auth_token",
+	PlatformType:            abb.PlatformBluesky,
+	PlatformDependencies:    abb.BlueskyDependencies{}, // Empty struct for now
+	Timeout:                 14 * 24 * time.Hour,
+}
+
+// Start the Bluesky bounty workflow
+blueskyWorkflowID := "bluesky-bounty-" + uuid.New().String()
+_, err = client.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+    ID:        blueskyWorkflowID,
+    TaskQueue: abb.TaskQueueName,
+}, abb.BountyAssessmentWorkflow, blueskyInput)
 ```
 
 ### Content Pulling
@@ -270,6 +297,11 @@ The following environment variables are needed to run the activities:
 **Hacker News:**
 
 - _No specific environment variables required for Hacker News._
+
+**Bluesky:**
+
+- _No specific environment variables required for fetching public posts currently._
+- _(Future: May require `BLUESKY_HANDLE` and `BLUESKY_APP_PASSWORD` for authenticated actions)._
 
 **Server/Auth:**
 

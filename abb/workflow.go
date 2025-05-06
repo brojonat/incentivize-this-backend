@@ -236,6 +236,12 @@ func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) (
 		if err == nil {
 			contentBytes, err = json.Marshal(hackerNewsContent)
 		}
+	case PlatformBluesky:
+		var blueskyContent *BlueskyContent
+		err = workflow.ExecuteActivity(ctx, (*Activities).PullBlueskyContent, input.ContentID, input.ContentKind).Get(ctx, &blueskyContent)
+		if err == nil {
+			contentBytes, err = json.Marshal(blueskyContent)
+		}
 	default:
 		return nil, fmt.Errorf("unsupported platform type: %s", input.PlatformType)
 	}
