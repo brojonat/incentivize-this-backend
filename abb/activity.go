@@ -1616,6 +1616,8 @@ func (a *Activities) PullRedditContent(ctx context.Context, contentID string, co
 		logger.Error("Failed to get Reddit token", "error", err, "clientId", redditDeps.ClientID)
 		return nil, fmt.Errorf("failed to get Reddit token: %w", err)
 	}
+	// Log the token being used
+	logger.Info("Using Reddit token", "token_prefix", token[:min(10, len(token))]+"...") // Log prefix for security
 
 	// Create request
 	url := fmt.Sprintf("https://oauth.reddit.com/api/info.json?id=%s", contentID)
@@ -1628,9 +1630,18 @@ func (a *Activities) PullRedditContent(ctx context.Context, contentID string, co
 	req.Header.Set("User-Agent", redditDeps.UserAgent)
 	req.Header.Set("Authorization", "Bearer "+token)
 
+	// --- Debug Logging ---
+	logger.Info("Making Reddit API request",
+		"url", req.URL.String(),
+		"user_agent", req.Header.Get("User-Agent"),
+		"authorization_header", req.Header.Get("Authorization")) // Log the full header being sent
+	// --- End Debug Logging ---
+
 	// Make request
 	resp, err := client.Do(req)
 	if err != nil {
+		// Log the status code even if making request fails
+		logger.Error("Failed to make Reddit API request", "status_code", resp.StatusCode, "error", err)
 		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -1638,16 +1649,24 @@ func (a *Activities) PullRedditContent(ctx context.Context, contentID string, co
 	// Read response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		// Log the status code even if reading body fails
+		logger.Error("Failed to read Reddit API response body", "status_code", resp.StatusCode, "error", err)
+		return nil, fmt.Errorf("failed to read response body (status %d): %w", resp.StatusCode, err)
 	}
 
 	// Log the raw response for debugging
-	logger.Debug("Reddit API Response", "response", string(body))
+	logger.Debug("Reddit API Response", "status_code", resp.StatusCode, "response", string(body))
 
 	// Check status code
 	if resp.StatusCode != http.StatusOK {
-		// Log the error response body for easier debugging
-		logger.Error("Reddit API returned non-OK status", "status_code", resp.StatusCode, "response_body", string(body))
+		// Log the error response body for easier debugging, especially for 403
+		if resp.StatusCode == http.StatusForbidden {
+			// Use Warn for 403 to make it stand out
+			logger.Warn("Reddit API returned 403 Forbidden", "status_code", resp.StatusCode, "response_body", string(body))
+		} else {
+			// Use Error for other non-OK statuses
+			logger.Error("Reddit API returned non-OK status", "status_code", resp.StatusCode, "response_body", string(body))
+		}
 		return nil, fmt.Errorf("Reddit API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -1692,6 +1711,14 @@ func (a *Activities) PullRedditContent(ctx context.Context, contentID string, co
 	content.IsComment = strings.HasPrefix(contentID, "t1_") // Use the passed-in ID for type check
 
 	return &content, nil
+}
+
+// Helper function to prevent panics on short tokens in logging
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // --- Bounty Publisher Activity ---
