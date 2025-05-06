@@ -1416,22 +1416,27 @@ func checkTokenBalancesForTransfer(
 
 // getRedditToken obtains an authentication token from Reddit
 func getRedditToken(client *http.Client, deps RedditDependencies) (string, error) {
+	// Create request body with URL-encoded form data
+	form := url.Values{}
+	form.Add("grant_type", "password")
+	form.Add("username", deps.Username)
+	form.Add("password", deps.Password)
+	encodedForm := form.Encode()
+
 	// Create request to Reddit's token endpoint
-	req, err := http.NewRequest("POST", "https://www.reddit.com/api/v1/access_token", strings.NewReader("grant_type=password"))
+	// Pass the encoded form data in the request body
+	req, err := http.NewRequest("POST", "https://www.reddit.com/api/v1/access_token", strings.NewReader(encodedForm))
 	if err != nil {
 		return "", fmt.Errorf("failed to create token request: %w", err)
 	}
 
 	// Set headers
 	req.Header.Set("User-Agent", deps.UserAgent)
-	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(deps.ClientID+":"+deps.ClientSecret)))
+	// Basic Auth for client_id:client_secret
+	auth := base64.StdEncoding.EncodeToString([]byte(deps.ClientID + ":" + deps.ClientSecret))
+	req.Header.Set("Authorization", "Basic "+auth)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	// Add username and password to request body
-	req.PostForm = map[string][]string{
-		"username": {deps.Username},
-		"password": {deps.Password},
-	}
+	req.Header.Set("Content-Length", strconv.Itoa(len(encodedForm))) // Set Content-Length for POST
 
 	// Make request
 	resp, err := client.Do(req)
@@ -1440,20 +1445,46 @@ func getRedditToken(client *http.Client, deps RedditDependencies) (string, error
 	}
 	defer resp.Body.Close()
 
-	// Check status code
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Reddit token API returned status %d", resp.StatusCode)
+	// Read the response body ONCE
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		// Log status code even if body read fails
+		// logger.Error("Failed to read Reddit token response body", "status_code", resp.StatusCode, "error", err) // Cannot use logger here easily
+		return "", fmt.Errorf("failed to read token response body (status %d): %w", resp.StatusCode, err)
 	}
 
-	// Parse response
+	// Check status code AFTER reading body
+	if resp.StatusCode != http.StatusOK {
+		// Log status and the body we read
+		// logger.Error("Reddit token API returned non-OK status", "status_code", resp.StatusCode, "response_body", string(bodyBytes)) // Cannot use logger here easily
+		return "", fmt.Errorf("Reddit token API returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Parse response using the bodyBytes we already read
 	var result struct {
 		AccessToken string `json:"access_token"`
+		Error       string `json:"error,omitempty"` // Check for potential error fields in JSON response
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("failed to decode token response: %w", err)
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		// Log the body if unmarshal fails
+		// logger.Error("Failed to decode Reddit token response", "error", err, "response_body", string(bodyBytes)) // Cannot use logger here easily
+		return "", fmt.Errorf("failed to decode token response: %w (body: %s)", err, string(bodyBytes))
 	}
 
+	// Explicitly check if the token is empty, even if status was OK
+	if result.AccessToken == "" {
+		// Log this specific failure case
+		// logger.Warn("Reddit token API returned OK status but access token was empty", "response_body", string(bodyBytes), "parsed_error_field", result.Error) // Cannot use logger here easily
+		errMsg := "Reddit token response was successful but contained an empty access token."
+		if result.Error != "" {
+			errMsg = fmt.Sprintf("%s Reddit API error field: '%s'.", errMsg, result.Error)
+		}
+		errMsg = fmt.Sprintf("%s Response body: %s", errMsg, string(bodyBytes))
+		return "", fmt.Errorf(errMsg)
+	}
+
+	// logger.Debug("Successfully obtained Reddit token", "token_prefix", result.AccessToken[:min(10, len(result.AccessToken))]+"...") // Cannot use logger here easily
 	return result.AccessToken, nil
 }
 
