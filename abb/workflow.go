@@ -49,9 +49,10 @@ const (
 
 // Signal Name Constants
 const (
-	AssessmentSignalName = "assessment"
-	CancelSignalName     = "cancel"
-	DefaultPayoutTimeout = 10 * time.Minute
+	AssessmentSignalName        = "assessment"
+	CancelSignalName            = "cancel"
+	DefaultPayoutTimeout        = 10 * time.Minute
+	ContentReassessmentCooldown = 24 * time.Hour // Cooldown period for reassessing failed content
 )
 
 // AssessContentSignal represents a signal to assess content against bounty requirements
@@ -386,7 +387,8 @@ func awaitLoopUntilEmptyOrTimeout(
 		logger.Error("Failed to create mutable copy of remaining bounty", "error", err)
 		return fmt.Errorf("failed to initialize remaining bounty: %w", err)
 	}
-	processedContentIDs := make(map[string]bool) // Map to track processed content IDs
+	failedAttemptsCooldown := make(map[string]time.Time) // Stores timestamp of last failure for a contentID
+	successfullyPaidIDs := make(map[string]bool)         // Tracks contentIDs that have been successfully paid
 
 	signalChan := workflow.GetSignalChannel(ctx, AssessmentSignalName)
 	cancelSignalChan := workflow.GetSignalChannel(ctx, CancelSignalName)
@@ -471,10 +473,19 @@ func awaitLoopUntilEmptyOrTimeout(
 			c.Receive(ctx, &signal)
 			logger.Info("Received assessment signal", "ContentID", signal.ContentID, "Platform", signal.Platform, "PayoutWallet", signal.PayoutWallet, "ContentKind", signal.ContentKind)
 
-			// Idempotency Check
-			if processedContentIDs[signal.ContentID] {
-				logger.Debug("Duplicate assessment signal received, already processed.", "ContentID", signal.ContentID)
-				return // Skip processing
+			// Idempotency Check & Cooldown Logic
+			if successfullyPaidIDs[signal.ContentID] {
+				logger.Debug("Content ID already successfully paid, skipping assessment.", "ContentID", signal.ContentID)
+				return // Skip processing this signal, continue to next Select iteration
+			}
+
+			if lastFailureTime, exists := failedAttemptsCooldown[signal.ContentID]; exists {
+				if workflow.Now(ctx).Before(lastFailureTime.Add(ContentReassessmentCooldown)) {
+					logger.Info("Content ID failed assessment recently and is in cooldown period.", "ContentID", signal.ContentID, "CooldownUntil", lastFailureTime.Add(ContentReassessmentCooldown))
+					return // Skip processing this signal, continue to next Select iteration
+				}
+				logger.Info("Content ID cooldown period passed, eligible for reprocessing.", "ContentID", signal.ContentID)
+				delete(failedAttemptsCooldown, signal.ContentID) // Clear previous failure to allow reprocessing
 			}
 
 			thumbnailAnalysisFailed := false                     // Declare flag here, before the switch
@@ -671,36 +682,55 @@ func awaitLoopUntilEmptyOrTimeout(
 						} // End if thumbnailURL != ""
 					} // End else (marshalErr == nil)
 				}
+			case PlatformHackerNews:
+				var hackerNewsContent *HackerNewsContent
+				pullErr = workflow.ExecuteActivity(loopCtx, (*Activities).PullHackerNewsContent, signal.ContentID, signal.ContentKind).Get(loopCtx, &hackerNewsContent)
+				if pullErr == nil {
+					marshaledData, marshalErr := json.Marshal(hackerNewsContent)
+					if marshalErr != nil {
+						pullErr = fmt.Errorf("failed to marshal Hacker News content: %w", marshalErr)
+					} else {
+						contentBytes = marshaledData
+					}
+				}
+			case PlatformBluesky:
+				var blueskyContent *BlueskyContent
+				pullErr = workflow.ExecuteActivity(loopCtx, (*Activities).PullBlueskyContent, signal.ContentID, signal.ContentKind).Get(loopCtx, &blueskyContent)
+				if pullErr == nil {
+					marshaledData, marshalErr := json.Marshal(blueskyContent)
+					if marshalErr != nil {
+						pullErr = fmt.Errorf("failed to marshal Bluesky content: %w", marshalErr)
+					} else {
+						contentBytes = marshaledData
+					}
+				}
 			default:
 				pullErr = fmt.Errorf("unsupported platform type in loop: %s", signal.Platform)
 			}
 
 			if pullErr != nil {
 				logger.Error("Failed to pull or marshal content", "ContentID", signal.ContentID, "Platform", signal.Platform, "error", pullErr)
-				processedContentIDs[signal.ContentID] = true // Mark as processed even on pull/marshal error
-				logger.Debug("Marked content ID as processed after pull/marshal error", "ContentID", signal.ContentID)
+				// Mark as failed for cooldown if content pull/marshal fails
+				failedAttemptsCooldown[signal.ContentID] = workflow.Now(ctx)
+				logger.Debug("Marked content ID for cooldown due to pull/marshal error", "ContentID", signal.ContentID)
 				return // Continue loop
 			}
 
 			// --- Check Requirements or skip if image analysis failed ---
 			var checkResult CheckContentRequirementsResult
-			requirementsMet := false // Default to false
+			contentRequirementMet := false // Default to false
 
 			if thumbnailAnalysisFailed {
 				logger.Info("Skipping content requirement check due to thumbnail analysis failure", "ContentID", signal.ContentID)
-				// requirementsMet remains false
-				// Explicitly set reason for failure using the result from image analysis
-				checkResult = imgAnalysisResult // Use the result from image analysis
+				checkResult = imgAnalysisResult
 			} else {
-				// Only run CheckContentRequirements if image analysis didn't fail and was satisfied
 				checkOpts := workflow.ActivityOptions{
 					StartToCloseTimeout: 120 * time.Second,
 					RetryPolicy: &temporal.RetryPolicy{
-						// Keep default timing but limit attempts
 						InitialInterval:    time.Second,
 						BackoffCoefficient: 2.0,
 						MaximumInterval:    time.Minute,
-						MaximumAttempts:    3, // Limit CheckContentRequirements attempts
+						MaximumAttempts:    3,
 					},
 				}
 				checkErr := workflow.ExecuteActivity(
@@ -712,15 +742,52 @@ func awaitLoopUntilEmptyOrTimeout(
 
 				if checkErr != nil {
 					logger.Error("Failed to check content requirements", "ContentID", signal.ContentID, "error", checkErr)
-					// requirementsMet remains false
 				} else {
-					requirementsMet = checkResult.Satisfies
+					contentRequirementMet = checkResult.Satisfies
 				}
 			}
 
-			// --- Payout Logic ---
-			if requirementsMet {
-				logger.Info("Content satisfies requirements, attempting payout.", "ContentID", signal.ContentID, "Reason", checkResult.Reason)
+			// --- Wallet Validation (New Step) ---
+			var walletValidationResult ValidateWalletResult
+			payoutWalletAllowed := false // Default to false
+
+			if contentRequirementMet { // Only validate wallet if content requirements are met
+				walletValidateOpts := workflow.ActivityOptions{
+					StartToCloseTimeout: 60 * time.Second, // Shorter timeout as it's a more focused LLM call
+					RetryPolicy: &temporal.RetryPolicy{
+						InitialInterval:    time.Second,
+						BackoffCoefficient: 2.0,
+						MaximumInterval:    time.Minute,
+						MaximumAttempts:    2, // Fewer attempts for wallet validation
+					},
+				}
+				walletValidateErr := workflow.ExecuteActivity(
+					workflow.WithActivityOptions(ctx, walletValidateOpts),
+					(*Activities).ValidatePayoutWallet,
+					signal.PayoutWallet,
+					input.Requirements,
+				).Get(loopCtx, &walletValidationResult)
+
+				if walletValidateErr != nil {
+					logger.Error("Failed to validate payout wallet", "ContentID", signal.ContentID, "PayoutWallet", signal.PayoutWallet, "error", walletValidateErr)
+					// Consider this a failure for cooldown purposes
+					checkResult.Reason = fmt.Sprintf("Wallet validation activity failed: %s", walletValidateErr.Error()) // Update reason for cooldown
+				} else {
+					payoutWalletAllowed = walletValidationResult.Satisfies
+					if !payoutWalletAllowed {
+						logger.Info("Payout wallet validation failed.", "ContentID", signal.ContentID, "PayoutWallet", signal.PayoutWallet, "Reason", walletValidationResult.Reason)
+						// Update overall checkResult reason if wallet validation is the cause of failure
+						checkResult.Reason = walletValidationResult.Reason
+					}
+				}
+			} else {
+				// If content requirements were not met, wallet validation is skipped, and payoutWalletAllowed remains false.
+				logger.Info("Skipping payout wallet validation as content requirements were not met.", "ContentID", signal.ContentID)
+			}
+
+			// --- Payout Logic (Condition updated) ---
+			if contentRequirementMet && payoutWalletAllowed {
+				logger.Info("Content and payout wallet satisfy requirements, attempting payout.", "ContentID", signal.ContentID, "ContentReason", checkResult.Reason, "WalletReason", walletValidationResult.Reason)
 				// ... (rest of the existing payout logic remains the same)
 				// ... calculates payoutAmount, checks remainingBounty, calls TransferUSDC, updates remainingBounty ...
 				payoutAmount := input.BountyPerPost
@@ -773,6 +840,9 @@ func awaitLoopUntilEmptyOrTimeout(
 						if errUpdate != nil {
 							logger.Error("Failed to update search attribute BountyStatus back to Listening after failed payout", "error", errUpdate)
 						}
+						// Mark for cooldown since payout failed
+						failedAttemptsCooldown[signal.ContentID] = workflow.Now(ctx)
+						logger.Error("Failed to pay bounty, marking for cooldown.", "ContentID", signal.ContentID, "Wallet", signal.PayoutWallet, "Amount", payoutAmount.ToUSDC())
 					} else {
 						logger.Info("Successfully paid bounty portion", "ContentID", signal.ContentID, "Wallet", signal.PayoutWallet, "Amount", payoutAmount.ToUSDC())
 						if shouldCap {
@@ -786,20 +856,28 @@ func awaitLoopUntilEmptyOrTimeout(
 						if err != nil {
 							logger.Error("Failed to update search attribute BountyValueRemaining after payout", "error", err)
 						}
+						// Mark as successfully paid
+						successfullyPaidIDs[signal.ContentID] = true
+						delete(failedAttemptsCooldown, signal.ContentID) // Clear from failed map if it succeeded now
+						logger.Info("Successfully paid bounty, ContentID marked as paid.", "ContentID", signal.ContentID)
+
 						// Update status back to Listening after successful payout
 						errUpdate := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusListening)))
 						if errUpdate != nil {
 							logger.Error("Failed to update search attribute BountyStatus back to Listening after successful payout", "error", errUpdate)
 						}
 					}
+				} else { // Payout amount was zero (e.g. bounty depleted or capped to zero)
+					logger.Info("Payout amount is zero for this content, no payout processed.", "ContentID", signal.ContentID)
+					// If the content *would* have been paid but bounty ran out, consider it 'handled' for idempotency.
+					// This prevents it from being re-added to failedAttemptsCooldown if requirements were met but bounty was depleted.
+					successfullyPaidIDs[signal.ContentID] = true
+					delete(failedAttemptsCooldown, signal.ContentID)
 				}
 			} else {
 				logger.Info("Content does not satisfy requirements.", "ContentID", signal.ContentID, "Reason", checkResult.Reason)
+				failedAttemptsCooldown[signal.ContentID] = workflow.Now(ctx) // Record failure time for cooldown
 			}
-
-			// Mark content ID as processed AFTER handling payout/failure logic
-			processedContentIDs[signal.ContentID] = true
-			logger.Debug("Marked content ID as processed", "ContentID", signal.ContentID)
 		})
 
 		selector.AddReceive(cancelSignalChan, func(c workflow.ReceiveChannel, more bool) {

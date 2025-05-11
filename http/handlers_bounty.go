@@ -246,8 +246,18 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 				writeBadRequestError(w, fmt.Errorf("invalid content_kind for Twitch: must be '%s' or '%s'", abb.ContentKindVideo, abb.ContentKindClip))
 				return
 			}
+		case abb.PlatformHackerNews:
+			if normalizedContentKind != abb.ContentKindPost && normalizedContentKind != abb.ContentKindComment {
+				writeBadRequestError(w, fmt.Errorf("invalid content_kind for Hacker News: must be '%s' or '%s'", abb.ContentKindPost, abb.ContentKindComment))
+				return
+			}
+		case abb.PlatformBluesky:
+			if normalizedContentKind != abb.ContentKindPost { // Assuming only posts for Bluesky initially
+				writeBadRequestError(w, fmt.Errorf("invalid content_kind for Bluesky: must be '%s'", abb.ContentKindPost))
+				return
+			}
 		default:
-			writeBadRequestError(w, fmt.Errorf("invalid platform_type: must be one of %s, %s, or %s", abb.PlatformReddit, abb.PlatformYouTube, abb.PlatformTwitch))
+			writeBadRequestError(w, fmt.Errorf("invalid platform_type: must be one of %s, %s, %s, %s, or %s", abb.PlatformReddit, abb.PlatformYouTube, abb.PlatformTwitch, abb.PlatformHackerNews, abb.PlatformBluesky))
 			return
 		}
 

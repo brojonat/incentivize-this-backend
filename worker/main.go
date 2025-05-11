@@ -58,10 +58,13 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 	w.RegisterActivity(activities.PullRedditContent)
 	w.RegisterActivity(activities.PullYouTubeContent)
 	w.RegisterActivity(activities.CheckContentRequirements)
+	w.RegisterActivity(activities.ValidatePayoutWallet)
 	w.RegisterActivity(activities.VerifyPayment)
 	w.RegisterActivity(activities.TransferUSDC)
 	w.RegisterActivity(activities.PublishBountiesReddit)
 	w.RegisterActivity(activities.PullTwitchContent)
+	w.RegisterActivity(activities.PullBlueskyContent)
+	w.RegisterActivity(activities.PullHackerNewsContent)
 	w.RegisterActivity(activities.AnalyzeImageURL)
 	w.RegisterActivity(activities.SendTokenEmail)
 

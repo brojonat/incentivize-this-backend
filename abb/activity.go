@@ -448,6 +448,97 @@ You must respond ONLY with a valid JSON object containing two keys: "satisfies" 
 	return result, nil
 }
 
+// ValidateWalletResult represents the result of validating a payout wallet against requirements.
+type ValidateWalletResult struct {
+	Satisfies bool   `json:"satisfies"`
+	Reason    string `json:"reason"`
+}
+
+// ValidatePayoutWallet checks if the provided payout wallet is permissible based on bounty requirements.
+func (a *Activities) ValidatePayoutWallet(ctx context.Context, payoutWallet string, requirements []string) (ValidateWalletResult, error) {
+	logger := activity.GetLogger(ctx)
+
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return ValidateWalletResult{Satisfies: false, Reason: "Configuration error"}, fmt.Errorf("failed to get configuration in ValidatePayoutWallet: %w", err)
+	}
+
+	logger.Debug("Starting payout wallet validation", "payoutWallet", payoutWallet, "requirements_count", len(requirements))
+
+	requirementsStr := strings.Join(requirements, "\n")
+	// Basic input size check for requirements string to avoid overly long prompts
+	if len(requirementsStr) > MaxRequirementsCharsForLLMCheck { // Reusing existing constant
+		reason := fmt.Sprintf("Requirements string for wallet validation exceeds maximum character limit (%d > %d)", len(requirementsStr), MaxRequirementsCharsForLLMCheck)
+		logger.Warn(reason)
+		// Return as not satisfied if requirements are too long to process reliably
+		return ValidateWalletResult{Satisfies: false, Reason: reason}, nil
+	}
+
+	// Construct the specific prompt for wallet validation.
+	// The base prompt (cfg.Prompt) might be generic for content checking, so we create a more targeted one here.
+	// We use a default base if cfg.Prompt is empty or too generic.
+	promptBase := cfg.Prompt
+	if promptBase == "" || strings.Contains(promptBase, "content verification system") { // Check if it's the default content prompt
+		promptBase = "You are a Payout Wallet Policy Enforcer. Your task is to determine if the provided Payout Wallet is explicitly allowed or not disallowed based on the given Bounty Requirements."
+	}
+
+	prompt := fmt.Sprintf(`%s
+
+Bounty Requirements:
+---
+%s
+---
+
+Candidate Payout Wallet: %s
+
+Based *only* on the requirements pertaining to payout wallet restrictions (ignore all other types of requirements like content quality, topics, etc.):
+- If the requirements specify allowed wallet(s) and the Candidate Payout Wallet is one of them, it satisfies.
+- If the requirements specify disallowed wallet(s) and the Candidate Payout Wallet is one of them, it does NOT satisfy.
+- If the requirements mention a general rule for payout wallets (e.g., "must be a Solana address on devnet") and the candidate wallet adheres to it, it satisfies.
+- If no specific wallet restrictions are mentioned, or if the restrictions are too vague to make a definitive judgment about *this specific wallet address*, assume it satisfies.
+
+You MUST respond ONLY with a valid JSON object containing two keys: "satisfies" (a boolean) and "reason" (a string explaining your decision based *only* on wallet restrictions).
+Example (Wallet Allowed): {"satisfies": true, "reason": "Payout wallet matches the allowed wallet XYZ specified in requirements."}
+Example (Wallet Disallowed): {"satisfies": false, "reason": "Payout wallet ABC is explicitly disallowed by requirement 'Payouts only to XYZ'."}
+Example (No Restriction): {"satisfies": true, "reason": "No specific payout wallet restrictions found in the requirements."}
+`, promptBase, requirementsStr, payoutWallet)
+
+	// Log estimated token count
+	estimatedTokens := len(prompt) / 4 // Simple approximation
+	logger.Info("Sending wallet validation prompt to LLM", "estimated_tokens", estimatedTokens, "prompt_length_chars", len(prompt))
+
+	llmProvider, err := NewLLMProvider(cfg.LLMConfig)
+	if err != nil {
+		logger.Error("Failed to create LLM provider for wallet validation", "error", err)
+		return ValidateWalletResult{Satisfies: false, Reason: "LLM provider error"}, fmt.Errorf("failed to create LLM provider: %w", err)
+	}
+
+	resp, err := llmProvider.Complete(ctx, prompt)
+	if err != nil {
+		logger.Error("Failed to get LLM response for wallet validation", "error", err)
+		return ValidateWalletResult{Satisfies: false, Reason: "LLM communication error"}, fmt.Errorf("failed to validate wallet: %w", err)
+	}
+
+	resp = strings.TrimSpace(resp)
+	if strings.HasPrefix(resp, "```json") {
+		resp = strings.TrimPrefix(resp, "```json")
+	}
+	if strings.HasSuffix(resp, "```") {
+		resp = strings.TrimSuffix(resp, "```")
+	}
+	resp = strings.TrimSpace(resp)
+
+	logger.Debug("Cleaned LLM response for wallet validation", "response", resp)
+
+	var result ValidateWalletResult
+	if err := json.Unmarshal([]byte(resp), &result); err != nil {
+		logger.Error("Failed to parse LLM response for wallet validation", "error", err, "raw_response", resp)
+		return ValidateWalletResult{Satisfies: false, Reason: "LLM response parsing error"}, fmt.Errorf("failed to parse LLM response: %w", err)
+	}
+
+	return result, nil
+}
+
 // TransferUSDC is an activity that transfers USDC from the escrow account to a user's account
 // It now accepts an optional memo field.
 // func (a *Activities) TransferUSDC(ctx context.Context, userID string, amount float64) error {
@@ -1115,7 +1206,7 @@ func (a *Activities) VerifyPayment(
 		"escrow_owner", solCfg.EscrowWallet.String()) // Use fetched config
 
 	// Create a ticker to check transactions periodically
-	ticker := time.NewTicker(10 * time.Second) // Check more frequently for debugging
+	ticker := time.NewTicker(30 * time.Second) // Increased from 10 seconds
 	defer ticker.Stop()
 
 	// Create a timeout context for the entire verification process
@@ -1194,6 +1285,10 @@ func (a *Activities) VerifyPayment(
 					logger.Debug("Skipping failed transaction", "signature", sig.String(), "error", sigResult.Err)
 					continue
 				}
+
+				// --- Add artificial delay before fetching transaction details ---
+				time.Sleep(1 * time.Second)
+				// -----------------------------------------------------------------
 
 				logger.Debug("Fetching transaction details", "signature", sig.String())
 				// Ensure MaxSupportedTransactionVersion is set to 0 to handle versioned transactions

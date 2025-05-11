@@ -152,12 +152,6 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	testSuite := &testsuite.WorkflowTestSuite{}
 	env := testSuite.NewTestWorkflowEnvironment()
 
-	// Create test configuration
-	// escrowKey := solanago.NewWallet().PrivateKey // Removed as unused
-	// escrowAccount := solanago.NewWallet().PublicKey() // Removed as unused
-	// treasuryWallet := solanago.NewWallet() // Dummy treasury wallet - Removed as testConfig is removed
-	// testConfig := SolanaConfig{ // Removed as it's unused now
-
 	// Create activities instance
 	activities, err := NewActivities()
 	require.NoError(t, err)
@@ -168,6 +162,7 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	env.RegisterActivity(activities.PullRedditContent)
 	env.RegisterActivity(activities.CheckContentRequirements)
 	env.RegisterActivity(activities.AnalyzeImageURL)
+	env.RegisterActivity(activities.ValidatePayoutWallet) // Register new activity
 
 	// Register workflows
 	env.RegisterWorkflow(PullContentWorkflow)
@@ -191,6 +186,25 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	escrowWallet := solanago.NewWallet()   // Dummy escrow wallet for testing
 	treasuryWallet := solanago.NewWallet() // Dummy treasury wallet for testing
 
+	// --- Start Workflow Input Definition ---
+	// Create test input - include OriginalTotalBounty
+	input := BountyAssessmentWorkflowInput{
+		Requirements:       []string{"Test requirement"},
+		BountyPerPost:      bountyPerPost,
+		TotalBounty:        totalBounty,         // User payable amount
+		TotalCharged:       originalTotalBounty, // Original funded amount
+		BountyOwnerWallet:  ownerWallet.PublicKey().String(),
+		BountyFunderWallet: funderWallet.PublicKey().String(),
+		EscrowWallet:       escrowWallet.PublicKey().String(),   // Add dummy escrow
+		TreasuryWallet:     treasuryWallet.PublicKey().String(), // Add dummy treasury
+		Platform:           PlatformReddit,
+		ContentKind:        ContentKindPost,
+		Timeout:            30 * time.Second, // Increased from 5 seconds
+		PaymentTimeout:     5 * time.Second,  // Set payment timeout
+	}
+	// --- End Workflow Input Definition ---
+
+	// --- Start Mock Definitions ---
 	// Mock VerifyPayment - use originalTotalBounty
 	// Expect: context, from, recipient, expectedAmount, memo, timeout
 	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).
@@ -234,34 +248,23 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 			Reason:    "Content meets requirements",
 		}, nil).Once()
 
-	// Set up mock expectations
-	// Payout mock (assuming one signal is sent) - Expect memo
-	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Once()
+	// Mock ValidatePayoutWallet - ADDED - Called Once as payout happens
+	env.OnActivity(activities.ValidatePayoutWallet, mock.Anything, payoutWallet.PublicKey().String(), input.Requirements).
+		Return(ValidateWalletResult{Satisfies: true, Reason: "Wallet validation passed in test"}, nil).Once()
 
-	// Refund mock - Expect remaining amount
+	// Mock TransferUSDC (Payout) - Use SPECIFIC payout wallet and a more specific memo
+	expectedPayoutMemo := fmt.Sprintf("{\"workflow_id\":\"%s\",\"content_id\":\"%s\",\"content_kind\":\"%s\"}", "default-test-workflow-id", "test-content", ContentKindPost)
+	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), expectedPayoutMemo).Return(nil).Once()
+
+	// Mock TransferUSDC (Refund) - Expect remaining amount
 	// After one payout of 1.0, remaining user payable (9.0) should be 8.0 - Expect memo
 	remainingBountyAfterPayout := totalBounty.Sub(bountyPerPost)
 	env.OnActivity(activities.TransferUSDC, mock.Anything, ownerWallet.PublicKey().String(), remainingBountyAfterPayout.ToUSDC(), mock.AnythingOfType("string")).
 		Run(func(args mock.Arguments) {
 			// t.Logf("Refund Mock .Run() called: owner=%s, amount=%v (type: %T)", args.String(1), args.Get(2), args.Get(2))
 		}).
-		Return(nil).Maybe()
-
-	// Create test input - include OriginalTotalBounty
-	input := BountyAssessmentWorkflowInput{
-		Requirements:       []string{"Test requirement"},
-		BountyPerPost:      bountyPerPost,
-		TotalBounty:        totalBounty,         // User payable amount
-		TotalCharged:       originalTotalBounty, // Original funded amount
-		BountyOwnerWallet:  ownerWallet.PublicKey().String(),
-		BountyFunderWallet: funderWallet.PublicKey().String(),
-		EscrowWallet:       escrowWallet.PublicKey().String(),   // Add dummy escrow
-		TreasuryWallet:     treasuryWallet.PublicKey().String(), // Add dummy treasury
-		Platform:           PlatformReddit,
-		ContentKind:        ContentKindPost,
-		Timeout:            30 * time.Second, // Increased from 5 seconds
-		PaymentTimeout:     5 * time.Second,  // Set payment timeout
-	}
+		Return(nil).Once() // Changed from .Maybe() to .Once()
+	// --- End Mock Definitions ---
 
 	// Execute workflow and send signals
 	env.RegisterDelayedCallback(func() {
@@ -285,12 +288,6 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	testSuite := &testsuite.WorkflowTestSuite{}
 	env := testSuite.NewTestWorkflowEnvironment()
 
-	// Create test configuration
-	// escrowKey := solanago.NewWallet().PrivateKey // Removed as unused
-	// escrowAccount := solanago.NewWallet().PublicKey() // Removed as unused
-	// treasuryWallet := solanago.NewWallet() // Dummy treasury wallet - Removed as testConfig is removed
-	// testConfig := SolanaConfig{ // Removed as it's unused now
-
 	// Create activities instance
 	activities, err := NewActivities()
 	require.NoError(t, err)
@@ -300,6 +297,7 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	env.RegisterActivity(activities.TransferUSDC)
 	env.RegisterActivity(activities.PullRedditContent) // Assuming Reddit for this test
 	env.RegisterActivity(activities.CheckContentRequirements)
+	env.RegisterActivity(activities.ValidatePayoutWallet) // Register new activity
 	env.RegisterWorkflow(PullContentWorkflow)
 
 	// Define variables needed for mock setup
@@ -321,6 +319,24 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	// Create a channel to signal when the refund mock is called
 	// mockCalled := make(chan struct{}) // Removed as logging is simplified
 
+	// --- Start Workflow Input Definition ---
+	// Create test input
+	input := BountyAssessmentWorkflowInput{
+		Requirements:       []string{"Test requirement"},
+		BountyPerPost:      bountyPerPost,
+		TotalBounty:        totalBounty,         // User payable amount
+		TotalCharged:       originalTotalBounty, // Original funded amount
+		BountyOwnerWallet:  ownerWallet.PublicKey().String(),
+		BountyFunderWallet: funderWallet.PublicKey().String(),
+		EscrowWallet:       escrowWallet.PublicKey().String(),   // Add dummy escrow
+		TreasuryWallet:     treasuryWallet.PublicKey().String(), // Add dummy treasury
+		Platform:           PlatformReddit,
+		ContentKind:        ContentKindPost,
+		Timeout:            30 * time.Second,
+		PaymentTimeout:     5 * time.Second,
+	}
+	// --- End Workflow Input Definition ---
+
 	// --- Mock Setups ---
 	// Mock VerifyPayment - Return success with the originalTotalBounty
 	// Expect: context, from, recipient, expectedAmount, memo, timeout
@@ -338,32 +354,23 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.Anything, mock.Anything).
 		Return(CheckContentRequirementsResult{Satisfies: true}, nil).Maybe()
 
+	// Mock ValidatePayoutWallet - ADDED - This step might not be reached if timeout occurs before signal processing
+	env.OnActivity(activities.ValidatePayoutWallet, mock.Anything, mock.AnythingOfType("string"), input.Requirements).
+		Return(ValidateWalletResult{Satisfies: true, Reason: "Wallet validation passed in test"}, nil).Maybe()
+
 	// Mock TransferUSDC (Refund) - Expect refund to owner with totalBounty (user payable) amount
 	// because the timeout is very short and should hit before any payout.
 	// The refund logic returns the remaining USER PAYABLE amount.
+	// The memo should be simple for a direct timeout refund.
+	expectedTimeoutRefundMemo := fmt.Sprintf("{\"workflow_id\":\"%s\"}", "default-test-workflow-id")
 	env.OnActivity(activities.TransferUSDC,
 		mock.Anything,                               // Context
 		ownerWallet.PublicKey().String(),            // Owner wallet
 		originalTotalBounty.Sub(feeAmount).ToUSDC(), // Expect the full user-payable amount (totalBounty = 9.0) on timeout refund
-		mock.AnythingOfType("string"),               // Expect memo
-	).Return(nil).Maybe() // Simplified: Removed .Run()
+		expectedTimeoutRefundMemo,                   // Expect specific memo
+	).Return(nil).Once() // Changed from .Maybe() to .Once()
 
-	// Create test input
-	input := BountyAssessmentWorkflowInput{
-		Requirements:       []string{"Test requirement"},
-		BountyPerPost:      bountyPerPost,
-		TotalBounty:        totalBounty,         // User payable amount
-		TotalCharged:       originalTotalBounty, // Original funded amount
-		BountyOwnerWallet:  ownerWallet.PublicKey().String(),
-		BountyFunderWallet: funderWallet.PublicKey().String(),
-		EscrowWallet:       escrowWallet.PublicKey().String(),   // Add dummy escrow
-		TreasuryWallet:     treasuryWallet.PublicKey().String(), // Add dummy treasury
-		Platform:           PlatformReddit,
-		ContentKind:        ContentKindPost,
-		Timeout:            30 * time.Second,
-		PaymentTimeout:     5 * time.Second,
-	}
-
+	// --- Execute & Assert ---
 	env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
 
 	// Assert that the workflow completed without errors
@@ -388,6 +395,7 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 	env.RegisterActivity(activities.TransferUSDC)
 	env.RegisterActivity(activities.PullRedditContent)
 	env.RegisterActivity(activities.CheckContentRequirements)
+	env.RegisterActivity(activities.ValidatePayoutWallet) // Register new activity
 
 	// Register workflows
 	env.RegisterWorkflow(PullContentWorkflow)
@@ -405,6 +413,23 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 	treasuryWallet := solanago.NewWallet() // Dummy treasury wallet for testing
 	contentID := "idempotent-content"
 
+	// --- Start Workflow Input Definition ---
+	input := BountyAssessmentWorkflowInput{
+		Requirements:       []string{"Idempotency Test"},
+		BountyPerPost:      bountyPerPost,
+		TotalBounty:        totalBounty,
+		TotalCharged:       originalTotalBounty,
+		BountyOwnerWallet:  ownerWallet.PublicKey().String(),
+		BountyFunderWallet: funderWallet.PublicKey().String(),
+		EscrowWallet:       escrowWallet.PublicKey().String(),   // Add dummy escrow
+		TreasuryWallet:     treasuryWallet.PublicKey().String(), // Add dummy treasury
+		Platform:           PlatformReddit,
+		Timeout:            30 * time.Second,
+		PaymentTimeout:     5 * time.Second,
+	}
+	// --- End Workflow Input Definition ---
+
+	// --- Start Mock Definitions ---
 	// Mock VerifyPayment - Called Once, use originalTotalBounty
 	// Expect: context, from, recipient, expectedAmount, memo, timeout
 	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty}, nil).Once()
@@ -422,26 +447,17 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 	env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.AnythingOfType("[]uint8"), mock.AnythingOfType("[]string")).
 		Return(CheckContentRequirementsResult{Satisfies: true, Reason: "OK"}, nil).Once()
 
+	// Mock ValidatePayoutWallet - ADDED - Called Once as payout happens
+	env.OnActivity(activities.ValidatePayoutWallet, mock.Anything, payoutWallet.PublicKey().String(), input.Requirements).
+		Return(ValidateWalletResult{Satisfies: true, Reason: "Wallet validation passed in test"}, nil).Once()
+
 	// Mock TransferUSDC (Payout) - Called Once for the specific payout - Expect memo
 	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Once()
 
 	// Mock TransferUSDC (Return to Owner upon Timeout) - Expect memo
 	cancelRefundAmount := totalBounty.Sub(bountyPerPost)
 	env.OnActivity(activities.TransferUSDC, mock.Anything, ownerWallet.PublicKey().String(), cancelRefundAmount.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Once()
-
-	input := BountyAssessmentWorkflowInput{
-		Requirements:       []string{"Idempotency Test"},
-		BountyPerPost:      bountyPerPost,
-		TotalBounty:        totalBounty,
-		TotalCharged:       originalTotalBounty,
-		BountyOwnerWallet:  ownerWallet.PublicKey().String(),
-		BountyFunderWallet: funderWallet.PublicKey().String(),
-		EscrowWallet:       escrowWallet.PublicKey().String(),   // Add dummy escrow
-		TreasuryWallet:     treasuryWallet.PublicKey().String(), // Add dummy treasury
-		Platform:           PlatformReddit,
-		Timeout:            30 * time.Second,
-		PaymentTimeout:     5 * time.Second,
-	}
+	// --- End Mock Definitions ---
 
 	signal := AssessContentSignal{
 		ContentID:    contentID,
@@ -478,6 +494,7 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 	env.RegisterActivity(activities.TransferUSDC)
 	env.RegisterActivity(activities.PullRedditContent)
 	env.RegisterActivity(activities.CheckContentRequirements)
+	env.RegisterActivity(activities.ValidatePayoutWallet) // Register new activity
 	env.RegisterWorkflow(PullContentWorkflow)
 
 	// Define bounty amounts
@@ -512,6 +529,10 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 
 	// Expect requirements check to fail (expect context, []byte, []string)
 	env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.AnythingOfType("[]uint8"), mock.AnythingOfType("[]string")).Return(CheckContentRequirementsResult{Satisfies: false, Reason: "Did not meet criteria"}, nil).Once()
+
+	// Mock ValidatePayoutWallet - ADDED - Should NOT be called because CheckContentRequirements failed
+	env.OnActivity(activities.ValidatePayoutWallet, mock.Anything, mock.AnythingOfType("string"), mock.AnythingOfType("[]string")).
+		Return(ValidateWalletResult{Satisfies: true, Reason: "Should not be called"}, nil).Never()
 
 	// Expect NO payout transfer
 	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Never()
@@ -953,6 +974,73 @@ func TestPlatformActivities(t *testing.T) {
 
 		env.AssertExpectations(t)
 	})
+
+	// Test Bluesky content pulling
+	t.Run("PullBlueskyContent", func(t *testing.T) {
+		testSuite := &testsuite.WorkflowTestSuite{}
+		env := testSuite.NewTestWorkflowEnvironment()
+
+		activities, err := NewActivities()
+		require.NoError(t, err)
+
+		env.RegisterActivity(activities.PullBlueskyContent)
+
+		mockPostRecord := struct {
+			Text      string    `json:"text"`
+			CreatedAt time.Time `json:"createdAt"`
+		}{
+			Text:      "This is a test Bluesky post! #test",
+			CreatedAt: time.Now().Add(-5 * time.Minute),
+		}
+		mockPostRecordJSON, err := json.Marshal(mockPostRecord)
+		require.NoError(t, err)
+
+		mockedBlueskyPost := &BlueskyContent{
+			Uri: "at://did:plc:testuser/app.bsky.feed.post/3kabcdef",
+			Cid: "bafyreigabcdefghijklmnopqrstuvwxyz",
+			Author: BlueskyProfileViewBasic{
+				Did:         "did:plc:testuser",
+				Handle:      "testuser.bsky.social",
+				DisplayName: &[]string{"Test User"}[0],
+			},
+			Record:      json.RawMessage(mockPostRecordJSON),
+			ReplyCount:  &[]int64{5}[0],
+			RepostCount: &[]int64{10}[0],
+			LikeCount:   &[]int64{20}[0],
+			IndexedAt:   time.Now().Add(-10 * time.Minute),
+			Text:        mockPostRecord.Text, // Extracted text
+		}
+		contentIDStr := "at://did:plc:testuser/app.bsky.feed.post/3kabcdef"
+
+		env.OnActivity(activities.PullBlueskyContent, mock.Anything, contentIDStr, ContentKindPost). // Assuming ContentKindPost for Bluesky
+														Return(mockedBlueskyPost, nil)
+
+		env.ExecuteWorkflow(func(ctx workflow.Context) (*BlueskyContent, error) {
+			ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: time.Minute,
+			})
+			var bsContent *BlueskyContent
+			err := workflow.ExecuteActivity(ctx, activities.PullBlueskyContent, contentIDStr, ContentKindPost).Get(ctx, &bsContent)
+			if err != nil {
+				return nil, fmt.Errorf("activity execution failed: %w", err)
+			}
+			return bsContent, nil
+		})
+
+		require.True(t, env.IsWorkflowCompleted())
+		require.NoError(t, env.GetWorkflowError())
+
+		var result *BlueskyContent
+		require.NoError(t, env.GetWorkflowResult(&result))
+
+		require.NotNil(t, result)
+		assert.Equal(t, "at://did:plc:testuser/app.bsky.feed.post/3kabcdef", result.Uri)
+		assert.Equal(t, "testuser.bsky.social", result.Author.Handle)
+		assert.Equal(t, "This is a test Bluesky post! #test", result.Text)
+		assert.EqualValues(t, 20, *result.LikeCount)
+
+		env.AssertExpectations(t)
+	})
 }
 
 func TestCheckContentRequirementsWorkflow(t *testing.T) {
@@ -1087,6 +1175,7 @@ func TestBountyAssessmentWorkflow_Twitch(t *testing.T) {
 	env.RegisterActivity(activities.PullTwitchContent) // Platform specific
 	env.RegisterActivity(activities.AnalyzeImageURL)   // New image analysis
 	env.RegisterActivity(activities.CheckContentRequirements)
+	env.RegisterActivity(activities.ValidatePayoutWallet) // Register new activity
 
 	// Define bounty amounts
 	originalTotalBounty, _ := solana.NewUSDCAmount(10.0)
@@ -1107,7 +1196,27 @@ func TestBountyAssessmentWorkflow_Twitch(t *testing.T) {
 	// mockAnalysisResult := "Thumbnail analysis: Looks good!" // Removed unused variable
 	requirements := []string{"Must be about streaming", "Thumbnail must show gameplay"}
 
-	// --- Mock Setups ---
+	// --- Start Workflow Input Definition ---
+	// Create test input - include OriginalTotalBounty
+	input := BountyAssessmentWorkflowInput{
+		Requirements:       requirements,
+		BountyPerPost:      bountyPerPost,
+		TotalBounty:        totalBounty,
+		TotalCharged:       originalTotalBounty,
+		BountyOwnerWallet:  ownerWallet.PublicKey().String(),
+		BountyFunderWallet: funderWallet.PublicKey().String(),
+		EscrowWallet:       escrowWallet.PublicKey().String(),
+		TreasuryWallet:     treasuryWallet.PublicKey().String(),
+		Platform:           PlatformTwitch,
+		ContentKind:        ContentKindVideo,
+		Timeout:            30 * time.Second,
+		PaymentTimeout:     5 * time.Second,
+	}
+	// --- End Workflow Input Definition ---
+
+	// --- Start Mock Definitions ---
+	// Mock VerifyPayment - use originalTotalBounty
+	// Expect: context, from, recipient, expectedAmount, memo, timeout
 	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty}, nil).Once()
 	// Fee Transfer (Amount = 5.0) - Use SPECIFIC treasury wallet
 	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Once()
@@ -1134,33 +1243,26 @@ func TestBountyAssessmentWorkflow_Twitch(t *testing.T) {
 	env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.AnythingOfType("[]uint8"), requirements).
 		Return(CheckContentRequirementsResult{Satisfies: true, Reason: "All good"}, nil).Once()
 
-	// Mock TransferUSDC (Payout) - Use SPECIFIC payout wallet
-	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Once()
+	// Mock ValidatePayoutWallet - ADDED - Called Once as payout happens
+	env.OnActivity(activities.ValidatePayoutWallet, mock.Anything, payoutWallet.PublicKey().String(), input.Requirements).
+		Return(ValidateWalletResult{Satisfies: true, Reason: "Wallet validation passed in test"}, nil).Once()
 
-	// Mock Refund (Maybe called on timeout or cancellation) - Uses specific owner wallet already
-	// If timeout happens before payout, the full totalBounty (user payable) is refunded.
-	// If cancellation happens after payout, remainingBountyAfterPayout is refunded.
-	// In this test, a payout HAPPENS, so the refund should be the remaining amount.
-	remainingBountyAfterPayout := totalBounty.Sub(bountyPerPost)
-	env.OnActivity(activities.TransferUSDC, mock.Anything, ownerWallet.PublicKey().String(), remainingBountyAfterPayout.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Maybe()
+	// Mock TransferUSDC (Payout) - Use SPECIFIC payout wallet and a more specific memo
+	expectedPayoutMemo := fmt.Sprintf("{\"workflow_id\":\"%s\",\"content_id\":\"%s\",\"content_kind\":\"%s\"}", "default-test-workflow-id", contentID, ContentKindVideo)
+	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), expectedPayoutMemo).Return(nil).Once()
 
-	// --- Workflow Input ---
-	input := BountyAssessmentWorkflowInput{
-		Requirements:       requirements,
-		BountyPerPost:      bountyPerPost,
-		TotalBounty:        totalBounty,
-		TotalCharged:       originalTotalBounty,
-		BountyOwnerWallet:  ownerWallet.PublicKey().String(),
-		BountyFunderWallet: funderWallet.PublicKey().String(),
-		EscrowWallet:       escrowWallet.PublicKey().String(),
-		TreasuryWallet:     treasuryWallet.PublicKey().String(),
-		Platform:           PlatformTwitch,
-		ContentKind:        ContentKindVideo,
-		Timeout:            30 * time.Second,
-		PaymentTimeout:     5 * time.Second,
-	}
+	// Mock TransferUSDC (Refund due to Timeout after payout) - ADDED
+	remainingBountyAfterPayout := totalBounty.Sub(bountyPerPost) // Should be 5.0 - 1.0 = 4.0
+	expectedTwitchTimeoutRefundMemo := fmt.Sprintf("{\"workflow_id\":\"%s\"}", "default-test-workflow-id")
+	env.OnActivity(activities.TransferUSDC,
+		mock.Anything,
+		ownerWallet.PublicKey().String(),
+		remainingBountyAfterPayout.ToUSDC(), // Expect 4.0
+		expectedTwitchTimeoutRefundMemo,
+	).Return(nil).Once()
+	// --- End Mock Definitions ---
 
-	// --- Signal Workflow ---
+	// Execute workflow and send signals
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow("assessment", AssessContentSignal{
 			ContentID:    contentID,
@@ -1170,9 +1272,101 @@ func TestBountyAssessmentWorkflow_Twitch(t *testing.T) {
 		})
 	}, time.Second)
 
-	// --- Execute & Assert ---
+	// Execute workflow
 	env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
 	assert.True(t, env.IsWorkflowCompleted())
 	assert.NoError(t, env.GetWorkflowError())
 	env.AssertExpectations(t)
+}
+
+// TestValidatePayoutWalletActivity tests the wallet validation activity
+func TestValidatePayoutWalletActivity(t *testing.T) {
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestWorkflowEnvironment()
+
+	activities, err := NewActivities()
+	require.NoError(t, err)
+
+	env.RegisterActivity(activities.ValidatePayoutWallet) // Register the activity
+
+	// --- Test Case 1: Wallet Allowed ---
+	mockRequirementsAllowed := []string{"Payouts only allowed to wallet ABCXYZ.", "Content must be good."}
+	mockPayoutWalletAllowed := "ABCXYZ"
+	mockResultAllowed := ValidateWalletResult{Satisfies: true, Reason: "Wallet matches allowed list."}
+
+	env.OnActivity(activities.ValidatePayoutWallet, mock.Anything, mockPayoutWalletAllowed, mockRequirementsAllowed).
+		Return(mockResultAllowed, nil).Once()
+
+	env.ExecuteWorkflow(func(ctx workflow.Context) (ValidateWalletResult, error) {
+		ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: time.Minute,
+		})
+		var result ValidateWalletResult
+		err := workflow.ExecuteActivity(ctx, activities.ValidatePayoutWallet, mockPayoutWalletAllowed, mockRequirementsAllowed).Get(ctx, &result)
+		return result, err
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	var workflowResultAllowed ValidateWalletResult
+	require.NoError(t, env.GetWorkflowResult(&workflowResultAllowed))
+	assert.Equal(t, mockResultAllowed, workflowResultAllowed)
+	env.AssertExpectations(t) // Assert first case mock was called
+
+	// --- Test Case 2: Wallet Disallowed ---
+	testSuite = &testsuite.WorkflowTestSuite{} // Reset test suite for clean mock expectations
+	env = testSuite.NewTestWorkflowEnvironment()
+	env.RegisterActivity(activities.ValidatePayoutWallet) // Re-register
+
+	mockRequirementsDisallowed := []string{"Payouts NOT allowed to wallet BADWALLET.", "Content must be excellent."}
+	mockPayoutWalletDisallowed := "BADWALLET"
+	mockResultDisallowed := ValidateWalletResult{Satisfies: false, Reason: "Wallet is explicitly disallowed."}
+
+	env.OnActivity(activities.ValidatePayoutWallet, mock.Anything, mockPayoutWalletDisallowed, mockRequirementsDisallowed).
+		Return(mockResultDisallowed, nil).Once()
+
+	env.ExecuteWorkflow(func(ctx workflow.Context) (ValidateWalletResult, error) {
+		ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: time.Minute,
+		})
+		var result ValidateWalletResult
+		err := workflow.ExecuteActivity(ctx, activities.ValidatePayoutWallet, mockPayoutWalletDisallowed, mockRequirementsDisallowed).Get(ctx, &result)
+		return result, err
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	var workflowResultDisallowed ValidateWalletResult
+	require.NoError(t, env.GetWorkflowResult(&workflowResultDisallowed))
+	assert.Equal(t, mockResultDisallowed, workflowResultDisallowed)
+	env.AssertExpectations(t) // Assert second case mock was called
+
+	// --- Test Case 3: No Restrictions ---
+	testSuite = &testsuite.WorkflowTestSuite{} // Reset test suite
+	env = testSuite.NewTestWorkflowEnvironment()
+	env.RegisterActivity(activities.ValidatePayoutWallet) // Re-register
+
+	mockRequirementsNone := []string{"Content must be superb."}
+	mockPayoutWalletAny := "ANYWALLET"
+	// Expect satisfies: true if no restrictions are mentioned
+	mockResultNone := ValidateWalletResult{Satisfies: true, Reason: "No specific payout wallet restrictions found."}
+
+	env.OnActivity(activities.ValidatePayoutWallet, mock.Anything, mockPayoutWalletAny, mockRequirementsNone).
+		Return(mockResultNone, nil).Once()
+
+	env.ExecuteWorkflow(func(ctx workflow.Context) (ValidateWalletResult, error) {
+		ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: time.Minute,
+		})
+		var result ValidateWalletResult
+		err := workflow.ExecuteActivity(ctx, activities.ValidatePayoutWallet, mockPayoutWalletAny, mockRequirementsNone).Get(ctx, &result)
+		return result, err
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	var workflowResultNone ValidateWalletResult
+	require.NoError(t, env.GetWorkflowResult(&workflowResultNone))
+	assert.Equal(t, mockResultNone, workflowResultNone)
+	env.AssertExpectations(t) // Assert third case mock was called
 }
