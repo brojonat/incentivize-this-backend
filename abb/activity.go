@@ -97,6 +97,16 @@ const (
 The content to evaluate is provided as a JSON object below.`
 )
 
+// SolanaConfig holds the necessary configuration for Solana interactions.
+type SolanaConfig struct {
+	RPCEndpoint      string               `json:"rpc_endpoint"`
+	WSEndpoint       string               `json:"ws_endpoint"`
+	EscrowPrivateKey *solanago.PrivateKey `json:"escrow_private_key"`
+	EscrowWallet     solanago.PublicKey   `json:"escrow_token_account"`
+	TreasuryWallet   string               `json:"treasury_wallet"`
+	USDCMintAddress  string               `json:"usdc_mint_address"`
+}
+
 // Configuration holds all necessary configuration for workflows and activities.
 // It is intended to be populated inside activities to avoid non-deterministic behavior.
 type Configuration struct {
@@ -118,18 +128,6 @@ type Configuration struct {
 	RedditFlairID          string                 `json:"reddit_flair_id"`
 	PublicBaseURL          string                 `json:"public_base_url"`
 }
-
-// SolanaConfig holds the necessary configuration for Solana interactions.
-type SolanaConfig struct {
-	RPCEndpoint      string               `json:"rpc_endpoint"`
-	WSEndpoint       string               `json:"ws_endpoint"`
-	EscrowPrivateKey *solanago.PrivateKey `json:"escrow_private_key"`
-	EscrowWallet     solanago.PublicKey   `json:"escrow_token_account"`
-	TreasuryWallet   string               `json:"treasury_wallet"`
-	USDCMintAddress  string               `json:"usdc_mint_address"`
-}
-
-// LLMConfig holds configuration for the LLM provider.
 
 // Activities holds all activity implementations and their dependencies
 // Dependencies are now passed via parameters or fetched from Configuration.
@@ -335,16 +333,4 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 	}
 
 	return config, nil
-}
-
-// LLMDependencies holds the dependencies for LLM-related activities
-type LLMDependencies struct {
-	Provider LLMProvider
-}
-
-// HTTPDependencies holds the dependencies for HTTP-related activities
-type HTTPDependencies struct {
-	Client    *http.Client
-	ServerURL string
-	AuthToken string
 }
