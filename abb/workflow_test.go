@@ -912,7 +912,7 @@ func TestPlatformActivities(t *testing.T) {
 		assert.EqualValues(t, 150, result.Score)
 		assert.EqualValues(t, 25, result.Descendants)
 		// Check the time
-		assert.Equal(t, time.Unix(1678886400, 0), result.Time)
+		assert.Equal(t, time.Unix(1678886400, 0).UTC(), result.Time.UTC())
 
 		env.AssertExpectations(t)
 	})
@@ -970,7 +970,7 @@ func TestPlatformActivities(t *testing.T) {
 		assert.Equal(t, "This is a test comment.", result.Text)
 		assert.EqualValues(t, 10, result.Score)
 		// Check the time
-		assert.Equal(t, time.Unix(1678887000, 0), result.Time)
+		assert.Equal(t, time.Unix(1678887000, 0).UTC(), result.Time.UTC())
 
 		env.AssertExpectations(t)
 	})
