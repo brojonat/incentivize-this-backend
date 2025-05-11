@@ -238,8 +238,43 @@ func PullContentWorkflow(ctx workflow.Context, input PullContentWorkflowInput) (
 			contentBytes, err = json.Marshal(hackerNewsContent)
 		}
 	case PlatformBluesky:
+		logger := workflow.GetLogger(ctx)
 		var blueskyContent *BlueskyContent
-		err = workflow.ExecuteActivity(ctx, (*Activities).PullBlueskyContent, input.ContentID, input.ContentKind).Get(ctx, &blueskyContent)
+		contentIdToUse := input.ContentID // Default to input
+
+		if strings.HasPrefix(input.ContentID, "http://") || strings.HasPrefix(input.ContentID, "https://") {
+			logger.Info("Bluesky ContentID is an HTTP URL, attempting to resolve to AT URI", "url", input.ContentID)
+			resolveOpts := workflow.ActivityOptions{
+				StartToCloseTimeout: 30 * time.Second,
+				RetryPolicy: &temporal.RetryPolicy{
+					InitialInterval:    time.Second,
+					BackoffCoefficient: 2.0,
+					MaximumInterval:    time.Minute,
+					MaximumAttempts:    3,
+				},
+			}
+			var resolvedAtURI string
+			// Use a new context for this activity execution to avoid option collision
+			resolveCtx := workflow.WithActivityOptions(ctx, resolveOpts)
+			if resolutionErr := workflow.ExecuteActivity(resolveCtx, (*Activities).ResolveBlueskyURLToATURI, input.ContentID).Get(resolveCtx, &resolvedAtURI); resolutionErr != nil {
+				logger.Error("Failed to resolve Bluesky URL to AT URI", "url", input.ContentID, "error", resolutionErr)
+				return nil, fmt.Errorf("failed to resolve Bluesky URL '%s' to AT URI: %w", input.ContentID, resolutionErr)
+			}
+			if resolvedAtURI == "" {
+				logger.Error("Resolved AT URI is empty for Bluesky URL", "url", input.ContentID)
+				return nil, fmt.Errorf("resolved AT URI is empty for Bluesky URL: %s", input.ContentID)
+			}
+			logger.Info("Successfully resolved Bluesky URL to AT URI", "url", input.ContentID, "atURI", resolvedAtURI)
+			contentIdToUse = resolvedAtURI
+		} else if !strings.HasPrefix(input.ContentID, "at://") {
+			// If it's not HTTP and not an AT URI, it's an invalid format for Bluesky
+			logger.Error("Invalid Bluesky ContentID format", "contentID", input.ContentID)
+			return nil, fmt.Errorf("invalid Bluesky ContentID format: expected HTTP URL or AT URI, got '%s'", input.ContentID)
+		}
+		// Now contentIdToUse is either the original AT URI or the resolved one, or we've returned an error.
+
+		// Activity options (assuming default, might need specific ones)
+		err = workflow.ExecuteActivity(ctx, (*Activities).PullBlueskyContent, contentIdToUse, input.ContentKind).Get(ctx, &blueskyContent)
 		if err == nil {
 			contentBytes, err = json.Marshal(blueskyContent)
 		}

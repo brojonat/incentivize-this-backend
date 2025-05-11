@@ -1,0 +1,59 @@
+package abb
+
+import (
+	"context"
+	"fmt"
+	"net/smtp"
+	"os"
+
+	"go.temporal.io/sdk/activity"
+)
+
+// EmailConfig holds configuration for sending emails.
+type EmailConfig struct {
+	Provider string `json:"provider"` // e.g., "sendgrid", "ses"
+	APIKey   string `json:"api_key"`
+	Sender   string `json:"sender"` // The 'From' email address
+}
+
+// SendTokenEmail sends an email containing a token to the specified address.
+// This activity reads its required env vars directly.
+func (a *Activities) SendTokenEmail(ctx context.Context, email string, token string) error {
+	logger := activity.GetLogger(ctx)
+	logger.Info("Sending token email", "email", email, "token", token)
+
+	// Get SMTP server and port from env
+	smtpServer := os.Getenv(EnvEmailSMTP)
+	if smtpServer == "" {
+		return fmt.Errorf("EMAIL_SMTP environment variable not set")
+	}
+	smtpPort := os.Getenv(EnvEmailSMTPPort)
+	if smtpPort == "" {
+		return fmt.Errorf("EMAIL_SMTP_PORT environment variable not set")
+	}
+
+	// Get password from env
+	pwd := os.Getenv(EnvEmailPassword)
+	if pwd == "" {
+		return fmt.Errorf("EMAIL_PASSWORD environment variable not set")
+	}
+
+	// Get sender email from env
+	sender := os.Getenv(EnvEmailSender)
+	if sender == "" {
+		return fmt.Errorf("EMAIL_SENDER environment variable not set")
+	}
+
+	// Send using vanilla smtp client
+	auth := smtp.PlainAuth("", sender, pwd, smtpServer)
+	msg := []byte("To: " + email + "\r\n" +
+		"Subject: Your IncentivizeThis Token\r\n" +
+		"\r\n" +
+		"Your token is: " + token + "\r\n")
+	err := smtp.SendMail(smtpServer+":"+smtpPort, auth, sender, []string{email}, msg)
+	if err != nil {
+		return fmt.Errorf("failed to send email: %w", err)
+	}
+
+	return nil
+}
