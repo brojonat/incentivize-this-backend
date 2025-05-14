@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/http/api"
-	"github.com/jmespath/go-jmespath"
 	"go.temporal.io/sdk/activity"
 	temporal_log "go.temporal.io/sdk/log"
 )
@@ -254,109 +253,6 @@ func getRedditAuthTokenForPull(client *http.Client, deps RedditDependencies) (st
 		return "", fmt.Errorf("%s Response body: %s", errMsg, string(bodyBytes))
 	}
 	return result.AccessToken, nil
-}
-
-// PullRedditContent pulls content from Reddit
-func (a *Activities) PullRedditContent(ctx context.Context, contentID string, contentKind ContentKind) (*RedditContent, error) {
-	logger := activity.GetLogger(ctx)
-
-	cfg, err := getConfiguration(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get configuration in PullRedditContent: %w", err)
-	}
-	redditDeps := cfg.RedditDeps
-
-	switch contentKind {
-	case ContentKindPost:
-		contentID = "t3_" + strings.TrimPrefix(contentID, "t3_")
-	case ContentKindComment:
-		contentID = "t1_" + strings.TrimPrefix(contentID, "t1_")
-	}
-
-	logger.Info("Pulling Reddit content", "content_id", contentID)
-
-	client := a.httpClient
-
-	token, err := getRedditAuthTokenForPull(client, redditDeps) // Use renamed function
-	if err != nil {
-		logger.Error("Failed to get Reddit token", "error", err, "clientId", redditDeps.ClientID)
-		return nil, fmt.Errorf("failed to get Reddit token: %w", err)
-	}
-	logger.Info("Using Reddit token", "token_prefix", token[:min(10, len(token))]+"...")
-
-	url := fmt.Sprintf("https://oauth.reddit.com/api/info.json?id=%s", contentID)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("User-Agent", redditDeps.UserAgent)
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	logger.Info("Making Reddit API request",
-		"url", req.URL.String(),
-		"user_agent", req.Header.Get("User-Agent"),
-		"authorization_header", req.Header.Get("Authorization"))
-
-	resp, err := client.Do(req)
-	if err != nil {
-		statusCode := -1
-		if resp != nil {
-			statusCode = resp.StatusCode
-		}
-		logger.Error("Failed to make Reddit API request", "status_code", statusCode, "error", err)
-		return nil, fmt.Errorf("failed to make request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		logger.Error("Failed to read Reddit API response body", "status_code", resp.StatusCode, "error", err)
-		return nil, fmt.Errorf("failed to read response body (status %d): %w", resp.StatusCode, err)
-	}
-
-	logger.Debug("Reddit API Response", "status_code", resp.StatusCode, "response", string(body))
-
-	if resp.StatusCode != http.StatusOK {
-		if resp.StatusCode == http.StatusForbidden {
-			logger.Warn("Reddit API returned 403 Forbidden", "status_code", resp.StatusCode, "response_body", string(body))
-		} else {
-			logger.Error("Reddit API returned non-OK status", "status_code", resp.StatusCode, "response_body", string(body))
-		}
-		return nil, fmt.Errorf("Reddit API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var data interface{}
-	if err := json.Unmarshal(body, &data); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w (body: %s)", err, string(body))
-	}
-
-	expression := "data.children[0].data"
-	result, err := jmespath.Search(expression, data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract data with JMESPath: %w", err)
-	}
-
-	if result == nil {
-		logger.Warn("No content found in Reddit response for ID", "content_id", contentID, "full_response", string(body))
-		return nil, fmt.Errorf("no content found for ID %s", contentID)
-	}
-
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal JMESPath result: %w", err)
-	}
-
-	logger.Debug("Extracted Reddit Data", "data", string(resultJSON))
-
-	var content RedditContent
-	if err := json.Unmarshal(resultJSON, &content); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal content: %w (extracted JSON: %s)", err, string(resultJSON))
-	}
-
-	content.IsComment = strings.HasPrefix(contentID, "t1_")
-
-	return &content, nil
 }
 
 // --- Bounty Publisher Activities (Reddit Specific) ---

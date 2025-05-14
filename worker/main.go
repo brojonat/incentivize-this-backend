@@ -48,23 +48,18 @@ func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, 
 
 	// Register all workflows
 	w.RegisterWorkflow(abb.BountyAssessmentWorkflow)
-	w.RegisterWorkflow(abb.PullContentWorkflow)
 	w.RegisterWorkflow(abb.CheckContentRequirementsWorkflow)
 	w.RegisterWorkflow(abb.PayBountyWorkflow)
 	w.RegisterWorkflow(abb.PublishBountiesWorkflow)
 	w.RegisterWorkflow(abb.EmailTokenWorkflow)
 
 	// Register all activities
-	w.RegisterActivity(activities.PullRedditContent)
-	w.RegisterActivity(activities.PullYouTubeContent)
+	w.RegisterActivity(activities.PullContentActivity)
 	w.RegisterActivity(activities.CheckContentRequirements)
 	w.RegisterActivity(activities.ValidatePayoutWallet)
 	w.RegisterActivity(activities.VerifyPayment)
 	w.RegisterActivity(activities.TransferUSDC)
 	w.RegisterActivity(activities.PublishBountiesReddit)
-	w.RegisterActivity(activities.PullTwitchContent)
-	w.RegisterActivity(activities.PullBlueskyContent)
-	w.RegisterActivity(activities.PullHackerNewsContent)
 	w.RegisterActivity(activities.AnalyzeImageURL)
 	w.RegisterActivity(activities.SendTokenEmail)
 

@@ -81,64 +81,6 @@ type YouTubeContent struct {
 	Transcript           string    `json:"transcript,omitempty"`
 }
 
-// PullYouTubeContent pulls metadata from YouTube Data API and transcript via scraping.
-func (a *Activities) PullYouTubeContent(ctx context.Context, contentID string, contentKind ContentKind) (*YouTubeContent, error) {
-	logger := activity.GetLogger(ctx)
-
-	cfg, err := getConfiguration(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get configuration in PullYouTubeContent: %w", err)
-	}
-	ytDeps := cfg.YouTubeDeps
-
-	logger.Info("Pulling YouTube content", "content_id", contentID)
-
-	httpClient := a.httpClient
-	videoID := strings.TrimPrefix(contentID, "yt_")
-
-	videoData, err := a.fetchYouTubeVideoMetadata(ctx, ytDeps, httpClient, videoID)
-	if err != nil {
-		logger.Warn("Failed to fetch YouTube video metadata, proceeding to transcript fetch", "video_id", videoID, "error", err)
-		content := &YouTubeContent{
-			ID: videoID,
-		}
-		transcript, transcriptErr := a.FetchYouTubeTranscriptDirectly(ctx, httpClient, videoID, "en")
-		if transcriptErr != nil {
-			logger.Warn("Failed to fetch YouTube transcript directly after metadata failure", "video_id", videoID, "error", transcriptErr)
-			return nil, fmt.Errorf("failed to fetch metadata (%v) and transcript (%v)", err, transcriptErr)
-		} else {
-			content.Transcript = transcript
-			return content, nil
-		}
-	}
-
-	content := &YouTubeContent{
-		ID:                   videoID,
-		Title:                videoData.Snippet.Title,
-		Description:          videoData.Snippet.Description,
-		ChannelID:            videoData.Snippet.ChannelID,
-		ChannelTitle:         videoData.Snippet.ChannelTitle,
-		PublishedAt:          videoData.Snippet.PublishedAt,
-		ViewCount:            videoData.Statistics.ViewCount,
-		LikeCount:            videoData.Statistics.LikeCount,
-		CommentCount:         videoData.Statistics.CommentCount,
-		Duration:             videoData.ContentDetails.Duration,
-		ThumbnailURL:         videoData.Snippet.Thumbnails.Default.URL,
-		Tags:                 videoData.Snippet.Tags,
-		CategoryID:           videoData.Snippet.CategoryID,
-		LiveBroadcastContent: videoData.Snippet.LiveBroadcastContent,
-	}
-
-	transcript, err := a.FetchYouTubeTranscriptDirectly(ctx, httpClient, videoID, "en")
-	if err != nil {
-		logger.Warn("Failed to fetch YouTube transcript directly", "video_id", videoID, "error", err)
-	} else {
-		content.Transcript = transcript
-	}
-
-	return content, nil
-}
-
 // YouTubeVideoData represents the response from the YouTube Data API
 type YouTubeVideoData struct {
 	ID      string `json:"id"`
