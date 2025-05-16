@@ -23,9 +23,9 @@ func (a *Activities) SendTokenEmail(ctx context.Context, email string, token str
 	logger.Info("Sending token email", "email", email, "token", token)
 
 	// Get SMTP server and port from env
-	smtpServer := os.Getenv(EnvEmailSMTP)
+	smtpServer := os.Getenv(EnvEmailSMTPHost)
 	if smtpServer == "" {
-		return fmt.Errorf("EMAIL_SMTP environment variable not set")
+		return fmt.Errorf("EMAIL_SMTP_HOST environment variable not set")
 	}
 	smtpPort := os.Getenv(EnvEmailSMTPPort)
 	if smtpPort == "" {

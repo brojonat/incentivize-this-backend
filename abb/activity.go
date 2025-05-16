@@ -2,74 +2,87 @@ package abb
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"os" // Added for potential string conversions
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	solanago "github.com/gagliardetto/solana-go"
-	"github.com/jmespath/go-jmespath" // Added for Reddit JMESPath
+	"github.com/jmespath/go-jmespath"
 	"go.temporal.io/sdk/activity"
 )
 
 // Environment Variable Keys for Configuration
 const (
-	EnvOpenAIAPIKey         = "OPENAI_API_KEY"
-	EnvGeminiAPIKey         = "GEMINI_API_KEY"
-	EnvAnthropicAPIKey      = "ANTHROPIC_API_KEY"
-	EnvLLMProvider          = "LLM_PROVIDER"         // e.g., "openai", "gemini", "anthropic"
-	EnvLLMModel             = "LLM_MODEL"            // e.g., "gpt-4o", "gemini-1.5-pro"
-	EnvLLMBasePromptFile    = "LLM_BASE_PROMPT_FILE" // Path to file containing base prompt
-	EnvSolanaRPCURL         = "SOLANA_RPC_URL"
-	EnvSolanaPrivateKey     = "SOLANA_PRIVATE_KEY"       // Base58 encoded private key for escrow/treasury
-	EnvSolanaTreasuryWallet = "SOLANA_TREASURY_WALLET"   // Base58 public key
-	EnvSolanaEscrowWallet   = "SOLANA_ESCROW_WALLET"     // Base58 public key (can be same as Treasury)
-	EnvSolanaUSDCMint       = "SOLANA_USDC_MINT_ADDRESS" // Base58 public key of USDC mint
-	EnvEmailSMTP            = "EMAIL_SMTP"
-	EnvEmailSMTPPort        = "EMAIL_SMTP_PORT"
-	EnvEmailPassword        = "EMAIL_PASSWORD"
-	EnvEmailSender          = "EMAIL_SENDER"
-	EnvRedditFlairID        = "REDDIT_FLAIR_ID"
-	EnvPublicBaseURL        = "PUBLIC_BASE_URL"
-	EnvRedditClientID       = "REDDIT_CLIENT_ID"
-	EnvRedditClientSecret   = "REDDIT_CLIENT_SECRET"
-	EnvRedditUsername       = "REDDIT_USERNAME"
-	EnvRedditPassword       = "REDDIT_PASSWORD"
-	EnvRedditUserAgent      = "REDDIT_USER_AGENT"
-	EnvYouTubeAPIKey        = "YOUTUBE_API_KEY"
-	EnvTwitchClientID       = "TWITCH_CLIENT_ID"
-	EnvTwitchClientSecret   = "TWITCH_CLIENT_SECRET"
-	EnvWorkerEnvironment    = "WORKER_ENVIRONMENT"
-	EnvAPIServerURL         = "API_SERVER_URL"
-	// FIXME: remove these probably
-	EnvSMTPHost        = "SMTP_HOST"
-	EnvSMTPPort        = "SMTP_PORT"
-	EnvSMTPUser        = "SMTP_USER"
+	EnvLLMAPIKey              = "LLM_API_KEY"          // Corrected: Generic LLM API Key
+	EnvLLMProvider            = "LLM_PROVIDER"         // e.g., "openai", "gemini", "anthropic"
+	EnvLLMModel               = "LLM_MODEL"            // e.g., "gpt-4o", "gemini-1.5-pro"
+	EnvLLMMaxTokens           = "LLM_MAX_TOKENS"       // Added for max tokens
+	EnvLLMBasePromptFile      = "LLM_BASE_PROMPT_FILE" // Path to file containing base prompt
+	EnvSolanaRPCEndpoint      = "SOLANA_RPC_ENDPOINT"
+	EnvSolanaWSEndpoint       = "SOLANA_WS_ENDPOINT"
+	EnvSolanaEscrowPrivateKey = "SOLANA_ESCROW_PRIVATE_KEY" // Base58 encoded private key for escrow
+	EnvSolanaTreasuryWallet   = "SOLANA_TREASURY_WALLET"    // Base58 public key
+	EnvSolanaEscrowWallet     = "SOLANA_ESCROW_WALLET"      // Base58 public key (can be same as Treasury)
+	EnvSolanaUSDCMint         = "SOLANA_USDC_MINT_ADDRESS"  // Base58 public key of USDC mint
+	EnvEmailSMTPHost          = "EMAIL_SMTP_HOST"           // Renamed from EMAIL_SMTP for clarity
+	EnvEmailSMTPPort          = "EMAIL_SMTP_PORT"
+	EnvEmailPassword          = "EMAIL_PASSWORD"
+	EnvEmailSender            = "EMAIL_SENDER"
+	EnvRedditFlairID          = "REDDIT_FLAIR_ID"
+	EnvPublicBaseURL          = "PUBLIC_BASE_URL"
+	EnvRedditClientID         = "REDDIT_CLIENT_ID"
+	EnvRedditClientSecret     = "REDDIT_CLIENT_SECRET"
+	EnvRedditUsername         = "REDDIT_USERNAME"
+	EnvRedditPassword         = "REDDIT_PASSWORD"
+	EnvRedditUserAgent        = "REDDIT_USER_AGENT"
+	EnvYouTubeAPIKey          = "YOUTUBE_API_KEY"
+	EnvTwitchClientID         = "TWITCH_CLIENT_ID"
+	EnvTwitchClientSecret     = "TWITCH_CLIENT_SECRET"
+	EnvAPIServerURL           = "API_SERVER_URL"
+	EnvAppEnvironment         = "APP_ENVIRONMENT" // "local", "development", "production"
+
+	// SMTP vars (ensure no conflict with Email specific ones)
+	EnvSMTPHostGlobal  = "SMTP_HOST" // Renamed to avoid conflict
+	EnvSMTPPortGlobal  = "SMTP_PORT" // Renamed to avoid conflict
+	EnvSMTPUserGlobal  = "SMTP_USER" // Renamed to avoid conflict
 	EnvSMTPPassword    = "SMTP_PASSWORD"
 	EnvSMTPFromAddress = "SMTP_FROM_ADDRESS"
+
 	// Add new constants for Image LLM
-	EnvLLMImageProvider = "LLM_IMAGE_PROVIDER" // e.g., "openai", "google"
-	EnvLLMImageAPIKey   = "LLM_IMAGE_API_KEY"  // API key for the image provider
-	EnvLLMImageModel    = "LLM_IMAGE_MODEL"    // Model name, e.g., "gpt-4-vision-preview"
+	EnvLLMImageProvider           = "LLM_IMAGE_PROVIDER"                 // e.g., "openai", "google"
+	EnvLLMImageAPIKey             = "LLM_IMAGE_API_KEY"                  // API key for the image provider
+	EnvLLMImageModel              = "LLM_IMAGE_MODEL"                    // Model name, e.g., "gpt-4-vision-preview"
+	EnvLLMImageAnalysisPromptBase = "LLM_IMAGE_ANALYSIS_PROMPT_BASE_B64" // Added for image analysis base prompt
 
-	// Constants revealed by linter after refactor
-	EnvSolanaWSEndpoint      = "SOLANA_WS_ENDPOINT"        // Optional WS endpoint
-	EnvYouTubeAppName        = "YOUTUBE_APP_NAME"          // App name for YouTube API
-	EnvServerURL             = "ABB_SERVER_URL"            // URL for internal API server
-	EnvAuthToken             = "ABB_AUTH_TOKEN"            // Auth token for internal API server
-	EnvLLMCheckReqPromptBase = "LLM_CHECK_REQ_PROMPT_BASE" // Base prompt for CheckContentRequirements
-	EnvServerSecretKey       = "ABB_SERVER_SECRET_KEY"     // Secret key for internal API server auth/ops
-	EnvTargetSubreddit       = "REDDIT_TARGET_SUBREDDIT"   // Subreddit for publishing bounties
-	EnvServerEnv             = "ABB_ENV"                   // Environment name (e.g., "dev", "prod")
-)
+	// Constants previously revealed by linter (ensure they are defined once)
+	EnvYouTubeAppName        = "YOUTUBE_APP_NAME"              // App name for YouTube API
+	EnvABBServerURL          = "ABB_SERVER_URL"                // URL for internal API server (renamed from EnvServerURL for clarity)
+	EnvAuthToken             = "ABB_AUTH_TOKEN"                // Auth token for internal API server
+	EnvLLMCheckReqPromptBase = "LLM_CHECK_REQ_PROMPT_BASE_B64" // Base prompt for CheckContentRequirements
+	EnvABBServerSecretKey    = "ABB_SERVER_SECRET_KEY"         // Secret key for internal API server auth/ops (renamed from EnvServerSecretKey for clarity)
+	EnvTargetSubreddit       = "REDDIT_TARGET_SUBREDDIT"       // Subreddit for publishing bounties
+	EnvServerEnv             = "ABB_ENV"                       // Environment name (e.g., "dev", "prod")
 
-// Default values if Env vars not set
-const (
-	DefaultLLMCheckReqPromptBase = "You are a meticulous content verification system. Your goal is to determine if the provided Content strictly adheres to ALL of the given Requirements. Focus only on the requirements provided."
+	DefaultLLMCheckReqPromptBase = `You are an AI assistant evaluating content based on a set of requirements.
+Determine if the provided content satisfies ALL the given requirements.
+Respond with a JSON object: {"satisfies": boolean, "reason": "string explaining why or why not"}.
+Content will be provided after "CONTENT:", and requirements after "REQUIREMENTS:".`
+
+	DefaultLLMImageAnalysisPromptBase = `You are an AI assistant evaluating an image based on a set of requirements.
+Determine if the provided image (referred to by its URL) visually satisfies ALL the given requirements that pertain to visual aspects.
+Respond with a JSON object: {"satisfies": boolean, "reason": "string explaining why or why not"}.
+Requirements will be provided after "REQUIREMENTS:". Image URL will be part of the user message context or explicitly passed.`
+
+	MaxRequirementsCharsForLLMCheck = 5000
+	MaxContentCharsForLLMCheck      = 10000
+	DefaultLLMMaxTokens             = 1000 // Default max tokens if not set
 )
 
 // --- Start Platform Agnostic Content Structures ---
@@ -115,6 +128,7 @@ type HackerNewsContent struct { ... }
 
 // BlueskyDependencies holds dependencies for Bluesky activities (currently none needed for public read)
 type BlueskyDependencies struct {
+	PDS string `json:"pds,omitempty"` // Added PDS field for the Personal Data Server URL
 	// Add fields like Handle, AppPassword if authentication is needed later
 }
 
@@ -255,212 +269,237 @@ func NewActivities() (*Activities, error) {
 // Consider using a secret management system.
 func getConfiguration(ctx context.Context) (*Configuration, error) {
 	logger := activity.GetLogger(ctx)
-
-	// --- Solana Config ---
-	escrowPrivateKeyStr := os.Getenv(EnvSolanaPrivateKey)
-	escrowWalletStr := os.Getenv(EnvSolanaEscrowWallet)
-	treasuryWalletStr := os.Getenv(EnvSolanaTreasuryWallet)
-	usdcMintStr := os.Getenv(EnvSolanaUSDCMint)
+	// Use "ENV" environment variable directly
+	currentEnv := os.Getenv("ENV")
 
 	var solanaConfig SolanaConfig
-	solanaConfig.RPCEndpoint = os.Getenv(EnvSolanaRPCURL)
-	solanaConfig.WSEndpoint = os.Getenv(EnvSolanaWSEndpoint)
-	solanaConfig.TreasuryWallet = treasuryWalletStr
-	solanaConfig.USDCMintAddress = usdcMintStr
 
-	escrowPrivateKey, err := solanago.PrivateKeyFromBase58(escrowPrivateKeyStr)
-	if err != nil {
-		logger.Error("Failed to parse escrow private key", "env_var", EnvSolanaPrivateKey, "error", err)
-		// Decide if this should return error or proceed with nil key
-		return nil, fmt.Errorf("failed to parse escrow private key: %w", err)
-	}
-	solanaConfig.EscrowPrivateKey = &escrowPrivateKey // Storing private key directly
-
-	escrowWallet, err := solanago.PublicKeyFromBase58(escrowWalletStr)
-	if err != nil {
-		logger.Error("Failed to parse escrow wallet address", "env_var", EnvSolanaEscrowWallet, "error", err)
-		return nil, fmt.Errorf("failed to parse escrow wallet address: %w", err)
-	}
-	solanaConfig.EscrowWallet = escrowWallet
-
-	// Validate that the private key corresponds to the wallet address
-	if !escrowPrivateKey.PublicKey().Equals(escrowWallet) {
-		logger.Error("Escrow private key does not match escrow wallet address")
-		return nil, fmt.Errorf("escrow private key does not match escrow wallet address")
-	}
-
-	// Validate treasury wallet address if provided
-	if treasuryWalletStr != "" {
-		if _, err := solanago.PublicKeyFromBase58(treasuryWalletStr); err != nil {
-			logger.Error("Failed to parse treasury wallet address", "env_var", EnvSolanaTreasuryWallet, "error", err)
-			// Decide policy: error out or warn?
-			return nil, fmt.Errorf("failed to parse treasury wallet address: %w", err)
-		}
+	if currentEnv == "test" {
+		logger.Info("ENV is 'test', using dummy Solana configuration.")
+		dummyEscrowWallet := solanago.NewWallet()
+		solanaConfig.RPCEndpoint = "https://api.devnet.solana.com"                    // Default to devnet for local/test
+		solanaConfig.WSEndpoint = "wss://api.devnet.solana.com"                       // Default to devnet for local/test
+		solanaConfig.EscrowPrivateKey = &dummyEscrowWallet.PrivateKey                 // Dummy key
+		solanaConfig.EscrowWallet = dummyEscrowWallet.PublicKey()                     // Corresponding dummy pubkey
+		solanaConfig.USDCMintAddress = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" // Common USDC mint
+		dummyTreasury := solanago.NewWallet()                                         // Dummy treasury
+		solanaConfig.TreasuryWallet = dummyTreasury.PublicKey().String()
 	} else {
-		logger.Warn("Treasury wallet not set in environment", "env_var", EnvSolanaTreasuryWallet)
-	}
+		// Production, development, or other modes that require real keys from env
+		escrowPrivateKeyStr := os.Getenv(EnvSolanaEscrowPrivateKey)
+		escrowWalletStr := os.Getenv(EnvSolanaEscrowWallet)
+		treasuryWalletStr := os.Getenv(EnvSolanaTreasuryWallet) // Can be optional
+		usdcMintStr := os.Getenv(EnvSolanaUSDCMint)
+		rpcURL := os.Getenv(EnvSolanaRPCEndpoint)
+		wsURL := os.Getenv(EnvSolanaWSEndpoint) // Can be optional or default
 
-	// --- LLM Config ---
-	llmProviderName := os.Getenv(EnvLLMProvider)
-	llmModel := os.Getenv(EnvLLMModel)
-	llmBasePromptFile := os.Getenv(EnvLLMBasePromptFile)
+		if escrowPrivateKeyStr == "" {
+			logger.Error("Escrow private key not set in environment", "env_var", EnvSolanaEscrowPrivateKey, "current_env", currentEnv)
+			return nil, fmt.Errorf("%s must be set for ENV '%s'", EnvSolanaEscrowPrivateKey, currentEnv)
+		}
+		if escrowWalletStr == "" {
+			logger.Error("Escrow wallet address not set in environment", "env_var", EnvSolanaEscrowWallet, "current_env", currentEnv)
+			return nil, fmt.Errorf("%s must be set for ENV '%s'", EnvSolanaEscrowWallet, currentEnv)
+		}
+		if usdcMintStr == "" {
+			logger.Error("USDC Mint address not set in environment", "env_var", EnvSolanaUSDCMint, "current_env", currentEnv)
+			return nil, fmt.Errorf("%s must be set for ENV '%s'", EnvSolanaUSDCMint, currentEnv)
+		}
+		if rpcURL == "" {
+			logger.Error("Solana RPC endpoint not set in environment", "env_var", EnvSolanaRPCEndpoint, "current_env", currentEnv)
+			return nil, fmt.Errorf("%s must be set for ENV '%s'", EnvSolanaRPCEndpoint, currentEnv)
+		}
 
-	// Determine API key based on provider
-	var llmAPIKey string
-	switch llmProviderName {
-	case "openai":
-		llmAPIKey = os.Getenv(EnvOpenAIAPIKey)
-	case "gemini": // Assuming "gemini" is the identifier
-		llmAPIKey = os.Getenv(EnvGeminiAPIKey)
-	case "anthropic":
-		llmAPIKey = os.Getenv(EnvAnthropicAPIKey)
-	default:
-		// Handle default case or unknown provider - maybe log a warning?
-		logger.Warn("Unknown or unsupported LLM provider configured, API key may be missing", "provider", llmProviderName)
-		// Optionally try a generic key or leave empty
-		// llmAPIKey = os.Getenv("GENERIC_LLM_API_KEY")
-	}
+		solanaConfig.RPCEndpoint = rpcURL
+		solanaConfig.WSEndpoint = wsURL // If empty, downstream functions might default or fail
+		solanaConfig.TreasuryWallet = treasuryWalletStr
+		solanaConfig.USDCMintAddress = usdcMintStr
 
-	if llmAPIKey == "" {
-		logger.Warn("LLM API Key not found for configured provider", "provider", llmProviderName)
-		// Decide if this is fatal or can proceed without API key (maybe for providers that don't need one?)
-	}
+		escrowPrivateKey, err := solanago.PrivateKeyFromBase58(escrowPrivateKeyStr)
+		if err != nil {
+			logger.Error("Failed to parse escrow private key", "env_var", EnvSolanaEscrowPrivateKey, "error", err)
+			return nil, fmt.Errorf("failed to parse escrow private key: %w", err)
+		}
+		solanaConfig.EscrowPrivateKey = &escrowPrivateKey
 
-	// --- Base Prompt Loading ---
-	promptBase := os.Getenv(EnvLLMCheckReqPromptBase)
-	if promptBase == "" {
-		if llmBasePromptFile != "" {
-			promptBytes, err := os.ReadFile(llmBasePromptFile)
-			if err != nil {
-				logger.Warn("Failed to read LLM base prompt file, using default", "file", llmBasePromptFile, "error", err)
-				promptBase = DefaultLLMCheckReqPromptBase
-			} else {
-				promptBase = string(promptBytes)
+		escrowWallet, err := solanago.PublicKeyFromBase58(escrowWalletStr)
+		if err != nil {
+			logger.Error("Failed to parse escrow wallet address", "env_var", EnvSolanaEscrowWallet, "error", err)
+			return nil, fmt.Errorf("failed to parse escrow wallet address: %w", err)
+		}
+		solanaConfig.EscrowWallet = escrowWallet
+
+		if !escrowPrivateKey.PublicKey().Equals(escrowWallet) {
+			logger.Error("Escrow private key does not match escrow wallet address")
+			return nil, fmt.Errorf("escrow private key does not match escrow wallet address")
+		}
+
+		if treasuryWalletStr != "" {
+			if _, err := solanago.PublicKeyFromBase58(treasuryWalletStr); err != nil {
+				logger.Error("Failed to parse treasury wallet address", "env_var", EnvSolanaTreasuryWallet, "error", err)
+				return nil, fmt.Errorf("failed to parse treasury wallet address: %w", err)
 			}
 		} else {
-			promptBase = DefaultLLMCheckReqPromptBase
+			logger.Info("Treasury wallet not set in environment (optional)", "env_var", EnvSolanaTreasuryWallet)
 		}
 	}
-	// Trim whitespace from the prompt
-	promptBase = strings.TrimSpace(promptBase)
-	// --- End Base Prompt Loading ---
+
+	// --- LLM Config (Populate as before, this logic is independent of workerEnv for Solana) ---
+	llmProviderName := os.Getenv(EnvLLMProvider)
+	llmModelName := os.Getenv(EnvLLMModel)
+	llmBasePromptFile := os.Getenv(EnvLLMBasePromptFile)
+
+	llmAPIKey := os.Getenv(EnvLLMAPIKey) // Use the generic LLM API Key env var
+
+	if llmAPIKey == "" && llmProviderName != "" { // Only warn if a provider was set but no key found
+		logger.Warn("LLM API Key not found for configured provider", "provider", llmProviderName, "key_env_var", EnvLLMAPIKey)
+	}
+
+	maxTokensStr := os.Getenv(EnvLLMMaxTokens)
+	maxTokens := DefaultLLMMaxTokens
+	if maxTokensStr != "" {
+		parsedMaxTokens, err := strconv.Atoi(maxTokensStr)
+		if err == nil && parsedMaxTokens > 0 {
+			maxTokens = parsedMaxTokens
+		} else {
+			logger.Warn("Invalid LLM_MAX_TOKENS value, using default", "value", maxTokensStr, "default", DefaultLLMMaxTokens, "error", err)
+		}
+	}
 
 	llmConfig := LLMConfig{
-		Provider: llmProviderName,
-		APIKey:   llmAPIKey, // Use the determined key
-		Model:    llmModel,
+		Provider:  llmProviderName,
+		APIKey:    llmAPIKey,
+		Model:     llmModelName,
+		MaxTokens: maxTokens, // Set MaxTokens
 	}
 
-	// --- Platform Dependencies ---
-	// Assuming RedditDependencies, etc. structs are defined elsewhere in the file
-	redditDeps := RedditDependencies{
-		UserAgent:    os.Getenv(EnvRedditUserAgent),
-		Username:     os.Getenv(EnvRedditUsername),
-		Password:     os.Getenv(EnvRedditPassword), // Sensitive
-		ClientID:     os.Getenv(EnvRedditClientID),
-		ClientSecret: os.Getenv(EnvRedditClientSecret), // Sensitive
-	}
-
-	youtubeDeps := YouTubeDependencies{
-		APIKey:          os.Getenv(EnvYouTubeAPIKey), // Sensitive
-		ApplicationName: os.Getenv(EnvYouTubeAppName),
-	}
-
-	// --- Twitch Deps ---
-	twitchDeps := TwitchDependencies{
-		ClientID:     os.Getenv(EnvTwitchClientID),
-		ClientSecret: os.Getenv(EnvTwitchClientSecret), // Changed from App Access Token
-	}
-	if twitchDeps.ClientID == "" {
-		logger.Warn("Twitch Client ID not found in environment", "env_var", EnvTwitchClientID)
-	}
-	if twitchDeps.ClientSecret == "" { // Changed check
-		logger.Warn("Twitch Client Secret not found in environment", "env_var", EnvTwitchClientSecret)
-	}
-
-	// --- Other Config ---
-	serverURL := os.Getenv(EnvServerURL)
-	authToken := os.Getenv(EnvAuthToken) // Sensitive
-
-	// --- Config for Publisher Activity ---
-	abbServerURL := os.Getenv(EnvServerURL)
-	abbServerSecretKey := os.Getenv(EnvServerSecretKey) // Sensitive
-	targetSubreddit := os.Getenv(EnvTargetSubreddit)
-
-	// Basic validation for publisher config
-	if abbServerURL == "" {
-		logger.Error("ABB Server URL not found in environment", "env_var", EnvServerURL)
-		return nil, fmt.Errorf("missing env var: %s", EnvServerURL)
-	}
-	if abbServerSecretKey == "" {
-		logger.Error("ABB Server Secret Key not found in environment", "env_var", EnvServerSecretKey)
-		return nil, fmt.Errorf("missing env var: %s", EnvServerSecretKey)
-	}
-	if targetSubreddit == "" {
-		logger.Error("Target Subreddit not found in environment", "env_var", EnvTargetSubreddit)
-		return nil, fmt.Errorf("missing env var: %s", EnvTargetSubreddit)
-	}
-
-	// --- Get Environment ---
-	environment := os.Getenv(EnvServerEnv)
-	if environment == "" {
-		environment = "dev" // Default to dev if not set
-		logger.Warn("ENV environment variable not set, defaulting to 'dev'", "env_var", EnvServerEnv)
-	}
-
-	flair_id := os.Getenv(EnvRedditFlairID)
-	if environment == "prod" && flair_id == "" {
-		logger.Error("Reddit Prod Flair ID not found in environment", "env_var", EnvRedditFlairID)
-		return nil, fmt.Errorf("missing env var: %s", EnvRedditFlairID)
-	}
-
-	// --- Get Public Base URL ---
-	publicBaseURL := os.Getenv(EnvPublicBaseURL)
-	if publicBaseURL == "" {
-		logger.Error("Public Base URL not found in environment", "env_var", EnvPublicBaseURL)
-		return nil, fmt.Errorf("missing required env var: %s", EnvPublicBaseURL)
-	}
-	// Ensure it has a scheme
-	if !strings.HasPrefix(publicBaseURL, "http://") && !strings.HasPrefix(publicBaseURL, "https://") {
-		logger.Error("Public Base URL must start with http:// or https://", "url", publicBaseURL)
-		return nil, fmt.Errorf("invalid %s: must start with http:// or https://", EnvPublicBaseURL)
-	}
-	publicBaseURL = strings.TrimSuffix(publicBaseURL, "/") // Remove trailing slash if present
-
-	// --- Image LLM Config --- (Assuming similar env vars)
+	// --- Image LLM Config ---
+	// (Similar logic as LLMConfig, assuming separate env vars for image LLM if needed)
+	// For now, let's assume it might reuse the same provider/key or have its own set.
+	// This part needs to be filled based on how ImageLLMConfig is structured and configured.
+	// Example placeholder:
 	imageLLMConfig := ImageLLMConfig{
 		Provider: os.Getenv(EnvLLMImageProvider),
 		APIKey:   os.Getenv(EnvLLMImageAPIKey),
 		Model:    os.Getenv(EnvLLMImageModel),
-	}
-	// Basic validation for Image LLM config (optional, depending on use cases)
-	if imageLLMConfig.Provider != "" && imageLLMConfig.APIKey == "" {
-		logger.Error("Image LLM API key not found in environment", "env_var", EnvLLMImageAPIKey)
-		return nil, fmt.Errorf("missing env var for image LLM: %s", EnvLLMImageAPIKey)
+		// BasePrompt will be set below
 	}
 
-	// --- Assemble Configuration ---
+	// --- Base Prompt Loading (for CheckContentRequirements) ---
+	promptBaseB64 := os.Getenv(EnvLLMCheckReqPromptBase)
+	var promptBase string
+	if promptBaseB64 != "" {
+		decoded, err := decodeBase64(promptBaseB64)
+		if err != nil {
+			logger.Warn("Failed to decode LLM_CHECK_REQ_PROMPT_BASE_B64, using default", "error", err)
+			promptBase = DefaultLLMCheckReqPromptBase
+		} else {
+			promptBase = decoded
+		}
+	} else if llmBasePromptFile != "" {
+		promptBytes, err := os.ReadFile(llmBasePromptFile)
+		if err != nil {
+			logger.Warn("Failed to read LLM base prompt file, using default", "file", llmBasePromptFile, "error", err)
+			promptBase = DefaultLLMCheckReqPromptBase
+		} else {
+			promptBase = string(promptBytes)
+		}
+	} else {
+		promptBase = DefaultLLMCheckReqPromptBase
+	}
+	llmConfig.BasePrompt = strings.TrimSpace(promptBase)
+
+	// --- Base Prompt Loading (for AnalyzeImageURL) ---
+	imagePromptBaseB64 := os.Getenv(EnvLLMImageAnalysisPromptBase)
+	var imagePromptBase string
+	if imagePromptBaseB64 != "" {
+		decoded, err := decodeBase64(imagePromptBaseB64)
+		if err != nil {
+			logger.Warn("Failed to decode LLM_IMAGE_ANALYSIS_PROMPT_BASE_B64, using default", "error", err)
+			imagePromptBase = DefaultLLMImageAnalysisPromptBase
+		} else {
+			imagePromptBase = decoded
+		}
+	} else {
+		// No file fallback for image prompt base in this example, directly use default.
+		imagePromptBase = DefaultLLMImageAnalysisPromptBase
+	}
+	imageLLMConfig.BasePrompt = strings.TrimSpace(imagePromptBase)
+
+	// --- Reddit Dependencies ---
+	redditDeps := RedditDependencies{
+		ClientID:     os.Getenv(EnvRedditClientID),
+		ClientSecret: os.Getenv(EnvRedditClientSecret),
+		Username:     os.Getenv(EnvRedditUsername),
+		Password:     os.Getenv(EnvRedditPassword),
+		UserAgent:    os.Getenv(EnvRedditUserAgent),
+	}
+
+	// --- YouTube Dependencies ---
+	youtubeDeps := YouTubeDependencies{
+		APIKey: os.Getenv(EnvYouTubeAPIKey),
+		// ApplicationName can be hardcoded or also from env if needed
+		ApplicationName: os.Getenv(EnvYouTubeAppName), // Use defined constant
+		MaxResults:      10,                           // Default, can be made configurable
+	}
+
+	// --- Twitch Dependencies ---
+	twitchDeps := TwitchDependencies{
+		ClientID:     os.Getenv(EnvTwitchClientID),
+		ClientSecret: os.Getenv(EnvTwitchClientSecret),
+	}
+
+	// --- Bluesky Dependencies ---
+	blueskyDeps := BlueskyDependencies{
+		PDS: os.Getenv("BLUESKY_PDS_URL"), // Example: "https://bsky.social"
+	}
+
+	// --- Other Config ---
+	serverAPIURL := os.Getenv(EnvAPIServerURL) // This is for general API server if different from ABB server
+	authToken := os.Getenv(EnvAuthToken)
+	abbServerURL := os.Getenv(EnvABBServerURL)
+	abbServerSecretKey := os.Getenv(EnvABBServerSecretKey)
+	targetSubreddit := os.Getenv(EnvTargetSubreddit)
+	flairID := os.Getenv(EnvRedditFlairID)
+	publicBaseURL := os.Getenv(EnvPublicBaseURL)
+
+	// Determine actual environment string to store in config (defaulting if necessary)
+	environmentToStore := currentEnv
+	if environmentToStore == "" {
+		environmentToStore = "development" // Default if ENV was not set at all
+		logger.Info("ENV was not set, inferred as 'development' for config field.")
+	}
+
 	config := &Configuration{
 		SolanaConfig:           solanaConfig,
 		LLMConfig:              llmConfig,
-		ImageLLMConfig:         imageLLMConfig, // Added Image LLM config
+		ImageLLMConfig:         imageLLMConfig,
 		RedditDeps:             redditDeps,
 		YouTubeDeps:            youtubeDeps,
 		TwitchDeps:             twitchDeps,
 		HackerNewsDeps:         HackerNewsDependencies{},
-		BlueskyDeps:            BlueskyDependencies{},
-		ServerURL:              serverURL,
+		BlueskyDeps:            blueskyDeps,
+		ServerURL:              serverAPIURL, // Use the disambiguated serverAPIURL
 		AuthToken:              authToken,
-		Prompt:                 promptBase,
+		Prompt:                 llmConfig.BasePrompt,
 		ABBServerURL:           abbServerURL,
 		ABBServerSecretKey:     abbServerSecretKey,
 		PublishTargetSubreddit: targetSubreddit,
-		Environment:            environment,
-		RedditFlairID:          flair_id,
-		PublicBaseURL:          publicBaseURL, // Added
+		Environment:            environmentToStore,
+		RedditFlairID:          flairID,
+		PublicBaseURL:          publicBaseURL,
 	}
 
 	return config, nil
+}
+
+// decodeBase64 is a helper to decode base64 strings, used for prompts.
+func decodeBase64(s string) (string, error) {
+	data, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 // --- Start of New Struct and Activity Definitions ---
@@ -894,149 +933,8 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 	return contentBytes, nil
 }
 
-// --- End of New Struct and Activity Definitions ---
 
-// --- Helper function stubs (assuming these are moved/inlined into PullContentActivity or kept private) ---
 
-// Placeholder for Twitch clip fetch logic (previously method on Activities)
-func (a *Activities) fetchTwitchClip(ctx context.Context, deps TwitchDependencies, client *http.Client, token, clipID string) (*TwitchClipContent, error) {
-	// --- Logic from activity_twitch.go/fetchTwitchClip ---
-	logger := activity.GetLogger(ctx)
-	apiURL := fmt.Sprintf("https://api.twitch.tv/helix/clips?id=%s", clipID) // Use clip ID
 
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Twitch clip request: %w", err)
-	}
-	req.Header.Add("Client-ID", deps.ClientID)
-	req.Header.Add("Authorization", "Bearer "+token)
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("Twitch clip request failed: %w", err)
-	}
-	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read Twitch clip response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		logger.Error("Twitch clip request failed", "status", resp.StatusCode, "body", string(body))
-		return nil, fmt.Errorf("Twitch clip request returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var result struct {
-		Data []TwitchClipContent `json:"data"`
-	}
-
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to decode Twitch clip response: %w (body: %s)", err, string(body))
-	}
-
-	if len(result.Data) == 0 {
-		return nil, fmt.Errorf("no Twitch clip found for ID %s", clipID)
-	}
-
-	logger.Info("Successfully fetched Twitch clip", "id", clipID)
-	return &result.Data[0], nil
-}
-
-// Placeholder for Twitch auth token logic (previously global func, now method)
-func (a *Activities) getTwitchAppAccessToken(ctx context.Context, deps TwitchDependencies, client *http.Client) (string, error) {
-	// --- Logic from activity_twitch.go/getTwitchAppAccessToken ---
-	logger := activity.GetLogger(ctx)
-	logger.Info("Requesting new Twitch App Access Token via internal helper")
-	tokenURL := "https://id.twitch.tv/oauth2/token"
-	data := url.Values{}
-	data.Set("client_id", deps.ClientID)
-	data.Set("client_secret", deps.ClientSecret)
-	data.Set("grant_type", "client_credentials")
-
-	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
-	if err != nil {
-		return "", fmt.Errorf("failed to create Twitch token request: %w", err)
-	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("Twitch token request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read Twitch token response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		logger.Error("Twitch token request failed", "status", resp.StatusCode, "body", string(body))
-		return "", fmt.Errorf("Twitch token request returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var result struct {
-		AccessToken string `json:"access_token"`
-		ExpiresIn   int    `json:"expires_in"`
-		TokenType   string `json:"token_type"`
-	}
-
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to decode Twitch token response: %w", err)
-	}
-
-	if result.AccessToken == "" {
-		return "", fmt.Errorf("Twitch token response did not contain an access token")
-	}
-
-	logger.Debug("Successfully obtained Twitch App Access Token via internal helper")
-	return result.AccessToken, nil
-}
-
-// Placeholder for Twitch video fetch logic (previously method on Activities)
-func (a *Activities) fetchTwitchVideo(ctx context.Context, deps TwitchDependencies, client *http.Client, token, videoID string) (*TwitchVideoContent, error) {
-	// --- Logic from activity_twitch.go/fetchTwitchVideo ---
-	logger := activity.GetLogger(ctx)
-	apiURL := fmt.Sprintf("https://api.twitch.tv/helix/videos?id=%s", videoID)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Twitch video request: %w", err)
-	}
-	req.Header.Add("Client-ID", deps.ClientID)
-	req.Header.Add("Authorization", "Bearer "+token)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("Twitch video request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read Twitch video response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		logger.Error("Twitch video request failed", "status", resp.StatusCode, "body", string(body))
-		return nil, fmt.Errorf("Twitch video request returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var result struct {
-		Data []TwitchVideoContent `json:"data"`
-	}
-
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("failed to decode Twitch video response: %w (body: %s)", err, string(body))
-	}
-
-	if len(result.Data) == 0 {
-		return nil, fmt.Errorf("no Twitch video found for ID %s", videoID)
-	}
-
-	logger.Info("Successfully fetched Twitch video", "id", videoID)
-	return &result.Data[0], nil
-}
-
-// --- End Helper function stubs ---

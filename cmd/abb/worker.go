@@ -30,12 +30,6 @@ func workerCommands() []*cli.Command {
 					Value:   "default",
 				},
 				&cli.BoolFlag{
-					Name:    "local-mode",
-					Aliases: []string{"l"},
-					Usage:   "Run in local mode without Solana functionality",
-					Value:   false,
-				},
-				&cli.BoolFlag{
 					Name:  "check-connection",
 					Usage: "Check Temporal connection and exit (for health checks)",
 					Value: false,
@@ -64,18 +58,6 @@ func run_worker(c *cli.Context) error {
 		tc.Close()
 		logger.Info("Temporal connection check successful")
 		os.Exit(0)
-	}
-
-	localMode := c.Bool("local-mode")
-
-	if localMode {
-		logger.Info("Starting worker in local mode")
-		return worker.RunWorkerLocal(
-			c.Context,
-			logger,
-			temporalAddr,
-			temporalNamespace,
-		)
 	}
 
 	logger.Info("Starting worker")

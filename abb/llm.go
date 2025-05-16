@@ -24,6 +24,7 @@ type LLMConfig struct {
 	BaseURL     string // useful for self-hosted models or different endpoints
 	MaxTokens   int
 	Temperature float64
+	BasePrompt  string // Added BasePrompt
 }
 
 // ImageLLMProvider represents a generic LLM service provider for image analysis
@@ -34,9 +35,10 @@ type ImageLLMProvider interface {
 
 // ImageLLMConfig holds configuration for image LLM providers
 type ImageLLMConfig struct {
-	Provider string // "openai" (currently only openai vision supported)
-	APIKey   string
-	Model    string
+	Provider   string // "openai" (currently only openai vision supported)
+	APIKey     string
+	Model      string
+	BasePrompt string // Added BasePrompt
 	// Potentially add BaseURL if needed for self-hosted vision models
 }
 

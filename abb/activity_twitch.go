@@ -1,8 +1,16 @@
 package abb
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
 	"time"
+
+	"go.temporal.io/sdk/activity"
 )
 
 // TwitchDependencies holds the dependencies for Twitch-related activities
@@ -88,5 +96,140 @@ type TwitchClipContent struct {
 	VODOffset       *int      `json:"vod_offset"`
 }
 
-// --- PullTwitchContent function and its helpers (getTwitchAppAccessToken, fetchTwitchVideo, fetchTwitchClip) are now removed from this file. ---
-// --- Their logic has been migrated to PullContentActivity and helper methods in activity.go ---
+func (a *Activities) fetchTwitchClip(ctx context.Context, deps TwitchDependencies, client *http.Client, token, clipID string) (*TwitchClipContent, error) {
+	// --- Logic from activity_twitch.go/fetchTwitchClip ---
+	logger := activity.GetLogger(ctx)
+	apiURL := fmt.Sprintf("https://api.twitch.tv/helix/clips?id=%s", clipID) // Use clip ID
+
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Twitch clip request: %w", err)
+	}
+	req.Header.Add("Client-ID", deps.ClientID)
+	req.Header.Add("Authorization", "Bearer "+token)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("Twitch clip request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Twitch clip response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		logger.Error("Twitch clip request failed", "status", resp.StatusCode, "body", string(body))
+		return nil, fmt.Errorf("Twitch clip request returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Data []TwitchClipContent `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode Twitch clip response: %w (body: %s)", err, string(body))
+	}
+
+	if len(result.Data) == 0 {
+		return nil, fmt.Errorf("no Twitch clip found for ID %s", clipID)
+	}
+
+	logger.Info("Successfully fetched Twitch clip", "id", clipID)
+	return &result.Data[0], nil
+}
+
+func (a *Activities) getTwitchAppAccessToken(ctx context.Context, deps TwitchDependencies, client *http.Client) (string, error) {
+	// --- Logic from activity_twitch.go/getTwitchAppAccessToken ---
+	logger := activity.GetLogger(ctx)
+	logger.Info("Requesting new Twitch App Access Token via internal helper")
+	tokenURL := "https://id.twitch.tv/oauth2/token"
+	data := url.Values{}
+	data.Set("client_id", deps.ClientID)
+	data.Set("client_secret", deps.ClientSecret)
+	data.Set("grant_type", "client_credentials")
+
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return "", fmt.Errorf("failed to create Twitch token request: %w", err)
+	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("Twitch token request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read Twitch token response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		logger.Error("Twitch token request failed", "status", resp.StatusCode, "body", string(body))
+		return "", fmt.Errorf("Twitch token request returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
+		TokenType   string `json:"token_type"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("failed to decode Twitch token response: %w", err)
+	}
+
+	if result.AccessToken == "" {
+		return "", fmt.Errorf("Twitch token response did not contain an access token")
+	}
+
+	logger.Debug("Successfully obtained Twitch App Access Token via internal helper")
+	return result.AccessToken, nil
+}
+
+func (a *Activities) fetchTwitchVideo(ctx context.Context, deps TwitchDependencies, client *http.Client, token, videoID string) (*TwitchVideoContent, error) {
+	// --- Logic from activity_twitch.go/fetchTwitchVideo ---
+	logger := activity.GetLogger(ctx)
+	apiURL := fmt.Sprintf("https://api.twitch.tv/helix/videos?id=%s", videoID)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Twitch video request: %w", err)
+	}
+	req.Header.Add("Client-ID", deps.ClientID)
+	req.Header.Add("Authorization", "Bearer "+token)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("Twitch video request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Twitch video response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		logger.Error("Twitch video request failed", "status", resp.StatusCode, "body", string(body))
+		return nil, fmt.Errorf("Twitch video request returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Data []TwitchVideoContent `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode Twitch video response: %w (body: %s)", err, string(body))
+	}
+
+	if len(result.Data) == 0 {
+		return nil, fmt.Errorf("no Twitch video found for ID %s", videoID)
+	}
+
+	logger.Info("Successfully fetched Twitch video", "id", videoID)
+	return &result.Data[0], nil
+}

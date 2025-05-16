@@ -12,13 +12,6 @@ import (
 	"go.temporal.io/sdk/activity"
 )
 
-const (
-	// MaxContentCharsForLLMCheck defines the maximum allowed characters for the content string passed to the LLM.
-	MaxContentCharsForLLMCheck = 20000 // Example value, adjust as needed
-	// MaxRequirementsCharsForLLMCheck defines the maximum allowed characters for the requirements string passed to the LLM.
-	MaxRequirementsCharsForLLMCheck = 5000 // Define the constant here
-)
-
 // CheckContentRequirements checks if the content satisfies the requirements
 func (a *Activities) CheckContentRequirements(ctx context.Context, content []byte, requirements []string) (CheckContentRequirementsResult, error) {
 	logger := activity.GetLogger(ctx)

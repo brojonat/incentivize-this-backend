@@ -11,17 +11,8 @@ import (
 	"go.temporal.io/sdk/worker"
 )
 
+// RunWorker runs the worker with the specified options
 func RunWorker(ctx context.Context, l *slog.Logger, thp, tns string) error {
-	return RunWorkerWithOptions(ctx, l, thp, tns, false)
-}
-
-// RunWorkerLocal runs the worker in local mode without requiring Solana configuration
-func RunWorkerLocal(ctx context.Context, l *slog.Logger, thp, tns string) error {
-	return RunWorkerWithOptions(ctx, l, thp, tns, true)
-}
-
-// RunWorkerWithOptions runs the worker with the specified options
-func RunWorkerWithOptions(ctx context.Context, l *slog.Logger, thp, tns string, localMode bool) error {
 	// connect to temporal
 	c, err := client.Dial(client.Options{
 		Logger:    l,

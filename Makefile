@@ -201,7 +201,7 @@ start-dev-session: build-cli ## Start a new tmux development session with port-f
 	# Create session in detached mode with port-forward. Ignore error if session already exists.
 	@/usr/local/bin/tmux new-session -d -s $(TMUX_SESSION) -n 'DevEnv' "$(PORT_FORWARD_CMD)" || true
 	# Add a brief pause to allow the server to initialize
-	@sleep 0.5
+	@sleep 1
 	# Configure panes for a 2x2 layout
 	@/usr/local/bin/tmux split-window -v -t $(TMUX_SESSION):0 "$(WORKER_CMD) 2>&1 | tee logs/worker.log" # Split vertically, run worker, pipe to tee
 	@/usr/local/bin/tmux select-pane -t 0                                     # Select Port Forward pane (0)
