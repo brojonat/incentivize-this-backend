@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -51,6 +52,7 @@ const (
 const (
 	AssessmentSignalName        = "assessment"
 	CancelSignalName            = "cancel"
+	GetPaidBountiesQueryType    = "getPaidBounties"
 	DefaultPayoutTimeout        = 10 * time.Minute
 	ContentReassessmentCooldown = 24 * time.Hour // Cooldown period for reassessing failed content
 )
@@ -87,6 +89,58 @@ type BountyAssessmentWorkflowInput struct {
 // BountyAssessmentWorkflow represents the workflow that manages bounty assessment
 func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkflowInput) error {
 
+	logger := workflow.GetLogger(ctx) // Moved logger initialization up for validation
+
+	// --- Input Validation ---
+	if input.BountyPerPost == nil || !input.BountyPerPost.IsPositive() {
+		errMsg := fmt.Sprintf("BountyPerPost must be a positive value, got: %v", input.BountyPerPost)
+		logger.Error(errMsg)
+		return temporal.NewApplicationError(errMsg, "INVALID_INPUT_BOUNTY_PER_POST")
+	}
+	if input.TotalBounty == nil || !input.TotalBounty.IsPositive() {
+		errMsg := fmt.Sprintf("TotalBounty must be a positive value, got: %v", input.TotalBounty)
+		logger.Error(errMsg)
+		return temporal.NewApplicationError(errMsg, "INVALID_INPUT_TOTAL_BOUNTY")
+	}
+	// Ensure TotalCharged is not nil before comparing
+	if input.TotalCharged == nil {
+		errMsg := "TotalCharged cannot be nil"
+		logger.Error(errMsg)
+		return temporal.NewApplicationError(errMsg, "INVALID_INPUT_NIL_TOTAL_CHARGED")
+	}
+	// Use Cmp for USDCAmount comparison: input.TotalCharged < input.TotalBounty
+	if input.TotalCharged.Cmp(input.TotalBounty) < 0 {
+		errMsg := fmt.Sprintf("TotalCharged (%v) cannot be less than TotalBounty (%v)", input.TotalCharged.ToUSDC(), input.TotalBounty.ToUSDC())
+		logger.Error(errMsg)
+		return temporal.NewApplicationError(errMsg, "INVALID_INPUT_TOTAL_CHARGED_LESS_THAN_TOTAL_BOUNTY")
+	}
+	// Add other critical input validations as needed (e.g., wallet address formats, platform supported)
+	// For wallet addresses, parsing them early can also act as validation:
+	if _, err := solanago.PublicKeyFromBase58(input.BountyOwnerWallet); err != nil {
+		errMsg := fmt.Sprintf("Invalid BountyOwnerWallet address: %s", input.BountyOwnerWallet)
+		logger.Error(errMsg, "error", err)
+		return temporal.NewApplicationError(errMsg, "INVALID_OWNER_WALLET", err)
+	}
+	if _, err := solanago.PublicKeyFromBase58(input.BountyFunderWallet); err != nil {
+		errMsg := fmt.Sprintf("Invalid BountyFunderWallet address: %s", input.BountyFunderWallet)
+		logger.Error(errMsg, "error", err)
+		return temporal.NewApplicationError(errMsg, "INVALID_FUNDER_WALLET", err)
+	}
+	if _, err := solanago.PublicKeyFromBase58(input.EscrowWallet); err != nil {
+		errMsg := fmt.Sprintf("Invalid EscrowWallet address: %s", input.EscrowWallet)
+		logger.Error(errMsg, "error", err)
+		return temporal.NewApplicationError(errMsg, "INVALID_ESCROW_WALLET", err)
+	}
+	if input.TreasuryWallet != "" { // Treasury wallet is optional
+		if _, err := solanago.PublicKeyFromBase58(input.TreasuryWallet); err != nil {
+			errMsg := fmt.Sprintf("Invalid TreasuryWallet address: %s", input.TreasuryWallet)
+			logger.Error(errMsg, "error", err)
+			return temporal.NewApplicationError(errMsg, "INVALID_TREASURY_WALLET", err)
+		}
+	}
+
+	// --- End Input Validation ---
+
 	// Set default activity options (can be overridden)
 	options := workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute, // Default timeout
@@ -106,7 +160,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	}
 
 	// --- Execute Fee Transfer (Escrow -> Treasury) ---
-	logger := workflow.GetLogger(ctx)
+	logger.Info("Executing fee transfer")
 
 	// Update status before attempting fee transfer
 	err = workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusTransferringFee)))
@@ -315,13 +369,40 @@ func awaitLoopUntilEmptyOrTimeout(
 ) error {
 	logger := workflow.GetLogger(ctx)
 	workflowID := workflow.GetInfo(ctx).WorkflowExecution.ID
+
+	// --- State for Payout Details and Query Handler ---
+	type PayoutDetail struct {
+		ContentID    string             `json:"content_id"`
+		PayoutWallet string             `json:"payout_wallet"`
+		Amount       *solana.USDCAmount `json:"amount"`
+		Timestamp    time.Time          `json:"timestamp"`
+		Platform     PlatformKind       `json:"platform"`
+		ContentKind  ContentKind        `json:"content_kind"`
+	}
+	successfullyPaidIDs := make(map[string]PayoutDetail)
+
+	err := workflow.SetQueryHandler(ctx, GetPaidBountiesQueryType, func() ([]PayoutDetail, error) {
+		// Create a slice from the map values
+		payouts := make([]PayoutDetail, 0, len(successfullyPaidIDs))
+		for _, pd := range successfullyPaidIDs {
+			payouts = append(payouts, pd)
+		}
+		sort.Slice(payouts, func(i, j int) bool {
+			return payouts[i].Timestamp.Before(payouts[j].Timestamp)
+		})
+		return payouts, nil
+	})
+	if err != nil {
+		logger.Error("Failed to set query handler for GetPaidBountiesQueryType", "error", err)
+	}
+	// --- End State for Payout Details ---
+
 	remainingBounty, err := solana.NewUSDCAmount(input.TotalBounty.ToUSDC())
 	if err != nil {
 		logger.Error("Failed to create mutable copy of remaining bounty", "error", err)
 		return fmt.Errorf("failed to initialize remaining bounty: %w", err)
 	}
 	failedAttemptsCooldown := make(map[string]time.Time) // Stores timestamp of last failure for a contentID
-	successfullyPaidIDs := make(map[string]bool)         // Tracks contentIDs that have been successfully paid
 
 	signalChan := workflow.GetSignalChannel(ctx, AssessmentSignalName)
 	cancelSignalChan := workflow.GetSignalChannel(ctx, CancelSignalName)
@@ -407,7 +488,7 @@ func awaitLoopUntilEmptyOrTimeout(
 			logger.Info("Received assessment signal", "ContentID", signal.ContentID, "Platform", signal.Platform, "PayoutWallet", signal.PayoutWallet, "ContentKind", signal.ContentKind)
 
 			// Idempotency Check & Cooldown Logic
-			if successfullyPaidIDs[signal.ContentID] {
+			if _, exists := successfullyPaidIDs[signal.ContentID]; exists {
 				logger.Debug("Content ID already successfully paid, skipping assessment.", "ContentID", signal.ContentID)
 				return // Skip processing this signal, continue to next Select iteration
 			}
@@ -684,18 +765,34 @@ func awaitLoopUntilEmptyOrTimeout(
 						if err != nil {
 							logger.Error("Failed to update search attribute BountyValueRemaining after payout", "error", err)
 						}
-						successfullyPaidIDs[signal.ContentID] = true
-						delete(failedAttemptsCooldown, signal.ContentID)
-						logger.Info("Successfully paid bounty, ContentID marked as paid.", "ContentID", signal.ContentID)
-						errUpdate := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusListening)))
-						if errUpdate != nil {
-							logger.Error("Failed to update search attribute BountyStatus back to Listening after successful payout", "error", errUpdate)
+
+						// --- Record Payout Detail ---
+						payoutDetailToStore := PayoutDetail{
+							ContentID:    signal.ContentID,
+							PayoutWallet: signal.PayoutWallet,
+							Amount:       input.BountyPerPost, // The amount that was actually paid
+							Timestamp:    workflow.Now(ctx),
+							Platform:     signal.Platform,
+							ContentKind:  signal.ContentKind,
 						}
+						successfullyPaidIDs[signal.ContentID] = payoutDetailToStore // Store the full detail
+						logger.Debug("Recorded payout detail in successfullyPaidIDs map", "ContentID", signal.ContentID)
+						// --- End Record Payout Detail ---
 					}
 				} else {
 					logger.Info("Payout amount is zero for this content, no payout processed.", "ContentID", signal.ContentID)
-					successfullyPaidIDs[signal.ContentID] = true
-					delete(failedAttemptsCooldown, signal.ContentID)
+					// Store a PayoutDetail with zero amount to ensure idempotency
+					pd := PayoutDetail{
+						ContentID:    signal.ContentID,
+						PayoutWallet: signal.PayoutWallet, // Wallet that would have been paid
+						Amount:       solana.Zero(),
+						Timestamp:    workflow.Now(ctx),
+						Platform:     signal.Platform,
+						ContentKind:  signal.ContentKind,
+					}
+					successfullyPaidIDs[signal.ContentID] = pd
+					delete(failedAttemptsCooldown, signal.ContentID) // Clear failure cooldown as it was processed.
+					logger.Error("Content processed with zero payout, ContentID marked to prevent reprocessing.", "ContentID", signal.ContentID)
 				}
 			} else {
 				logger.Info("Content does not satisfy requirements, or wallet disallowed.", "ContentID", signal.ContentID, "Reason", checkResult.Reason)

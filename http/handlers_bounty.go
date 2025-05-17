@@ -289,6 +289,15 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 		userBountyPerPost := req.BountyPerPost
 		userTotalBounty := payoutCalculator(req.TotalBounty)
 
+		// --- START: Validate BountyPerPost against effective TotalBounty ---
+		if userBountyPerPost > userTotalBounty {
+			errMsg := fmt.Sprintf("bounty_per_post (%.6f) cannot be greater than the effective total_bounty after fees (%.6f)", userBountyPerPost, userTotalBounty)
+			logger.Warn(errMsg, "raw_bounty_per_post", req.BountyPerPost, "raw_total_bounty", req.TotalBounty, "effective_total_bounty", userTotalBounty)
+			writeBadRequestError(w, fmt.Errorf("%s", errMsg))
+			return
+		}
+		// --- END: Validate BountyPerPost against effective TotalBounty ---
+
 		// Convert amounts to USDCAmount
 		bountyPerPost, err := solana.NewUSDCAmount(userBountyPerPost)
 		if err != nil {
