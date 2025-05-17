@@ -14,6 +14,16 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
+// PayoutDetail struct moved to package level for accessibility
+type PayoutDetail struct {
+	ContentID    string             `json:"content_id"`
+	PayoutWallet string             `json:"payout_wallet"`
+	Amount       *solana.USDCAmount `json:"amount"`
+	Timestamp    time.Time          `json:"timestamp"`
+	Platform     PlatformKind       `json:"platform"`
+	ContentKind  ContentKind        `json:"content_kind"`
+}
+
 // Search Attribute Keys
 var (
 	EnvironmentKey          = temporal.NewSearchAttributeKeyString("Environment")
@@ -371,14 +381,6 @@ func awaitLoopUntilEmptyOrTimeout(
 	workflowID := workflow.GetInfo(ctx).WorkflowExecution.ID
 
 	// --- State for Payout Details and Query Handler ---
-	type PayoutDetail struct {
-		ContentID    string             `json:"content_id"`
-		PayoutWallet string             `json:"payout_wallet"`
-		Amount       *solana.USDCAmount `json:"amount"`
-		Timestamp    time.Time          `json:"timestamp"`
-		Platform     PlatformKind       `json:"platform"`
-		ContentKind  ContentKind        `json:"content_kind"`
-	}
 	successfullyPaidIDs := make(map[string]PayoutDetail)
 
 	err := workflow.SetQueryHandler(ctx, GetPaidBountiesQueryType, func() ([]PayoutDetail, error) {

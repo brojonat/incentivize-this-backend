@@ -2,7 +2,11 @@ package abb
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -10,9 +14,22 @@ import (
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/programs/memo"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/gagliardetto/solana-go/rpc/jsonrpc"
 	"go.temporal.io/sdk/activity"
 	temporal_log "go.temporal.io/sdk/log"
 )
+
+var ErrRetryNeededAfterRateLimit = errors.New("rate limited, retry needed after wait")
+
+// jsonRPCResponseWrapper is a local struct to represent a generic JSON-RPC response.
+// This is needed because the library may not export a generic jsonrpc.Response type
+// for direct unmarshalling in RPCCallWithCallback.
+type jsonRPCResponseWrapper struct {
+	JSONRPC string            `json:"jsonrpc"`
+	ID      interface{}       `json:"id"` // Can be int or string
+	Result  json.RawMessage   `json:"result,omitempty"`
+	Error   *jsonrpc.RPCError `json:"error,omitempty"` // Using the exported RPCError
+}
 
 // TransferUSDC is an activity that transfers USDC from the escrow account to a user's account
 // It now accepts an optional memo field.
@@ -217,31 +234,139 @@ func (a *Activities) VerifyPayment(
 
 				// Check if transaction actually succeeded before fetching details
 				if sigResult.Err != nil {
-					logger.Debug("Skipping failed transaction", "signature", sig.String(), "error", sigResult.Err)
+					logger.Debug("Skipping failed transaction from GetSignaturesForAddress", "signature", sig.String(), "error", sigResult.Err)
 					continue
 				}
 
-				// --- Add artificial delay before fetching transaction details ---
-				time.Sleep(1 * time.Second)
-				// -----------------------------------------------------------------
+				logger.Debug("Fetching transaction details with retry logic", "signature", sig.String())
 
-				logger.Debug("Fetching transaction details", "signature", sig.String())
-				// Ensure MaxSupportedTransactionVersion is set to 0 to handle versioned transactions
-				maxSupportedTxVersion := uint64(0)
-				txResult, err := rpcClient.GetTransaction(
-					ctx,
-					sig,
-					&rpc.GetTransactionOpts{
-						Encoding:                       solanago.EncodingBase64, // Fetch as Base64 to avoid parsing issues
+				var txResult *rpc.GetTransactionResult
+				var attemptError error
+				const maxRetries = 5                           // Define max retries for a signature
+				var currentTxDetails *rpc.GetTransactionResult // Variable to store the result from the callback
+
+				for attempt := 0; attempt < maxRetries; attempt++ {
+					if checkedSignatures[sig] { // Re-check in case it was marked by a failed attempt from another concurrent check (if any)
+						// Or if the outer loop already processed it due to some complex logic.
+						// This check might be redundant if VerifyPayment is strictly single-threaded per call.
+						logger.Debug("Signature already processed during retry attempts, breaking", "sig", sig.String())
+						attemptError = errors.New("signature processed by another path during retries") // Mark as an error to skip
+						break
+					}
+
+					maxSupportedTxVersion := uint64(0)
+					rpcOpts := &rpc.GetTransactionOpts{
+						Encoding:                       solanago.EncodingBase64,
 						Commitment:                     rpc.CommitmentFinalized,
 						MaxSupportedTransactionVersion: &maxSupportedTxVersion,
-					},
-				)
-				if err != nil {
-					logger.Warn("Failed to get transaction details", "signature", sig.String(), "error", err)
-					continue
+					}
+					params := []interface{}{
+						sig.String(),
+						rpcOpts,
+					}
+
+					currentTxDetails = nil // Reset for each attempt
+
+					errCallback := rpcClient.RPCCallWithCallback(
+						timeoutCtx, // Use the timeout context for the RPC call
+						"getTransaction",
+						params,
+						func(httpRequest *http.Request, httpResponse *http.Response) error {
+							if httpResponse.StatusCode == http.StatusTooManyRequests { // 429
+								retryAfterHeader := httpResponse.Header.Get("Retry-After")
+								var sleepDuration time.Duration
+								if retryAfterHeader != "" {
+									seconds, errParse := strconv.Atoi(retryAfterHeader)
+									if errParse == nil {
+										sleepDuration = time.Duration(seconds) * time.Second
+									} else {
+										logger.Warn("Could not parse Retry-After header, using default", "header", retryAfterHeader, "error", errParse)
+										sleepDuration = 5 * time.Second // Default backoff
+									}
+								} else {
+									sleepDuration = 5 * time.Second // Default backoff
+								}
+								logger.Info("Rate limited by RPC, sleeping", "duration", sleepDuration, "signature", sig.String(), "attempt", attempt+1)
+
+								// Respect context timeout during sleep
+								select {
+								case <-time.After(sleepDuration):
+									// continue with retry
+								case <-timeoutCtx.Done():
+									logger.Warn("VerifyPayment timeout hit during rate limit sleep", "signature", sig.String())
+									return timeoutCtx.Err() // Propagate timeout error
+								}
+								return ErrRetryNeededAfterRateLimit
+							}
+
+							if httpResponse.StatusCode >= 400 {
+								bodyBytes, _ := io.ReadAll(httpResponse.Body)
+								_ = httpResponse.Body.Close() // Ensure body is closed
+								logger.Error("HTTP error from RPC", "statusCode", httpResponse.StatusCode, "body", string(bodyBytes), "signature", sig.String())
+								return fmt.Errorf("rpc http error: %d for signature %s", httpResponse.StatusCode, sig.String())
+							}
+
+							bodyBytes, errRead := io.ReadAll(httpResponse.Body)
+							if errRead != nil {
+								_ = httpResponse.Body.Close() // Ensure body is closed
+								return fmt.Errorf("failed to read response body for %s: %w", sig.String(), errRead)
+							}
+							_ = httpResponse.Body.Close() // Ensure body is closed
+
+							var genericRpcResp jsonRPCResponseWrapper
+							if errUnmarshal := json.Unmarshal(bodyBytes, &genericRpcResp); errUnmarshal != nil {
+								return fmt.Errorf("failed to unmarshal RPC response for %s: %w", sig.String(), errUnmarshal)
+							}
+
+							if genericRpcResp.Error != nil {
+								return fmt.Errorf("RPC error for %s: code=%d, message=%s", sig.String(), genericRpcResp.Error.Code, genericRpcResp.Error.Message)
+							}
+
+							var specificResult rpc.GetTransactionResult
+							if errUnmarshalResult := json.Unmarshal(genericRpcResp.Result, &specificResult); errUnmarshalResult != nil {
+								return fmt.Errorf("failed to unmarshal GetTransactionResult for %s: %w", sig.String(), errUnmarshalResult)
+							}
+							currentTxDetails = &specificResult
+							return nil
+						},
+					)
+
+					if errCallback == nil {
+						txResult = currentTxDetails // Successfully fetched and decoded
+						attemptError = nil
+						break // Success, break retry loop
+					} else if errors.Is(errCallback, ErrRetryNeededAfterRateLimit) {
+						logger.Info("Retrying signature after rate limit wait", "signature", sig.String(), "attempt", attempt+1)
+						attemptError = errCallback // Store this error, will be overwritten if next attempt succeeds
+						// Continue to the next iteration of the retry loop.
+					} else if errors.Is(errCallback, context.DeadlineExceeded) || errors.Is(errCallback, context.Canceled) {
+						logger.Warn("Context timeout/canceled during RPCCallWithCallback", "signature", sig.String(), "error", errCallback)
+						attemptError = errCallback
+						break // Break retry loop, context is done
+					} else {
+						// Any other error from RPCCallWithCallback or the callback itself
+						attemptError = errCallback
+						logger.Warn("Failed to get transaction details, non-retryable or max retries reached", "signature", sig.String(), "error", attemptError, "attempt", attempt+1)
+						break // Break retry loop
+					}
+				} // End retry loop for current signature
+
+				checkedSignatures[sig] = true // Mark as checked AFTER attempting to fetch/process it.
+
+				if attemptError != nil || txResult == nil {
+					// If after retries (or on first non-retryable error) we still failed or txResult is nil
+					if !errors.Is(attemptError, ErrRetryNeededAfterRateLimit) { // Avoid double logging if last attempt was rate limit
+						logger.Warn("Failed to get transaction details after attempts", "signature", sig.String(), "final_error", attemptError)
+					}
+					// else, if it IS ErrRetryNeededAfterRateLimit, it means we hit max retries ending on a rate limit,
+					// or timeout during sleep. The warning for rate limit sleep timeout is handled inside the callback.
+					continue // Move to the next signature
 				}
-				if txResult == nil || txResult.Meta == nil {
+
+				// txResult is now populated if successful
+				// The logic below remains mostly the same, using the txResult from the retry block.
+
+				if txResult.Meta == nil { // txResult itself is checked for nil above
 					logger.Warn("Received nil transaction or meta", "signature", sig.String())
 					continue
 				}

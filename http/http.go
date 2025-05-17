@@ -100,6 +100,11 @@ func writeBadRequestError(w http.ResponseWriter, err error) {
 	writeJSONResponse(w, resp, http.StatusBadRequest)
 }
 
+func writeNotFoundError(w http.ResponseWriter) {
+	resp := api.DefaultJSONResponse{Error: "not found"}
+	writeJSONResponse(w, resp, http.StatusNotFound)
+}
+
 func writeEmptyResultError(w http.ResponseWriter) {
 	resp := api.DefaultJSONResponse{Error: "empty result set"}
 	writeJSONResponse(w, resp, http.StatusNotFound)
@@ -242,7 +247,13 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	))
 
 	mux.HandleFunc("GET /bounties/paid", stools.AdaptHandler(
-		handleListPaidBounties(logger, rpcClient, escrowWallet, usdcMintAddress, 1*time.Minute),
+		handleListPaidBounties(logger, rpcClient, escrowWallet, usdcMintAddress, 10*time.Minute),
+		withLogging(logger),
+	))
+
+	// Route for getting paid bounties for a specific workflow
+	mux.HandleFunc("GET /bounties/{bounty_id}/paid", stools.AdaptHandler(
+		handleListPaidBountiesForWorkflow(logger, tc),
 		withLogging(logger),
 	))
 

@@ -63,12 +63,12 @@ const (
 
 	// Constants previously revealed by linter (ensure they are defined once)
 	EnvYouTubeAppName        = "YOUTUBE_APP_NAME"              // App name for YouTube API
-	EnvABBServerURL          = "ABB_SERVER_URL"                // URL for internal API server (renamed from EnvServerURL for clarity)
-	EnvAuthToken             = "ABB_AUTH_TOKEN"                // Auth token for internal API server
+	EnvABBServerURL          = "SERVER_URL"                    // URL for internal API server (renamed from EnvServerURL for clarity)
+	EnvAuthToken             = "AUTH_TOKEN"                    // Auth token for internal API server
 	EnvLLMCheckReqPromptBase = "LLM_CHECK_REQ_PROMPT_BASE_B64" // Base prompt for CheckContentRequirements
-	EnvABBServerSecretKey    = "ABB_SERVER_SECRET_KEY"         // Secret key for internal API server auth/ops (renamed from EnvServerSecretKey for clarity)
+	EnvABBServerSecretKey    = "SERVER_SECRET_KEY"             // Secret key for internal API server auth/ops (renamed from EnvServerSecretKey for clarity)
 	EnvTargetSubreddit       = "REDDIT_TARGET_SUBREDDIT"       // Subreddit for publishing bounties
-	EnvServerEnv             = "ABB_ENV"                       // Environment name (e.g., "dev", "prod")
+	EnvServerEnv             = "ENV"                           // Environment name (e.g., "dev", "prod")
 
 	DefaultLLMCheckReqPromptBase = `You are an AI assistant evaluating content based on a set of requirements.
 Determine if the provided content satisfies ALL the given requirements.
@@ -932,9 +932,3 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 	logger.Info("PullContentActivity finished successfully", "platform", input.PlatformType, "contentID", input.ContentID)
 	return contentBytes, nil
 }
-
-
-
-
-
-
