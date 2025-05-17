@@ -52,6 +52,7 @@ func RunWorker(ctx context.Context, l *slog.Logger, thp, tns string) error {
 	w.RegisterActivity(activities.TransferUSDC)
 	w.RegisterActivity(activities.PublishBountiesReddit)
 	w.RegisterActivity(activities.AnalyzeImageURL)
+	w.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
 	w.RegisterActivity(activities.SendTokenEmail)
 
 	// Run the single worker

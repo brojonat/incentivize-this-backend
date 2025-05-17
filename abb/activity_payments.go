@@ -230,7 +230,6 @@ func (a *Activities) VerifyPayment(
 					logger.Debug("Signature already checked, skipping", "sig", sig.String())
 					continue // Already processed this one
 				}
-				checkedSignatures[sig] = true // Mark as checked
 
 				// Check if transaction actually succeeded before fetching details
 				if sigResult.Err != nil {
@@ -246,14 +245,6 @@ func (a *Activities) VerifyPayment(
 				var currentTxDetails *rpc.GetTransactionResult // Variable to store the result from the callback
 
 				for attempt := 0; attempt < maxRetries; attempt++ {
-					if checkedSignatures[sig] { // Re-check in case it was marked by a failed attempt from another concurrent check (if any)
-						// Or if the outer loop already processed it due to some complex logic.
-						// This check might be redundant if VerifyPayment is strictly single-threaded per call.
-						logger.Debug("Signature already processed during retry attempts, breaking", "sig", sig.String())
-						attemptError = errors.New("signature processed by another path during retries") // Mark as an error to skip
-						break
-					}
-
 					maxSupportedTxVersion := uint64(0)
 					rpcOpts := &rpc.GetTransactionOpts{
 						Encoding:                       solanago.EncodingBase64,

@@ -137,7 +137,11 @@ func (a *Activities) fetchTwitchClip(ctx context.Context, deps TwitchDependencie
 	}
 
 	logger.Info("Successfully fetched Twitch clip", "id", clipID)
-	return &result.Data[0], nil
+	clip := &result.Data[0]
+	// Replace placeholders in ThumbnailURL
+	clip.ThumbnailURL = strings.ReplaceAll(clip.ThumbnailURL, "%{width}", "320")
+	clip.ThumbnailURL = strings.ReplaceAll(clip.ThumbnailURL, "%{height}", "180")
+	return clip, nil
 }
 
 func (a *Activities) getTwitchAppAccessToken(ctx context.Context, deps TwitchDependencies, client *http.Client) (string, error) {
@@ -231,5 +235,9 @@ func (a *Activities) fetchTwitchVideo(ctx context.Context, deps TwitchDependenci
 	}
 
 	logger.Info("Successfully fetched Twitch video", "id", videoID)
-	return &result.Data[0], nil
+	video := &result.Data[0]
+	// Replace placeholders in ThumbnailURL
+	video.ThumbnailURL = strings.ReplaceAll(video.ThumbnailURL, "%{width}", "320")
+	video.ThumbnailURL = strings.ReplaceAll(video.ThumbnailURL, "%{height}", "180")
+	return video, nil
 }

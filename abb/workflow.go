@@ -512,9 +512,8 @@ func awaitLoopUntilEmptyOrTimeout(
 				ContentKind:  signal.ContentKind,
 				ContentID:    signal.ContentID,
 			}
-			// Use activity options suitable for pulling content
 			pullOpts := workflow.ActivityOptions{
-				StartToCloseTimeout: 60 * time.Second, // Increased timeout for consolidated activity
+				StartToCloseTimeout: 60 * time.Second,
 				RetryPolicy: &temporal.RetryPolicy{
 					InitialInterval:    20 * time.Second,
 					BackoffCoefficient: 2.0,
@@ -532,114 +531,145 @@ func awaitLoopUntilEmptyOrTimeout(
 				return // Continue to next Select iteration
 			}
 
+			// Determine if image analysis is needed based on requirements
+			var shouldAnalyzeImgResult ShouldPerformImageAnalysisResult
+			shouldAnalyzeOpts := workflow.ActivityOptions{
+				StartToCloseTimeout: 60 * time.Second, // Shorter timeout for this simpler LLM call
+				RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 3},
+			}
+			shouldAnalyzeCtx := workflow.WithActivityOptions(ctx, shouldAnalyzeOpts)
+			shouldAnalyzeErr := workflow.ExecuteActivity(shouldAnalyzeCtx, (*Activities).ShouldPerformImageAnalysisActivity, input.Requirements).Get(shouldAnalyzeCtx, &shouldAnalyzeImgResult)
+
+			if shouldAnalyzeErr != nil {
+				logger.Warn("ShouldPerformImageAnalysisActivity failed. Proceeding without image analysis.", "ContentID", signal.ContentID, "error", shouldAnalyzeErr)
+				// If we can't determine, err on the side of not doing image analysis to avoid unnecessary failures/costs
+				shouldAnalyzeImgResult.ShouldAnalyze = false
+				shouldAnalyzeImgResult.Reason = "Failed to determine if image analysis was required: " + shouldAnalyzeErr.Error()
+			}
+
+			logger.Info("Image analysis requirement check result", "ContentID", signal.ContentID, "ShouldAnalyze", shouldAnalyzeImgResult.ShouldAnalyze, "Reason", shouldAnalyzeImgResult.Reason)
+
 			// 2. Image Analysis (if applicable, based on unmarshalled content)
 			thumbnailAnalysisFailed := false
 			var imgAnalysisResult CheckContentRequirementsResult // Stores result from AnalyzeImageURL
 
-			// Specific activity options for image analysis (longer timeout, more retries)
-			imgActOpts := workflow.ActivityOptions{
-				StartToCloseTimeout: 120 * time.Second,
-				RetryPolicy: &temporal.RetryPolicy{
-					InitialInterval:    time.Second,
-					BackoffCoefficient: 2.0,
-					MaximumInterval:    time.Minute,
-					MaximumAttempts:    3,
-				},
-			}
-			imgAnalysisCtx := workflow.WithActivityOptions(ctx, imgActOpts) // Context for AnalyzeImageURL
-
-			requirementsStringForImagePrompt := strings.Join(input.Requirements, "; ")
-			if len(requirementsStringForImagePrompt) > MaxRequirementsCharsForLLMCheck {
-				requirementsStringForImagePrompt = requirementsStringForImagePrompt[:MaxRequirementsCharsForLLMCheck] + "..."
-				logger.Warn("Truncated requirements for image analysis prompt due to length limit", "ContentID", signal.ContentID, "limit", MaxRequirementsCharsForLLMCheck)
-			}
-
-			switch signal.Platform {
-			case PlatformReddit:
-				var redditContent RedditContent
-				if err := json.Unmarshal(contentBytes, &redditContent); err != nil {
-					logger.Error("Failed to unmarshal Reddit content after PullContentActivity", "ContentID", signal.ContentID, "error", err)
-					thumbnailAnalysisFailed = true
-					imgAnalysisResult.Reason = "Failed to unmarshal pulled Reddit content to extract thumbnail"
-				} else {
-					thumbnailURL := redditContent.Thumbnail
-					if thumbnailURL != "" && thumbnailURL != "self" && thumbnailURL != "default" && thumbnailURL != "image" && thumbnailURL != "nsfw" {
-						logger.Info("Reddit content has potential thumbnail/image URL, analyzing...", "ContentID", signal.ContentID, "URL", thumbnailURL)
-						imageAnalysisPrompt := fmt.Sprintf(
-							"Analyze this Reddit thumbnail/image based on the following bounty "+
-								"requirements (you only need to consider the requirements pertaining "+
-								"to the image): %s", requirementsStringForImagePrompt)
-						imgErr := workflow.ExecuteActivity(imgAnalysisCtx, (*Activities).AnalyzeImageURL, thumbnailURL, imageAnalysisPrompt).Get(imgAnalysisCtx, &imgAnalysisResult)
-						if imgErr != nil {
-							logger.Error("Image analysis activity execution failed for Reddit content", "ContentID", signal.ContentID, "error", imgErr)
-							thumbnailAnalysisFailed = true // imgAnalysisResult should have default failure values from activity
-						} else if !imgAnalysisResult.Satisfies {
-							logger.Info("Image analysis determined Reddit thumbnail/image does not meet requirements", "ContentID", signal.ContentID, "reason", imgAnalysisResult.Reason)
-							thumbnailAnalysisFailed = true
-						}
-					}
+			if shouldAnalyzeImgResult.ShouldAnalyze {
+				// Specific activity options for image analysis (longer timeout, more retries)
+				imgActOpts := workflow.ActivityOptions{
+					StartToCloseTimeout: 120 * time.Second,
+					RetryPolicy: &temporal.RetryPolicy{
+						InitialInterval:    time.Second,
+						BackoffCoefficient: 2.0,
+						MaximumInterval:    time.Minute,
+						MaximumAttempts:    3,
+					},
 				}
-			case PlatformYouTube:
-				var youtubeContent YouTubeContent
-				if err := json.Unmarshal(contentBytes, &youtubeContent); err != nil {
-					logger.Error("Failed to unmarshal YouTube content after PullContentActivity", "ContentID", signal.ContentID, "error", err)
-					thumbnailAnalysisFailed = true
-					imgAnalysisResult.Reason = "Failed to unmarshal pulled YouTube content to extract thumbnail"
-				} else {
-					thumbnailURL := youtubeContent.ThumbnailURL
-					if thumbnailURL != "" {
-						logger.Info("YouTube content has thumbnail, analyzing image...", "ContentID", signal.ContentID, "ThumbnailURL", thumbnailURL)
-						imageAnalysisPrompt := fmt.Sprintf(
-							"Analyze this YouTube thumbnail image based on the following bounty "+
-								"requirements (you only need to consider the requirements pertaining "+
-								"to the image): %s", requirementsStringForImagePrompt)
-						imgErr := workflow.ExecuteActivity(imgAnalysisCtx, (*Activities).AnalyzeImageURL, thumbnailURL, imageAnalysisPrompt).Get(imgAnalysisCtx, &imgAnalysisResult)
-						if imgErr != nil {
-							logger.Error("Image analysis activity execution failed for YouTube content", "ContentID", signal.ContentID, "error", imgErr)
-							thumbnailAnalysisFailed = true
-						} else if !imgAnalysisResult.Satisfies {
-							logger.Info("Image analysis determined YouTube thumbnail does not meet requirements", "ContentID", signal.ContentID, "reason", imgAnalysisResult.Reason)
-							thumbnailAnalysisFailed = true
-						}
-					}
+				imgAnalysisCtx := workflow.WithActivityOptions(ctx, imgActOpts) // Context for AnalyzeImageURL
+
+				requirementsStringForImagePrompt := strings.Join(input.Requirements, "; ")
+				if len(requirementsStringForImagePrompt) > MaxRequirementsCharsForLLMCheck {
+					requirementsStringForImagePrompt = requirementsStringForImagePrompt[:MaxRequirementsCharsForLLMCheck] + "..."
+					logger.Warn("Truncated requirements for image analysis prompt due to length limit", "ContentID", signal.ContentID, "limit", MaxRequirementsCharsForLLMCheck)
 				}
-			case PlatformTwitch:
-				var thumbnailURL string
-				var videoContent TwitchVideoContent
-				if errUnVideo := json.Unmarshal(contentBytes, &videoContent); errUnVideo == nil && videoContent.ThumbnailURL != "" {
-					thumbnailURL = videoContent.ThumbnailURL
-				} else {
-					var clipContent TwitchClipContent
-					if errUnClip := json.Unmarshal(contentBytes, &clipContent); errUnClip == nil && clipContent.ThumbnailURL != "" {
-						thumbnailURL = clipContent.ThumbnailURL
+
+				switch signal.Platform {
+				case PlatformReddit:
+					var redditContent RedditContent
+					if err := json.Unmarshal(contentBytes, &redditContent); err != nil {
+						logger.Error("Failed to unmarshal Reddit content after PullContentActivity", "ContentID", signal.ContentID, "error", err)
+						thumbnailAnalysisFailed = true
+						imgAnalysisResult.Reason = "Failed to unmarshal pulled Reddit content to extract thumbnail"
 					} else {
-						logger.Debug("Could not unmarshal Twitch content into Video or Clip to get thumbnail, or thumbnail was empty", "ContentID", signal.ContentID)
+						thumbnailURL := redditContent.Thumbnail
+						if thumbnailURL != "" && thumbnailURL != "self" && thumbnailURL != "default" && thumbnailURL != "image" && thumbnailURL != "nsfw" {
+							logger.Info("Reddit content has potential thumbnail/image URL, analyzing...", "ContentID", signal.ContentID, "URL", thumbnailURL)
+							imageAnalysisPrompt := fmt.Sprintf(
+								"Analyze this Reddit thumbnail/image. Task: Does it *visually violate* requirements pertaining to the image? Requirements: '%s'.\n"+
+									"Response Rules:\n"+
+									"1. If CLEAR violation: {\"satisfies\": false, \"reason\": \"Explain violation.\"}\n"+
+									"2. ELSE (no clear violation, or requirement not image-assessable like view counts): {\"satisfies\": true, \"reason\": \"No visual violation, or requirement not visually assessable from image.\"}\n"+
+									"Format: JSON {\"satisfies\": boolean, \"reason\": \"string\"}", requirementsStringForImagePrompt)
+							imgErr := workflow.ExecuteActivity(imgAnalysisCtx, (*Activities).AnalyzeImageURL, thumbnailURL, imageAnalysisPrompt).Get(imgAnalysisCtx, &imgAnalysisResult)
+							if imgErr != nil {
+								logger.Error("Image analysis activity execution failed for Reddit content", "ContentID", signal.ContentID, "error", imgErr)
+								thumbnailAnalysisFailed = true // Activity execution error implies failure to analyze
+							} else if !imgAnalysisResult.Satisfies {
+								logger.Info("Image analysis determined Reddit thumbnail/image does not meet requirements (or could not be assessed)", "ContentID", signal.ContentID, "reason", imgAnalysisResult.Reason)
+								thumbnailAnalysisFailed = true
+							}
+						}
 					}
-				}
+				case PlatformYouTube:
+					var youtubeContent YouTubeContent
+					if err := json.Unmarshal(contentBytes, &youtubeContent); err != nil {
+						logger.Error("Failed to unmarshal YouTube content after PullContentActivity", "ContentID", signal.ContentID, "error", err)
+						thumbnailAnalysisFailed = true
+						imgAnalysisResult.Reason = "Failed to unmarshal pulled YouTube content to extract thumbnail"
+					} else {
+						thumbnailURL := youtubeContent.ThumbnailURL
+						if thumbnailURL != "" {
+							logger.Info("YouTube content has thumbnail, analyzing image...", "ContentID", signal.ContentID, "ThumbnailURL", thumbnailURL)
+							imageAnalysisPrompt := fmt.Sprintf(
+								"Analyze this YouTube thumbnail. Task: Does it *visually violate* requirements pertaining to the image? Requirements: '%s'.\n"+
+									"Response Rules:\n"+
+									"1. If CLEAR violation: {\"satisfies\": false, \"reason\": \"Explain violation.\"}\n"+
+									"2. ELSE (no clear violation, or requirement not image-assessable like view counts): {\"satisfies\": true, \"reason\": \"No visual violation, or requirement not visually assessable from image.\"}\n"+
+									"Format: JSON {\"satisfies\": boolean, \"reason\": \"string\"}", requirementsStringForImagePrompt)
+							imgErr := workflow.ExecuteActivity(imgAnalysisCtx, (*Activities).AnalyzeImageURL, thumbnailURL, imageAnalysisPrompt).Get(imgAnalysisCtx, &imgAnalysisResult)
+							if imgErr != nil {
+								logger.Error("Image analysis activity execution failed for YouTube content", "ContentID", signal.ContentID, "error", imgErr)
+								thumbnailAnalysisFailed = true // Activity execution error implies failure to analyze
+							} else if !imgAnalysisResult.Satisfies {
+								logger.Info("Image analysis determined YouTube thumbnail does not meet requirements (or could not be assessed)", "ContentID", signal.ContentID, "reason", imgAnalysisResult.Reason)
+								thumbnailAnalysisFailed = true
+							}
+						}
+					}
+				case PlatformTwitch:
+					var thumbnailURL string
+					var videoContent TwitchVideoContent
+					if errUnVideo := json.Unmarshal(contentBytes, &videoContent); errUnVideo == nil && videoContent.ThumbnailURL != "" {
+						thumbnailURL = videoContent.ThumbnailURL
+					} else {
+						var clipContent TwitchClipContent
+						if errUnClip := json.Unmarshal(contentBytes, &clipContent); errUnClip == nil && clipContent.ThumbnailURL != "" {
+							thumbnailURL = clipContent.ThumbnailURL
+						} else {
+							logger.Debug("Could not unmarshal Twitch content into Video or Clip to get thumbnail, or thumbnail was empty", "ContentID", signal.ContentID)
+						}
+					}
 
-				if thumbnailURL != "" {
-					logger.Info("Twitch content has thumbnail, analyzing image...", "ContentID", signal.ContentID, "ThumbnailURL", thumbnailURL)
-					imageUrl := strings.ReplaceAll(strings.ReplaceAll(thumbnailURL, "%{width}", "100"), "%{height}", "100")
-					imageAnalysisPrompt := fmt.Sprintf(
-						"Analyze this Twitch thumbnail image based on the following bounty "+
-							"requirements (you only need to consider the requirements pertaining "+
-							"to the image): %s", requirementsStringForImagePrompt)
-					imgErr := workflow.ExecuteActivity(imgAnalysisCtx, (*Activities).AnalyzeImageURL, imageUrl, imageAnalysisPrompt).Get(imgAnalysisCtx, &imgAnalysisResult)
-					if imgErr != nil {
-						logger.Error("Image analysis activity execution failed for Twitch content", "ContentID", signal.ContentID, "error", imgErr)
-						thumbnailAnalysisFailed = true
-					} else if !imgAnalysisResult.Satisfies {
-						logger.Info("Image analysis determined Twitch thumbnail does not meet requirements", "ContentID", signal.ContentID, "reason", imgAnalysisResult.Reason)
-						thumbnailAnalysisFailed = true
+					if thumbnailURL != "" {
+						logger.Info("Twitch content has thumbnail, analyzing image...", "ContentID", signal.ContentID, "ThumbnailURL", thumbnailURL)
+						imageUrl := strings.ReplaceAll(strings.ReplaceAll(thumbnailURL, "%_width%", "100"), "%_height%", "100")
+						imageAnalysisPrompt := fmt.Sprintf(
+							"Analyze this Twitch thumbnail. Task: Does it *visually violate* requirements pertaining to the image? Requirements: '%s'.\n"+
+								"Response Rules:\n"+
+								"1. If CLEAR violation: {\"satisfies\": false, \"reason\": \"Explain violation.\"}\n"+
+								"2. ELSE (no clear violation, or requirement not image-assessable like view counts): {\"satisfies\": true, \"reason\": \"No visual violation, or requirement not visually assessable from image.\"}\n"+
+								"Format: JSON {\"satisfies\": boolean, \"reason\": \"string\"}", requirementsStringForImagePrompt)
+						imgErr := workflow.ExecuteActivity(imgAnalysisCtx, (*Activities).AnalyzeImageURL, imageUrl, imageAnalysisPrompt).Get(imgAnalysisCtx, &imgAnalysisResult)
+						if imgErr != nil {
+							logger.Error("Image analysis activity execution failed for Twitch content", "ContentID", signal.ContentID, "error", imgErr)
+							thumbnailAnalysisFailed = true // Activity execution error implies failure to analyze
+						} else if !imgAnalysisResult.Satisfies {
+							logger.Info("Image analysis determined Twitch thumbnail does not meet requirements (or could not be assessed)", "ContentID", signal.ContentID, "reason", imgAnalysisResult.Reason)
+							thumbnailAnalysisFailed = true
+						}
 					}
+				case PlatformHackerNews:
+					logger.Debug("No thumbnail analysis implemented for HackerNews", "ContentID", signal.ContentID)
+				case PlatformBluesky:
+					// Placeholder for potential future Bluesky image analysis if embeds are parsed
+					logger.Debug("No explicit thumbnail analysis implemented for Bluesky yet", "ContentID", signal.ContentID)
+				default:
+					logger.Warn("Thumbnail analysis not implemented for platform or platform unhandled in switch", "platform", signal.Platform, "ContentID", signal.ContentID)
 				}
-			case PlatformHackerNews:
-				logger.Debug("No thumbnail analysis implemented for HackerNews", "ContentID", signal.ContentID)
-			case PlatformBluesky:
-				// Placeholder for potential future Bluesky image analysis if embeds are parsed
-				logger.Debug("No explicit thumbnail analysis implemented for Bluesky yet", "ContentID", signal.ContentID)
-			default:
-				logger.Warn("Thumbnail analysis not implemented for platform or platform unhandled in switch", "platform", signal.Platform, "ContentID", signal.ContentID)
+			} else {
+				logger.Info("Skipping image analysis as requirements do not necessitate it.", "ContentID", signal.ContentID, "Reason", shouldAnalyzeImgResult.Reason)
+				// Ensure imgAnalysisResult has a default state indicating no failure if skipped
+				imgAnalysisResult.Satisfies = true
+				imgAnalysisResult.Reason = "Image analysis not required by bounty terms."
 			}
 
 			// 3. Check Content Requirements or skip if image analysis failed

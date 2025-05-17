@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	solanautil "github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/gagliardetto/solana-go/rpc/jsonrpc"
 	"github.com/urfave/cli/v2"
 )
 
@@ -34,6 +36,9 @@ var (
 	EnvSolanaUSDCMintAddress = "SOLANA_USDC_MINT_ADDRESS"
 	EnvSolanaEscrowWallet    = "SOLANA_ESCROW_WALLET"
 	EnvTestFunderPrivateKey  = "SOLANA_TEST_FUNDER_PRIVATE_KEY"
+	// Additional wallet env vars for the balances command
+	EnvSolanaTestCreatorWallet = "SOLANA_TEST_CREATOR_WALLET"
+	EnvSolanaTreasuryWallet    = "SOLANA_TREASURY_WALLET"
 )
 
 func getAuthToken(ctx *cli.Context) error {
@@ -426,6 +431,118 @@ func fundEscrowAction(ctx *cli.Context) error {
 	return nil
 }
 
+// --- Start of new code for get-balances command ---
+
+type walletInfo struct {
+	Name    string
+	EnvVar  string
+	Address solanago.PublicKey
+}
+
+func getWalletBalancesAction(c *cli.Context) error {
+	rpcEndpoint := os.Getenv(EnvSolanaRPCEndpoint)
+	if rpcEndpoint == "" {
+		return fmt.Errorf("%s is not set", EnvSolanaRPCEndpoint)
+	}
+	usdcMintAddressStr := os.Getenv(EnvSolanaUSDCMintAddress)
+	if usdcMintAddressStr == "" {
+		return fmt.Errorf("%s is not set", EnvSolanaUSDCMintAddress)
+	}
+
+	usdcMintPk, err := solanago.PublicKeyFromBase58(usdcMintAddressStr)
+	if err != nil {
+		return fmt.Errorf("invalid USDC mint address %s: %w", usdcMintAddressStr, err)
+	}
+
+	rpcClient := solanautil.NewRPCClient(rpcEndpoint)
+	ctx := context.Background()
+
+	wallets := []walletInfo{
+		{Name: "Test Funder", EnvVar: EnvTestFunderWallet},
+		{Name: "Test Owner", EnvVar: EnvTestOwnerWallet},
+		{Name: "Test Creator", EnvVar: EnvSolanaTestCreatorWallet},
+		{Name: "Escrow", EnvVar: EnvSolanaEscrowWallet},
+		{Name: "Treasury", EnvVar: EnvSolanaTreasuryWallet},
+	}
+
+	fmt.Println("Fetching balances...")
+	fmt.Println("-----------------------------------------------------")
+	fmt.Printf("%-15s | %-15s | %-15s\n", "Wallet", "SOL Balance", "USDC Balance")
+	fmt.Println("-----------------------------------------------------")
+
+	for i, w := range wallets {
+		walletAddrStr := os.Getenv(w.EnvVar)
+		if walletAddrStr == "" {
+			fmt.Printf("%-15s | Error: %s not set\n", w.Name, w.EnvVar)
+			continue
+		}
+		walletPk, err := solanago.PublicKeyFromBase58(walletAddrStr)
+		if err != nil {
+			fmt.Printf("%-15s | Error: Invalid address %s (%s): %v\n", w.Name, walletAddrStr, w.EnvVar, err)
+			continue
+		}
+		wallets[i].Address = walletPk // Store valid public key
+
+		// Get SOL Balance
+		solBalance, err := getSolBalance(ctx, rpcClient, walletPk)
+		if err != nil {
+			fmt.Printf("%-15s | SOL: Error: %v | USDC: N/A\n", w.Name, err)
+			continue
+		}
+
+		// Get USDC Balance
+		usdcBalance, err := getUsdcBalance(ctx, rpcClient, walletPk, usdcMintPk)
+		if err != nil {
+			fmt.Printf("%-15s | SOL: %.6f | USDC: Error: %v\n", w.Name, solBalance, err)
+			continue
+		}
+		fmt.Printf("%-15s | %.6f SOL   | %.6f USDC\n", w.Name, solBalance, usdcBalance)
+	}
+	fmt.Println("-----------------------------------------------------")
+
+	return nil
+}
+
+func getSolBalance(ctx context.Context, rpcClient *rpc.Client, wallet solanago.PublicKey) (float64, error) {
+	out, err := rpcClient.GetBalance(ctx, wallet, rpc.CommitmentFinalized)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get SOL balance for %s: %w", wallet, err)
+	}
+	return float64(out.Value) / float64(solanago.LAMPORTS_PER_SOL), nil
+}
+
+func getUsdcBalance(ctx context.Context, rpcClient *rpc.Client, wallet solanago.PublicKey, usdcMint solanago.PublicKey) (float64, error) {
+	ata, _, err := solanago.FindAssociatedTokenAddress(wallet, usdcMint)
+	if err != nil {
+		return 0, fmt.Errorf("failed to find ATA for %s (mint %s): %w", wallet, usdcMint, err)
+	}
+
+	balanceResult, err := rpcClient.GetTokenAccountBalance(ctx, ata, rpc.CommitmentFinalized)
+	if err != nil {
+		var rpcErr *jsonrpc.RPCError
+		if errors.As(err, &rpcErr) {
+			// Error code -32602: "Invalid param: could not find account"
+			// This indicates the ATA does not exist, hence 0 balance.
+			if rpcErr.Code == -32602 || strings.Contains(rpcErr.Message, "could not find account") {
+				return 0, nil // Gracefully handle as 0 balance
+			}
+		}
+		// For other errors, or if it's not an RPCError of the expected type, return the original error.
+		return 0, fmt.Errorf("failed to get token balance for ATA %s: %w", ata, err)
+	}
+
+	if balanceResult.Value == nil {
+		return 0, fmt.Errorf("token balance result value is nil for ATA %s", ata)
+	}
+	if balanceResult.Value.UiAmount == nil {
+		// This case implies the balance is 0 if UiAmount itself is nil after a successful call.
+		return 0, nil
+	}
+	return *balanceResult.Value.UiAmount, nil
+}
+
+// --- End of new code for get-balances command ---
+
 func adminCommands() []*cli.Command {
 	return []*cli.Command{
 		{
@@ -689,5 +806,25 @@ func adminCommands() []*cli.Command {
 				},
 			},
 		},
+		{
+			Name:   "get-balances",
+			Usage:  "Retrieves and prints the SOL and USDC balances for configured wallets (reads from env vars like SOLANA_TEST_FUNDER_WALLET, etc.)",
+			Action: getWalletBalancesAction,
+			Flags:  []cli.Flag{
+				// No specific flags needed for this command as it reads from env.
+				// Common flags like rpc-endpoint could be added if desired for override.
+			},
+		},
 	}
+}
+
+func runAdminCmd(ctx *cli.Context) error {
+	// This function is a placeholder or was truncated.
+	// Based on typical urfave/cli structure, it might parse subcommands
+	// or print help if no subcommand is given. For now, returning nil.
+	// If this command had specific top-level action, it would go here.
+	// Refer to the original file if this function had more complex logic.
+	fmt.Println("Admin command executed. Use a subcommand like 'get-balances'.")
+	cli.ShowSubcommandHelp(ctx) // Show help for subcommands
+	return nil
 }

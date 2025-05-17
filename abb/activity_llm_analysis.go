@@ -28,19 +28,21 @@ func (a *Activities) CheckContentRequirements(ctx context.Context, content []byt
 
 	// Convert content bytes to string for the prompt
 	contentStr := string(content)
+	originalLength := len(contentStr) // Get original length for logging
 
 	// --- Input Size Checks ---
-	if len(contentStr) > MaxContentCharsForLLMCheck {
-		reason := fmt.Sprintf("Content exceeds maximum character limit (%d > %d)", len(contentStr), MaxContentCharsForLLMCheck)
-		logger.Warn(reason)
-		return CheckContentRequirementsResult{Satisfies: false, Reason: reason}, nil // Not an error, just failed check
+	if originalLength > MaxContentCharsForLLMCheck {
+		logger.Warn("Content exceeds maximum character limit, truncating for LLM analysis", "original_length", originalLength, "max_length", MaxContentCharsForLLMCheck)
+		contentStr = contentStr[:MaxContentCharsForLLMCheck] // Truncate contentStr
+		// DO NOT return here, proceed with truncated content
 	}
 
 	requirementsStr := strings.Join(requirements, "\n")
-	if len(requirementsStr) > MaxRequirementsCharsForLLMCheck {
-		reason := fmt.Sprintf("Requirements exceed maximum character limit (%d > %d)", len(requirementsStr), MaxRequirementsCharsForLLMCheck)
-		logger.Warn(reason)
-		return CheckContentRequirementsResult{Satisfies: false, Reason: reason}, nil // Not an error, just failed check
+	originalReqLength := len(requirementsStr) // Get original length for logging
+	if originalReqLength > MaxRequirementsCharsForLLMCheck {
+		logger.Warn("Requirements string exceeds maximum character limit, truncating", "original_length", originalReqLength, "max_length", MaxRequirementsCharsForLLMCheck)
+		requirementsStr = requirementsStr[:MaxRequirementsCharsForLLMCheck] + "..." // Truncate requirementsStr and add ellipsis
+		// DO NOT return here, proceed with truncated requirements
 	}
 	// --- End Input Size Checks ---
 
@@ -57,7 +59,7 @@ Requirements:
 Content (JSON):
 %s
 
-You must respond ONLY with a valid JSON object containing two keys: "satisfies" (a boolean indicating if the content meets the requirements) and "reason" (a string explaining your decision). Example: {"satisfies": true, "reason": "Content meets all criteria."}`, cfg.Prompt, strings.Join(requirements, "\n"), contentStr)
+You must respond ONLY with a valid JSON object containing two keys: "satisfies" (a boolean indicating if the content meets the requirements) and "reason" (a string explaining your decision). Example: {"satisfies": true, "reason": "Content meets all criteria."}`, cfg.Prompt, requirementsStr, contentStr)
 
 	// Log estimated token count
 	estimatedTokens := len(prompt) / 4
@@ -242,7 +244,10 @@ func (a *Activities) AnalyzeImageURL(ctx context.Context, imageUrl string, promp
 	req, err := http.NewRequestWithContext(ctx, "GET", imageUrl, nil)
 	if err != nil {
 		logger.Error("Failed to create image download request", "url", imageUrl, "error", err)
-		return CheckContentRequirementsResult{Satisfies: false, Reason: fmt.Sprintf("Failed to download image: %v", err)}, fmt.Errorf("failed to create image request for %s: %w", imageUrl, err)
+		return CheckContentRequirementsResult{
+			Satisfies: false,
+			Reason:    fmt.Sprintf("Failed to create image download request for %s: %v. Visual requirements could not be assessed.", imageUrl, err),
+		}, nil
 	}
 	// Add a generic User-Agent
 	req.Header.Set("User-Agent", "AffiliateBountyBoard-Worker/1.0")
@@ -250,19 +255,29 @@ func (a *Activities) AnalyzeImageURL(ctx context.Context, imageUrl string, promp
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
 		logger.Error("Failed to download image", "url", imageUrl, "error", err)
-		return CheckContentRequirementsResult{Satisfies: false, Reason: fmt.Sprintf("Failed to download image: %v", err)}, fmt.Errorf("failed to download image from %s: %w", imageUrl, err)
+		return CheckContentRequirementsResult{
+			Satisfies: false,
+			Reason:    fmt.Sprintf("Failed to download image from %s: %v. Visual requirements could not be assessed.", imageUrl, err),
+		}, nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logger.Error("Failed to download image, bad status", "url", imageUrl, "status_code", resp.StatusCode)
-		return CheckContentRequirementsResult{Satisfies: false, Reason: fmt.Sprintf("Failed to download image, status: %d", resp.StatusCode)}, fmt.Errorf("failed to download image from %s, status: %d", imageUrl, resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body) // Try to read body for context
+		logger.Error("Failed to download image, bad status", "url", imageUrl, "status_code", resp.StatusCode, "body", string(bodyBytes))
+		return CheckContentRequirementsResult{
+			Satisfies: false,
+			Reason:    fmt.Sprintf("Failed to download image from %s, status: %d. Body: %s. Visual requirements could not be assessed.", imageUrl, resp.StatusCode, string(bodyBytes)),
+		}, nil
 	}
 
 	imageData, err := io.ReadAll(resp.Body)
 	if err != nil {
 		logger.Error("Failed to read image data", "url", imageUrl, "error", err)
-		return CheckContentRequirementsResult{Satisfies: false, Reason: fmt.Sprintf("Failed to read image data: %v", err)}, fmt.Errorf("failed to read image data from %s: %w", imageUrl, err)
+		return CheckContentRequirementsResult{
+			Satisfies: false,
+			Reason:    fmt.Sprintf("Failed to read image data from %s: %v. Visual requirements could not be assessed.", imageUrl, err),
+		}, nil
 	}
 	logger.Debug("Image downloaded successfully", "url", imageUrl, "size_bytes", len(imageData))
 
@@ -277,4 +292,68 @@ func (a *Activities) AnalyzeImageURL(ctx context.Context, imageUrl string, promp
 
 	logger.Info("Image analysis successful", "satisfies", analysisResult.Satisfies, "reason", analysisResult.Reason)
 	return analysisResult, nil // Return the structured result and nil error
+}
+
+// ShouldPerformImageAnalysisResult is the result of checking if image analysis should be performed.
+type ShouldPerformImageAnalysisResult struct {
+	ShouldAnalyze bool   `json:"should_analyze"`
+	Reason        string `json:"reason"`
+}
+
+// ShouldPerformImageAnalysisActivity determines if the given requirements necessitate image analysis.
+func (a *Activities) ShouldPerformImageAnalysisActivity(ctx context.Context, requirements []string) (ShouldPerformImageAnalysisResult, error) {
+	logger := activity.GetLogger(ctx)
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "Configuration error"}, fmt.Errorf("failed to get configuration: %w", err)
+	}
+
+	requirementsStr := strings.Join(requirements, "\n")
+	if len(requirementsStr) > MaxRequirementsCharsForLLMCheck { // Reuse existing constant
+		logger.Warn("Requirements string exceeds maximum character limit for ShouldPerformImageAnalysisActivity, assuming no analysis needed.", "original_length", len(requirementsStr), "max_length", MaxRequirementsCharsForLLMCheck)
+		return ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "Requirements string too long to reliably analyze for image criteria."}, nil
+	}
+
+	// Use the new default prompt for this specific task.
+	// The LLMConfig.BasePrompt might be the generic one for CheckContentRequirements or AnalyzeImageURL.
+	// We need a targeted prompt here.
+	promptBase := DefaultShouldPerformImageAnalysisPromptBase // Defined in abb/activity.go
+
+	prompt := fmt.Sprintf(`%s
+
+Requirements:
+---
+%s
+---`, promptBase, requirementsStr)
+
+	logger.Info("Sending prompt to LLM for ShouldPerformImageAnalysisActivity", "estimated_tokens", len(prompt)/4)
+
+	llmProvider, err := NewLLMProvider(cfg.LLMConfig) // Use the general text LLM for this decision
+	if err != nil {
+		logger.Error("Failed to create LLM provider for ShouldPerformImageAnalysisActivity", "error", err)
+		return ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "LLM provider error"}, fmt.Errorf("failed to create LLM provider: %w", err)
+	}
+
+	resp, err := llmProvider.Complete(ctx, prompt)
+	if err != nil {
+		logger.Error("Failed to get LLM response for ShouldPerformImageAnalysisActivity", "error", err)
+		return ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "LLM communication error"}, fmt.Errorf("failed to get LLM response: %w", err)
+	}
+
+	resp = strings.TrimSpace(resp)
+	if strings.HasPrefix(resp, "```json") {
+		resp = strings.TrimPrefix(resp, "```json")
+		resp = strings.TrimSuffix(resp, "```") // Also trim suffix
+	}
+	resp = strings.TrimSpace(resp)
+
+	var result ShouldPerformImageAnalysisResult
+	if err := json.Unmarshal([]byte(resp), &result); err != nil {
+		logger.Error("Failed to parse LLM response for ShouldPerformImageAnalysisActivity", "error", err, "raw_response", resp)
+		// Default to not analyzing if unsure, to avoid unnecessary image processing costs/failures
+		return ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: fmt.Sprintf("LLM response parsing error: %v. Raw: %s", err, resp)}, nil
+	}
+
+	logger.Info("ShouldPerformImageAnalysisActivity result", "should_analyze", result.ShouldAnalyze, "reason", result.Reason)
+	return result, nil
 }
