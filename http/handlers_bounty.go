@@ -806,18 +806,30 @@ func handleListPaidBounties(
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		listPaidBountiesCache.RLock()
-		dataToServe := listPaidBountiesCache.data
+		cachedData := listPaidBountiesCache.data
 		// cacheTime := listPaidBountiesCache.timestamp // Could be used for Last-Modified header
 		listPaidBountiesCache.RUnlock()
 
+		dataToServe := cachedData
 		if dataToServe == nil {
 			// This case means the cache struct is initialized, but the first refresh
 			// hasn't completed or resulted in nil (which it shouldn't with make).
 			// More likely, refreshCacheContent hasn't run or is in progress for the very first time.
 			// Returning an empty list is safe.
 			l.Debug("Serving paid bounties: cache is nil (likely pre-initialization or empty state), returning empty list.")
-			writeJSONResponse(w, []PaidBountyItem{}, http.StatusOK)
-			return
+			dataToServe = make([]PaidBountyItem, 0) // Ensure it's an empty slice, not nil for JSON
+		}
+
+		// Limit to the 10 most recent bounties
+		recentBountyCountLimit := 10
+		if r.URL.Query().Get("limit") != "" {
+			limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+			if err == nil && limit > 0 {
+				recentBountyCountLimit = limit
+			}
+		}
+		if len(dataToServe) > recentBountyCountLimit {
+			dataToServe = dataToServe[:recentBountyCountLimit]
 		}
 
 		l.Debug("Serving paid bounties from cache", "item_count", len(dataToServe))
