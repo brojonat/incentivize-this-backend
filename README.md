@@ -1,6 +1,7 @@
 # affiliate-bounty-board
 
 # NOTE FOR FUTURE: the llm should construct the promp for the image llm!
+
 # ALSO NOTE FOR FUTURE: we should use this to Incentive the ProductHunt launch
 
 I was watching this new show on Apple with Seth Rogan where he has to make a cinematic Koolaid movie. This got me thinking about advertising on Reddit. Advertisers would pay for favorable mentions of their product. We can facilitate that. This is a collection of Temporal workflows and activities that provide a sort of "bounty" board for producing content on the Internet.
@@ -327,7 +328,7 @@ The project uses a two-step authentication process typical to what you'd see in 
 
    - Client submits form data with the following fields
      - `username`: Your email
-     - `password`: Server secret key (`SERVER_SECRET_KEY`)
+     - `password`: Server secret key
 
 2. **Bearer Token**: Used for all other authenticated endpoints
    - Obtained from the `/token` endpoint
@@ -343,11 +344,6 @@ Start the HTTP server:
 abb run http-server
 ```
 
-Required env vars:
-
-- `SERVER_PORT`: Port to listen on (default: 8080)
-- `SERVER_SECRET_KEY`: For validating authentication
-
 ### Admin Commands
 
 Get a new Bearer token:
@@ -355,11 +351,6 @@ Get a new Bearer token:
 ```bash
 abb admin auth get-token --email your@email.com [--env-file .env.server]
 ```
-
-Required env vars:
-
-- `SERVER_ENDPOINT`: Server URL (default: http://localhost:8080)
-- `SERVER_SECRET_KEY`: For Basic auth
 
 Options:
 

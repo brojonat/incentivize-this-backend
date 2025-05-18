@@ -55,19 +55,11 @@ refresh-token-debug: ## Refresh auth token for debugging (uses .env.server.debug
 
 run-http-server-local: ## Run the HTTP server locally (uses .env.server.debug)
 	$(call setup_env, .env.server.debug)
-	@if ! pgrep -f "kubectl port-forward.*temporal-frontend" > /dev/null; then \
-		kubectl port-forward services/temporal-frontend 7233:7233 & \
-		sleep 2; \
-	fi
 	@$(MAKE) build-cli
 	./bin/abb run http-server --temporal-address ${TEMPORAL_ADDRESS} --temporal-namespace ${TEMPORAL_NAMESPACE}
 
 run-worker-local: ## Run the Temporal worker locally (uses .env.worker.debug)
 	$(call setup_env, .env.worker.debug)
-	@if ! pgrep -f "kubectl port-forward.*temporal-frontend" > /dev/null; then \
-		kubectl port-forward services/temporal-frontend 7233:7233 & \
-		sleep 2; \
-	fi
 	@$(MAKE) build-cli
 	./bin/abb run worker --temporal-address ${TEMPORAL_ADDRESS} --temporal-namespace ${TEMPORAL_NAMESPACE}
 
@@ -189,6 +181,7 @@ describe-worker: ## Describe Kubernetes resources for the worker
 # Variables for tmux session
 TMUX_SESSION := abb-dev
 PORT_FORWARD_CMD := "kubectl port-forward service/temporal-web 8081:8080"
+TEMPORAL_FORWARD_CMD := "kubectl port-forward services/temporal-frontend 7233:7233"
 SERVER_CMD := $(MAKE) run-http-server-local # Command to run the server
 WORKER_CMD := $(MAKE) run-worker-local   # Command to run the worker
 
@@ -198,35 +191,57 @@ dev-session: stop-dev-session start-dev-session ## Stop (if running) and start a
 # Start the tmux development session
 start-dev-session: build-cli ## Start a new tmux development session with port-forward, server, worker, and CLI panes
 	@echo "Starting tmux development session: $(TMUX_SESSION)"
-	# Create session in detached mode with port-forward. Ignore error if session already exists.
-	@/usr/local/bin/tmux new-session -d -s $(TMUX_SESSION) -n 'DevEnv' "$(PORT_FORWARD_CMD)" || true
-	# Add a brief pause to allow the server to initialize
-	@sleep 1
-	# Configure panes for a 2x2 layout
-	@/usr/local/bin/tmux split-window -v -t $(TMUX_SESSION):0 "$(WORKER_CMD) 2>&1 | tee logs/worker.log" # Split vertically, run worker, pipe to tee
-	@/usr/local/bin/tmux select-pane -t 0                                     # Select Port Forward pane (0)
-	@/usr/local/bin/tmux split-window -h -t $(TMUX_SESSION):0.0 "$(SERVER_CMD) 2>&1 | tee logs/server.log" # Split horizontally, run server, pipe to tee
-	@/usr/local/bin/tmux select-pane -t 1                                     # Select Worker pane (1)
-	@/usr/local/bin/tmux split-window -h -t $(TMUX_SESSION):0.1                  # Split horizontally for CLI (pane 3)
-	@/usr/local/bin/tmux select-layout -t $(TMUX_SESSION):0 tiled             # Apply tiled layout
-	# Send messages to panes
-	@/usr/local/bin/tmux select-pane -t 0 # Select Port Forward pane (index 0)
-	@/usr/local/bin/tmux send-keys -t 0 'echo "Port Forward Pane ^"' C-m
-	@/usr/local/bin/tmux select-pane -t 1 # Select Pane 1 (Should be Server)
-	@/usr/local/bin/tmux send-keys -t 1 'echo "Server Pane ^"' C-m
-	@/usr/local/bin/tmux select-pane -t 2 # Select Pane 2 (Should be CLI)
-	@/usr/local/bin/tmux send-keys -t 2 'set -o allexport; source .env.server.debug; set +o allexport; export PATH=$$(pwd)/bin:$$PATH; echo "CLI Pane - .env sourced & ./bin added to PATH."' C-m
-	@/usr/local/bin/tmux select-pane -t 3 # Select Pane 3 (Should be Worker)
-	@/usr/local/bin/tmux send-keys -t 3 'echo "Worker Pane ^"' C-m
-	# Attach to the session, focusing the CLI pane (index 2)
-	@/usr/local/bin/tmux select-pane -t 2
+	# Create the main session with an initial window named 'dev-main'
+	@/usr/local/bin/tmux new-session -d -s $(TMUX_SESSION) -n 'dev-main'
+
+	# Add new, detached windows for the port forwarding commands to run in the background
+	@/usr/local/bin/tmux new-window -d -t $(TMUX_SESSION) -n 'TemporalWebForward' "$(PORT_FORWARD_CMD)"
+	@/usr/local/bin/tmux new-window -d -t $(TMUX_SESSION) -n 'TemporalFrontendForward' "$(TEMPORAL_FORWARD_CMD)"
+
+	@sleep 1 # Brief pause for session/windows to initialize
+
+	# --- Configure panes in the 'dev-main' window (index 0) ---
+	# Pane 0.0 is the initial pane.
+	# Split 0.0 vertically. 0.0 becomes top. New pane 0.1 (bottom) runs WORKER_CMD.
+	@/usr/local/bin/tmux split-window -v -t $(TMUX_SESSION):0.0 "($(WORKER_CMD)) 2>&1 | tee logs/worker.log"
+	# Split 0.0 (top) horizontally. 0.0 becomes top-left. New pane 0.2 (top-right) is created empty (will be CLI).
+	@/usr/local/bin/tmux split-window -h -t $(TMUX_SESSION):0.0
+	# Split 0.1 (bottom, running WORKER_CMD) horizontally. 0.1 becomes bottom-left. New pane 0.3 (bottom-right) is created empty.
+	@/usr/local/bin/tmux split-window -h -t $(TMUX_SESSION):0.1
+
+	# Pane indices before 'select-layout tiled':
+	# 0.0: Top-Left (empty, runs CLI)
+	# 0.1: Bottom-Right (runs WORKER_CMD)
+	# 0.2: Top-Right (runs SERVER_CMD)
+	# 0.3: Bottom-Left (empty, runs CLI)
+
+	@/usr/local/bin/tmux select-layout -t $(TMUX_SESSION):0 tiled # Apply tiled layout
+
+	# Send initial commands/messages to the panes (post-tiling)
+	# Pane 0.1 (Top-Right): SERVER_CMD
+	@/usr/local/bin/tmux send-keys -t $(TMUX_SESSION):0.1 "($(SERVER_CMD)) 2>&1 | tee logs/server.log" C-m
+	@/usr/local/bin/tmux send-keys -t $(TMUX_SESSION):0.1 'echo "Server Pane ^ (top-right)"' C-m
+
+	# Pane 0.0 (Top-Left)
+	@/usr/local/bin/tmux send-keys -t $(TMUX_SESSION):0.0 'set -o allexport; source .env.server.debug; set +o allexport; export PATH=$$(pwd)/bin:$$PATH; echo "CLI Pane - .env sourced & ./bin added to PATH (top-left)."' C-m
+
+
+	# Pane 0.2 (User's Visual Bottom-Left): CLI Setup
+	@/usr/local/bin/tmux send-keys -t $(TMUX_SESSION):0.2 'set -o allexport; source .env.server.debug; set +o allexport; export PATH=$$(pwd)/bin:$$PATH; echo "CLI Pane - .env sourced & ./bin added to PATH (bottom-left)."' C-m
+
+	# Pane 0.3 (User's Visual Bottom-Right): Free Pane
+	@/usr/local/bin/tmux send-keys -t $(TMUX_SESSION):0.3 'echo "Worker Pane ^ (bottom-right)"' C-m
+
+	# Attach to the session, focusing the CLI pane (0.2 - user's visual Bottom-Left)
+	@/usr/local/bin/tmux select-pane -t $(TMUX_SESSION):0.2
 	@/usr/local/bin/tmux attach-session -t $(TMUX_SESSION)
 
 # Stop the tmux development session and associated processes
 stop-dev-session: ## Stop the tmux development session and kill related processes
 	@echo "Stopping background processes..."
-	# Attempt to kill the port-forward command (adjust pattern if needed)
+	# Attempt to kill the port-forward commands (adjust patterns if needed)
 	@pkill -f "kubectl port-forward service/temporal-web" || true
+	@pkill -f "kubectl port-forward services/temporal-frontend" || true # Added for the second port-forward
 	# Attempt to kill processes started by the make commands (adjust patterns if needed)
 	# Using the make target names might be specific enough
 	@pkill -f "$(MAKE) run-http-server-local" || true

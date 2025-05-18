@@ -17,9 +17,9 @@ import (
 func (a *Activities) getABBAuthToken(ctx context.Context, logger temporal_log.Logger, cfg *Configuration, client *http.Client) (string, error) {
 	form := url.Values{}
 	form.Add("username", "temporal-bounty-poster") // Use a specific username
-	form.Add("password", cfg.ABBServerSecretKey)
+	form.Add("password", cfg.ABBServerConfig.SecretKey)
 
-	tokenURL := fmt.Sprintf("%s/token", strings.TrimSuffix(cfg.ABBServerURL, "/"))
+	tokenURL := fmt.Sprintf("%s/token", strings.TrimSuffix(cfg.ABBServerConfig.APIEndpoint, "/"))
 	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", fmt.Errorf("failed to create ABB token request: %w", err)
@@ -51,7 +51,7 @@ func (a *Activities) getABBAuthToken(ctx context.Context, logger temporal_log.Lo
 
 // Fetches the list of bounties from the ABB /bounties endpoint
 func (a *Activities) fetchBounties(ctx context.Context, logger temporal_log.Logger, cfg *Configuration, client *http.Client, token string) ([]api.BountyListItem, error) {
-	bountiesURL := fmt.Sprintf("%s/bounties", strings.TrimSuffix(cfg.ABBServerURL, "/"))
+	bountiesURL := fmt.Sprintf("%s/bounties", strings.TrimSuffix(cfg.ABBServerConfig.APIEndpoint, "/"))
 	req, err := http.NewRequestWithContext(ctx, "GET", bountiesURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create bounties request: %w", err)

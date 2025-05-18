@@ -287,7 +287,7 @@ func (a *Activities) PublishBountiesReddit(ctx context.Context) error {
 	}
 	logger.Info("Fetched bounties", "count", len(bounties))
 
-	postTitle, postBody, err := a.formatBountiesForReddit(bounties, cfg.PublicBaseURL)
+	postTitle, postBody, err := a.formatBountiesForReddit(bounties, cfg.ABBServerConfig.PublicBaseURL)
 	if err != nil {
 		logger.Error("Failed to format bounties", "error", err)
 		return fmt.Errorf("internal error formatting bounties: %w", err)

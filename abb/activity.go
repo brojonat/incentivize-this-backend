@@ -20,55 +20,48 @@ import (
 
 // Environment Variable Keys for Configuration
 const (
-	EnvLLMAPIKey              = "LLM_API_KEY"          // Corrected: Generic LLM API Key
-	EnvLLMProvider            = "LLM_PROVIDER"         // e.g., "openai", "gemini", "anthropic"
-	EnvLLMModel               = "LLM_MODEL"            // e.g., "gpt-4o", "gemini-1.5-pro"
-	EnvLLMMaxTokens           = "LLM_MAX_TOKENS"       // Added for max tokens
-	EnvLLMBasePromptFile      = "LLM_BASE_PROMPT_FILE" // Path to file containing base prompt
+	EnvABBServerEnv     = "ENV"
+	EnvABBAPIEndpoint   = "ABB_API_ENDPOINT"
+	EnvABBSecretKey     = "ABB_SECRET_KEY"
+	EnvABBAuthToken     = "ABB_AUTH_TOKEN"
+	EnvABBPublicBaseURL = "ABB_PUBLIC_BASE_URL"
+
+	EnvLLMAPIKey         = "LLM_API_KEY"          // Corrected: Generic LLM API Key
+	EnvLLMProvider       = "LLM_PROVIDER"         // e.g., "openai", "gemini", "anthropic"
+	EnvLLMModel          = "LLM_MODEL"            // e.g., "gpt-4o", "gemini-1.5-pro"
+	EnvLLMMaxTokens      = "LLM_MAX_TOKENS"       // Added for max tokens
+	EnvLLMBasePromptFile = "LLM_BASE_PROMPT_FILE" // Path to file containing base prompt
+
 	EnvSolanaRPCEndpoint      = "SOLANA_RPC_ENDPOINT"
 	EnvSolanaWSEndpoint       = "SOLANA_WS_ENDPOINT"
 	EnvSolanaEscrowPrivateKey = "SOLANA_ESCROW_PRIVATE_KEY" // Base58 encoded private key for escrow
 	EnvSolanaTreasuryWallet   = "SOLANA_TREASURY_WALLET"    // Base58 public key
 	EnvSolanaEscrowWallet     = "SOLANA_ESCROW_WALLET"      // Base58 public key (can be same as Treasury)
 	EnvSolanaUSDCMint         = "SOLANA_USDC_MINT_ADDRESS"  // Base58 public key of USDC mint
-	EnvEmailSMTPHost          = "EMAIL_SMTP_HOST"           // Renamed from EMAIL_SMTP for clarity
-	EnvEmailSMTPPort          = "EMAIL_SMTP_PORT"
-	EnvEmailPassword          = "EMAIL_PASSWORD"
-	EnvEmailSender            = "EMAIL_SENDER"
+
+	EnvEmailSender   = "EMAIL_SENDER"
+	EnvEmailPassword = "EMAIL_PASSWORD"
+	EnvEmailSMTPHost = "EMAIL_SMTP_HOST"
+	EnvEmailSMTPPort = "EMAIL_SMTP_PORT"
+
 	EnvRedditFlairID          = "REDDIT_FLAIR_ID"
-	EnvPublicBaseURL          = "PUBLIC_BASE_URL"
 	EnvRedditClientID         = "REDDIT_CLIENT_ID"
 	EnvRedditClientSecret     = "REDDIT_CLIENT_SECRET"
 	EnvRedditUsername         = "REDDIT_USERNAME"
 	EnvRedditPassword         = "REDDIT_PASSWORD"
 	EnvRedditUserAgent        = "REDDIT_USER_AGENT"
-	EnvYouTubeAPIKey          = "YOUTUBE_API_KEY"
-	EnvTwitchClientID         = "TWITCH_CLIENT_ID"
-	EnvTwitchClientSecret     = "TWITCH_CLIENT_SECRET"
-	EnvAPIServerURL           = "API_SERVER_URL"
-	EnvAppEnvironment         = "APP_ENVIRONMENT" // "local", "development", "production"
+	EnvRedditPublishSubreddit = "REDDIT_PUBLISH_SUBREDDIT"
 
-	// SMTP vars (ensure no conflict with Email specific ones)
-	EnvSMTPHostGlobal  = "SMTP_HOST" // Renamed to avoid conflict
-	EnvSMTPPortGlobal  = "SMTP_PORT" // Renamed to avoid conflict
-	EnvSMTPUserGlobal  = "SMTP_USER" // Renamed to avoid conflict
-	EnvSMTPPassword    = "SMTP_PASSWORD"
-	EnvSMTPFromAddress = "SMTP_FROM_ADDRESS"
+	EnvYouTubeAppName     = "YOUTUBE_APP_NAME"
+	EnvYouTubeAPIKey      = "YOUTUBE_API_KEY"
+	EnvTwitchClientID     = "TWITCH_CLIENT_ID"
+	EnvTwitchClientSecret = "TWITCH_CLIENT_SECRET"
 
-	// Add new constants for Image LLM
-	EnvLLMImageProvider           = "LLM_IMAGE_PROVIDER"                 // e.g., "openai", "google"
-	EnvLLMImageAPIKey             = "LLM_IMAGE_API_KEY"                  // API key for the image provider
-	EnvLLMImageModel              = "LLM_IMAGE_MODEL"                    // Model name, e.g., "gpt-4-vision-preview"
-	EnvLLMImageAnalysisPromptBase = "LLM_IMAGE_ANALYSIS_PROMPT_BASE_B64" // Added for image analysis base prompt
-
-	// Constants previously revealed by linter (ensure they are defined once)
-	EnvYouTubeAppName        = "YOUTUBE_APP_NAME"              // App name for YouTube API
-	EnvABBServerURL          = "SERVER_URL"                    // URL for internal API server (renamed from EnvServerURL for clarity)
-	EnvAuthToken             = "AUTH_TOKEN"                    // Auth token for internal API server
-	EnvLLMCheckReqPromptBase = "LLM_CHECK_REQ_PROMPT_BASE_B64" // Base prompt for CheckContentRequirements
-	EnvABBServerSecretKey    = "SERVER_SECRET_KEY"             // Secret key for internal API server auth/ops (renamed from EnvServerSecretKey for clarity)
-	EnvTargetSubreddit       = "REDDIT_TARGET_SUBREDDIT"       // Subreddit for publishing bounties
-	EnvServerEnv             = "ENV"                           // Environment name (e.g., "dev", "prod")
+	EnvLLMImageProvider           = "LLM_IMAGE_PROVIDER"
+	EnvLLMImageAPIKey             = "LLM_IMAGE_API_KEY"
+	EnvLLMImageModel              = "LLM_IMAGE_MODEL"
+	EnvLLMCheckReqPromptBase      = "LLM_CHECK_REQ_PROMPT_BASE_B64"
+	EnvLLMImageAnalysisPromptBase = "LLM_IMAGE_ANALYSIS_PROMPT_BASE_B64"
 
 	DefaultLLMCheckReqPromptBase = `You are an AI assistant evaluating content based on a set of requirements.
 Determine if the provided content satisfies ALL the given requirements.
@@ -98,15 +91,6 @@ Requirements will be provided after "REQUIREMENTS:".`
 // ContentKind defines the type of content (e.g., post, comment, video)
 type ContentKind string
 
-const (
-	ContentKindPost    ContentKind = "post"
-	ContentKindComment ContentKind = "comment"
-	ContentKindVideo   ContentKind = "video"
-	ContentKindClip    ContentKind = "clip"  // For Twitch clips
-	ContentKindStory   ContentKind = "story" // For Hacker News stories, could be same as post
-	// Add other generic kinds as needed
-)
-
 // PlatformKind defines the social media platform
 type PlatformKind string
 
@@ -116,20 +100,13 @@ const (
 	PlatformTwitch     PlatformKind = "twitch"
 	PlatformHackerNews PlatformKind = "hackernews"
 	PlatformBluesky    PlatformKind = "bluesky"
-	// Add other platforms as needed
+
+	ContentKindPost    ContentKind = "post"
+	ContentKindComment ContentKind = "comment"
+	ContentKindVideo   ContentKind = "video"
+	ContentKindClip    ContentKind = "clip"
+	ContentKindStory   ContentKind = "story"
 )
-
-// --- End Platform Agnostic Content Structures ---
-
-// --- Platform Specific Content Structures Removed (Defined later in the file) ---
-/*
-type RedditContent struct { ... }
-type YouTubeContent struct { ... }
-type TwitchVideoContent struct { ... }
-type TwitchClipContent struct { ... }
-type HackerNewsContent struct { ... }
-*/
-// --- End Platform Specific Content Structures ---
 
 // SolanaConfig holds the necessary configuration for Solana interactions.
 type SolanaConfig struct {
@@ -141,9 +118,17 @@ type SolanaConfig struct {
 	USDCMintAddress  string               `json:"usdc_mint_address"`
 }
 
+type AbbServerConfig struct {
+	APIEndpoint   string `json:"api_endpoint"`
+	SecretKey     string `json:"secret_key"`
+	AuthToken     string `json:"auth_token"`
+	PublicBaseURL string `json:"public_base_url"`
+}
+
 // Configuration holds all necessary configuration for workflows and activities.
 // It is intended to be populated inside activities to avoid non-deterministic behavior.
 type Configuration struct {
+	ABBServerConfig        AbbServerConfig        `json:"abb_server_config"`
 	SolanaConfig           SolanaConfig           `json:"solana_config"`
 	LLMConfig              LLMConfig              `json:"llm_config"`
 	ImageLLMConfig         ImageLLMConfig         `json:"image_llm_config"`
@@ -152,15 +137,10 @@ type Configuration struct {
 	TwitchDeps             TwitchDependencies     `json:"twitch_deps"`
 	HackerNewsDeps         HackerNewsDependencies `json:"hackernews_deps"`
 	BlueskyDeps            BlueskyDependencies    `json:"bluesky_deps"`
-	ServerURL              string                 `json:"server_url"`
-	AuthToken              string                 `json:"auth_token"`
 	Prompt                 string                 `json:"prompt"`
-	ABBServerURL           string                 `json:"abb_server_url"`
-	ABBServerSecretKey     string                 `json:"abb_server_secret_key"`
 	PublishTargetSubreddit string                 `json:"publish_target_subreddit"`
 	Environment            string                 `json:"environment"`
 	RedditFlairID          string                 `json:"reddit_flair_id"`
-	PublicBaseURL          string                 `json:"public_base_url"`
 }
 
 // Activities holds all activity implementations and their dependencies
@@ -348,6 +328,8 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		Password:     os.Getenv(EnvRedditPassword),
 		UserAgent:    os.Getenv(EnvRedditUserAgent),
 	}
+	targetSubreddit := os.Getenv(EnvRedditPublishSubreddit)
+	flairID := os.Getenv(EnvRedditFlairID)
 
 	// --- YouTube Dependencies ---
 	youtubeDeps := YouTubeDependencies{
@@ -368,23 +350,22 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		PDS: os.Getenv("BLUESKY_PDS_URL"), // Example: "https://bsky.social"
 	}
 
-	// --- Other Config ---
-	serverAPIURL := os.Getenv(EnvAPIServerURL) // This is for general API server if different from ABB server
-	authToken := os.Getenv(EnvAuthToken)
-	abbServerURL := os.Getenv(EnvABBServerURL)
-	abbServerSecretKey := os.Getenv(EnvABBServerSecretKey)
-	targetSubreddit := os.Getenv(EnvTargetSubreddit)
-	flairID := os.Getenv(EnvRedditFlairID)
-	publicBaseURL := os.Getenv(EnvPublicBaseURL)
+	// --- ABB Server Config ---
+	abbServerConfig := AbbServerConfig{
+		APIEndpoint:   os.Getenv(EnvABBAPIEndpoint),
+		SecretKey:     os.Getenv(EnvABBSecretKey),
+		AuthToken:     os.Getenv(EnvABBAuthToken),
+		PublicBaseURL: os.Getenv(EnvABBPublicBaseURL),
+	}
 
-	// Determine actual environment string to store in config (defaulting if necessary)
 	environmentToStore := currentEnv
 	if environmentToStore == "" {
-		environmentToStore = "development" // Default if ENV was not set at all
+		environmentToStore = "development"
 		logger.Info("ENV was not set, inferred as 'development' for config field.")
 	}
 
 	config := &Configuration{
+		ABBServerConfig:        abbServerConfig,
 		SolanaConfig:           solanaConfig,
 		LLMConfig:              llmConfig,
 		ImageLLMConfig:         imageLLMConfig,
@@ -393,17 +374,11 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		TwitchDeps:             twitchDeps,
 		HackerNewsDeps:         HackerNewsDependencies{},
 		BlueskyDeps:            blueskyDeps,
-		ServerURL:              serverAPIURL, // Use the disambiguated serverAPIURL
-		AuthToken:              authToken,
 		Prompt:                 llmConfig.BasePrompt,
-		ABBServerURL:           abbServerURL,
-		ABBServerSecretKey:     abbServerSecretKey,
 		PublishTargetSubreddit: targetSubreddit,
 		Environment:            environmentToStore,
 		RedditFlairID:          flairID,
-		PublicBaseURL:          publicBaseURL,
 	}
-
 	return config, nil
 }
 

@@ -22,7 +22,7 @@ import (
 
 // Environment Variable Keys
 const (
-	EnvServerSecretKey                   = "SERVER_SECRET_KEY"
+	EnvServerSecretKey                   = "ABB_SECRET_KEY"
 	EnvServerEnv                         = "ENV"
 	EnvTaskQueue                         = "TASK_QUEUE"
 	EnvUserRevenueSharePct               = "USER_REVENUE_SHARE_PCT"

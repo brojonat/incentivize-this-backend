@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/abb"
 	"go.temporal.io/sdk/client"
@@ -13,14 +14,30 @@ import (
 
 // RunWorker runs the worker with the specified options
 func RunWorker(ctx context.Context, l *slog.Logger, thp, tns string) error {
-	// connect to temporal
-	c, err := client.Dial(client.Options{
-		Logger:    l,
-		HostPort:  thp,
-		Namespace: tns,
-	})
+	// connect to temporal with retries
+	var c client.Client
+	var err error
+	maxRetries := 5
+	retryInterval := 5 * time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		c, err = client.Dial(client.Options{
+			Logger:    l,
+			HostPort:  thp,
+			Namespace: tns,
+		})
+		if err == nil {
+			l.Info("Successfully connected to Temporal", "address", thp, "namespace", tns)
+			break
+		}
+		l.Error("Failed to connect to Temporal", "attempt", i+1, "max_attempts", maxRetries, "error", err)
+		if i < maxRetries-1 {
+			l.Info("Retrying Temporal connection", "interval", retryInterval)
+			time.Sleep(retryInterval)
+		}
+	}
 	if err != nil {
-		return fmt.Errorf("couldn't initialize temporal client: %w", err)
+		return fmt.Errorf("couldn't initialize temporal client after %d attempts: %w", maxRetries, err)
 	}
 	defer c.Close()
 

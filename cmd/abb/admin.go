@@ -25,9 +25,9 @@ import (
 )
 
 var (
-	EnvServerSecretKey  = "SERVER_SECRET_KEY"
-	EnvServerEndpoint   = "SERVER_ENDPOINT"
-	EnvAuthToken        = "AUTH_TOKEN"
+	EnvServerSecretKey  = "ABB_SECRET_KEY"
+	EnvServerEndpoint   = "ABB_API_ENDPOINT"
+	EnvAuthToken        = "ABB_AUTH_TOKEN"
 	EnvTestOwnerWallet  = "SOLANA_TEST_OWNER_WALLET"
 	EnvTestFunderWallet = "SOLANA_TEST_FUNDER_WALLET"
 
