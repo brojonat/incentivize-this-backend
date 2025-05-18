@@ -96,8 +96,8 @@ deploy-worker: ## Deploy worker to Kubernetes (prod)
 
 # Deploy all components
 deploy-all: ## Deploy both server and worker to Kubernetes (prod)
-	$(MAKE) deploy-server
-	$(MAKE) deploy-worker
+	@$(MAKE) deploy-server
+	@$(MAKE) deploy-worker
 
 # Delete server component
 delete-server: ## Delete server from Kubernetes (prod)
