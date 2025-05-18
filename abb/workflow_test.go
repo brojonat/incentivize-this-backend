@@ -182,6 +182,7 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	env.RegisterActivity(activities.CheckContentRequirements)
 	env.RegisterActivity(activities.AnalyzeImageURL)
 	env.RegisterActivity(activities.ValidatePayoutWallet)
+	env.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
 
 	originalTotalBounty, err := solana.NewUSDCAmount(10.0)
 	require.NoError(t, err)
@@ -217,6 +218,8 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 			Verified: true,
 			Amount:   originalTotalBounty,
 		}, nil).Once()
+
+	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: true, Reason: "mocked-should-analyze"}, nil).Once()
 
 	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), mock.AnythingOfType("string")).
 		Return(nil).Once()
@@ -294,6 +297,7 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	env.RegisterActivity(activities.CheckContentRequirements)
 	env.RegisterActivity(activities.ValidatePayoutWallet)
 	env.RegisterActivity(activities.AnalyzeImageURL)
+	env.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
 
 	bountyPerPost, err := solana.NewUSDCAmount(1.0)
 	require.NoError(t, err)
@@ -325,6 +329,8 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 
 	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).
 		Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty}, nil).Maybe()
+
+	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "mocked-no-analysis"}, nil).Maybe()
 
 	env.OnActivity(activities.TransferUSDC, mock.Anything, mock.AnythingOfType("string"), feeAmount.ToUSDC(), mock.AnythingOfType("string")).
 		Return(nil).Maybe()
@@ -368,6 +374,7 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 	env.RegisterActivity(activities.CheckContentRequirements)
 	env.RegisterActivity(activities.ValidatePayoutWallet)
 	env.RegisterActivity(activities.AnalyzeImageURL)
+	env.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
 
 	originalTotalBounty, _ := solana.NewUSDCAmount(10.0)
 	totalBounty, _ := solana.NewUSDCAmount(5.0)
@@ -396,6 +403,8 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 	}
 
 	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty}, nil).Once()
+
+	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "mocked-no-analysis"}, nil).Maybe()
 
 	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), mock.AnythingOfType("string")).
 		Return(nil).Once()
@@ -455,6 +464,7 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 	env.RegisterActivity(activities.ValidatePayoutWallet)
 	env.RegisterActivity(activities.AnalyzeImageURL)
 	env.RegisterActivity(activities.PullContentActivity)
+	env.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
 
 	originalTotalBounty, _ := solana.NewUSDCAmount(10.0)
 	totalBounty, _ := solana.NewUSDCAmount(5.0)
@@ -472,6 +482,8 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 	refundCalled := make(chan struct{}, 1)
 
 	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty}, nil).Once()
+
+	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "mocked-no-analysis"}, nil).Maybe()
 
 	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), mock.AnythingOfType("string")).
 		Return(nil).Once()
