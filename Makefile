@@ -262,7 +262,6 @@ FUND_AMOUNT = $(TOTAL_AMOUNT) # Amount to fund via fund-escrow, assuming it matc
 create-reddit-bounty: ## Create and fund a Reddit example bounty
 	@echo "--- Creating and Funding Reddit Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "Post must mention 'Temporal'" \
 		-r "Must have positive score" \
 		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT) \
 		--platform reddit --content-kind post`; \
@@ -286,8 +285,6 @@ create-reddit-bounty: ## Create and fund a Reddit example bounty
 create-youtube-bounty: ## Create and fund a YouTube example bounty
 	@echo "--- Creating and Funding YouTube Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "Video must be about 'Go Programming'" \
-		-r "Video must have transcript" \
 		-r "Must have at least 10 views" \
 		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT) \
 		--platform youtube --content-kind video`; \
@@ -306,9 +303,7 @@ create-youtube-bounty: ## Create and fund a YouTube example bounty
 create-twitch-bounty: ## Create and fund a Twitch example bounty
 	@echo "--- Creating and Funding Twitch Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "Video must be about dota2" \
-		-r "Video must include a thumbail with a TI (The International) trophy" \
-		-r "Video must have at least 100 views" \
+		-r "Video must be about dota2 and have at least 100 views" \
 		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT) \
 		--platform twitch --content-kind video`; \
 	echo "Create Output: $$OUTPUT"; \
@@ -326,7 +321,6 @@ create-twitch-bounty: ## Create and fund a Twitch example bounty
 create-bluesky-bounty: ## Create and fund a Bluesky example bounty
 	@echo "--- Creating and Funding Bluesky Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "Post must tag @incentivizethis.com" \
 		-r "Must include the hashtag #bounty" \
 		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT) \
 		--platform bluesky --content-kind post`; \
@@ -345,7 +339,6 @@ create-bluesky-bounty: ## Create and fund a Bluesky example bounty
 create-hackernews-bounty: ## Create and fund a Hacker News example bounty
 	@echo "--- Creating and Funding Hacker News Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "Comment must be constructive feedback on the linked article" \
 		-r "Must be at least 50 characters long" \
 		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT) \
 		--platform hackernews --content-kind comment`; \

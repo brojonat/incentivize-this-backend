@@ -215,8 +215,8 @@ func (a *Activities) VerifyPayment(
 
 			logger.Debug("Fetched signatures", "count", len(signatures))
 
-			// Process signatures from oldest in batch to newest to find the first matching one
-			for i := len(signatures) - 1; i >= 0; i-- {
+			// Process signatures from newest in batch to oldest to find the first matching one
+			for i := 0; i < len(signatures); i++ {
 				sigResult := signatures[i]
 				// Defensive nil check
 				if sigResult == nil {

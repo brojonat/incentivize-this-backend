@@ -90,14 +90,14 @@ func getAuthToken(ctx *cli.Context) error {
 		lines := strings.Split(string(content), "\n")
 		found := false
 		for i, line := range lines {
-			if strings.HasPrefix(line, "AUTH_TOKEN=") {
-				lines[i] = fmt.Sprintf("AUTH_TOKEN=%s", resp.Message)
+			if strings.HasPrefix(line, fmt.Sprintf("%s=", EnvAuthToken)) {
+				lines[i] = fmt.Sprintf("%s=%s", EnvAuthToken, resp.Message)
 				found = true
 				break
 			}
 		}
 		if !found {
-			lines = append(lines, fmt.Sprintf("AUTH_TOKEN=%s", resp.Message))
+			lines = append(lines, fmt.Sprintf("%s=%s", EnvAuthToken, resp.Message))
 		}
 
 		if err := os.WriteFile(envFile, []byte(strings.Join(lines, "\n")), 0644); err != nil {
@@ -575,7 +575,6 @@ func adminCommands() []*cli.Command {
 						&cli.StringFlag{
 							Name:  "env-file",
 							Usage: "Path to .env file to update with the new token",
-							Value: ".env",
 						},
 					},
 					Action: getAuthToken,
