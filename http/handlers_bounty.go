@@ -580,6 +580,10 @@ func handleListPaidBounties(
 		l.Debug("Starting background cache refresh for paid bounties")
 		const backgroundFetchLimit = 100 // Define a limit for background fetching
 
+		treasuryWalletAddress := os.Getenv(EnvSolanaTreasuryWallet)
+		if treasuryWalletAddress == "" {
+			l.Warn("Background refresh: SOLANA_TREASURY_WALLET env var not set. Treasury transaction filtering will be skipped.")
+		}
 		// Derive the Associated Token Account (ATA) for the escrow wallet
 		escrowATA, _, err := solanago.FindAssociatedTokenAddress(escrowWallet, usdcMintAddress)
 		if err != nil {
@@ -753,6 +757,12 @@ func handleListPaidBounties(
 			}
 
 			if recipientOwnerWallet != "" && transferAmountLamports > 0 {
+				// Skip transactions to the treasury wallet
+				if treasuryWalletAddress != "" && recipientOwnerWallet == treasuryWalletAddress {
+					l.Debug("Background refresh: Skipping transaction to treasury wallet", "signature", sigInfo.Signature.String(), "recipient", recipientOwnerWallet, "amount_lamports", transferAmountLamports)
+					continue
+				}
+
 				amountUSDC := float64(transferAmountLamports) / math.Pow10(6)
 				paidBounty := PaidBountyItem{
 					Signature:            sigInfo.Signature.String(),
