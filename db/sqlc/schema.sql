@@ -1,6 +1,10 @@
 -- schema.sql for sqlc generation, DO NOT use with atlas; use golang-migrate instead.
-CREATE TABLE IF NOT EXISTS bounty_embeddings (
-    bounty_id VARCHAR(255) NOT NULL,
-    embedding_vector VECTOR(1536) NOT NULL,
-    PRIMARY KEY (bounty_id)
-);
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Placeholder for bounty_embeddings table schema.
+-- Actual schema should be managed by golang-migrate.
+-- Example:
+-- CREATE TABLE bounty_embeddings (
+--     bounty_id VARCHAR(255) PRIMARY KEY,
+--     embedding vector(768) -- Ensure dimension matches your LLM model (e.g., 768, 1536)
+-- );

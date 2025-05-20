@@ -12,11 +12,13 @@ import (
 	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/abb"
+	"github.com/brojonat/affiliate-bounty-board/db/dbgen"
 	"github.com/brojonat/affiliate-bounty-board/http/api"
 	"github.com/brojonat/affiliate-bounty-board/internal/stools"
 	solanago "github.com/gagliardetto/solana-go"
 	solanarpc "github.com/gagliardetto/solana-go/rpc"
 	"github.com/gorilla/handlers"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/client"
 )
 
@@ -35,6 +37,8 @@ const (
 	EnvSolanaWSEndpoint                  = "SOLANA_WS_ENDPOINT"
 	EnvSolanaUSDCMintAddress             = "SOLANA_USDC_MINT_ADDRESS"
 	EnvSolanaTreasuryWallet              = "SOLANA_TREASURY_WALLET"
+	EnvAbbDatabaseURL                    = "ABB_DATABASE_URL"    // For DB connection
+	EnvLLMEmbeddingModelName             = "LLM_EMBEDDING_MODEL" // For LLM Provider init
 )
 
 type corsConfigKey struct{}
@@ -130,6 +134,40 @@ func writeJSONResponse(w http.ResponseWriter, resp interface{}, code int) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// getConnPool establishes a connection pool to the database with retries.
+func getConnPool(ctx context.Context, dbURL string, logger *slog.Logger, maxRetries int, retryInterval time.Duration) (*pgxpool.Pool, error) {
+	var pool *pgxpool.Pool
+	var err error
+
+	for i := 0; i < maxRetries; i++ {
+		cfg, parseErr := pgxpool.ParseConfig(dbURL)
+		if parseErr != nil {
+			return nil, fmt.Errorf("failed to parse database URL: %w", parseErr)
+		}
+
+		pool, err = pgxpool.NewWithConfig(ctx, cfg)
+		if err == nil {
+			// Ping the database to ensure connectivity
+			pingErr := pool.Ping(ctx)
+			if pingErr == nil {
+				logger.Info("Successfully connected to the database", "url", dbURL) // Consider obfuscating sensitive parts of dbURL
+				return pool, nil
+			}
+			// If ping fails, set err and close the potentially created pool before retrying
+			err = fmt.Errorf("failed to ping database: %w", pingErr)
+			pool.Close() // Close the pool as ping failed
+			pool = nil   // Set pool to nil as it's not usable
+		} // If NewWithConfig failed, err is already set
+
+		logger.Error("Failed to connect to database", "attempt", i+1, "max_attempts", maxRetries, "error", err)
+		if i < maxRetries-1 {
+			logger.Info("Retrying database connection", "interval", retryInterval)
+			time.Sleep(retryInterval)
+		}
+	}
+	return nil, fmt.Errorf("could not connect to database after %d attempts: %w", maxRetries, err)
+}
+
 // RunServer starts the HTTP server with the given configuration
 func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port string) error {
 	mux := http.NewServeMux()
@@ -222,6 +260,49 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	// Create Rate Limiter for JWT-based assessment endpoint
 	jwtAssessLimiter := NewRateLimiter(1*time.Hour, 10) // 10 requests per hour per JWT
 
+	// --- Database Connection ---
+	dbURL := os.Getenv(EnvAbbDatabaseURL)
+	var querier dbgen.Querier // Define querier, to be initialized if dbURL is set
+	var dbPool *pgxpool.Pool
+
+	if dbURL != "" {
+		var errDb error
+		dbPool, errDb = getConnPool(ctx, dbURL, logger, 5, 5*time.Second)
+		if errDb != nil {
+			// Depending on criticality, you might want to return errDb here and fail server startup
+			logger.Error("Failed to connect to database, semantic search features will be unavailable", "error", errDb)
+		} else {
+			querier = dbgen.New(dbPool) // Initialize querier with the pool
+			defer dbPool.Close()
+			logger.Info("Database connection established for semantic search.")
+		}
+	} else {
+		logger.Warn("ABB_DATABASE_URL not set, semantic search features will be disabled.")
+	}
+	// --- End Database Connection ---
+
+	// --- LLM Embedding Provider Initialization (Placeholder) ---
+	// In a real scenario, you would initialize your LLMEmbeddingProvider here.
+	// This might involve reading API keys, model names from env, etc.
+	// For now, we'll use a nil provider or a mock if we had one.
+	// var llmEmbedProvider abb.LLMEmbeddingProvider
+	// Example if you had a NewMyLLMEmbedder function:
+	// llmEmbeddingModelName := os.Getenv(EnvLLMEmbeddingModelName)
+	// if llmEmbeddingModelName != "" && os.Getenv("YOUR_LLM_API_KEY_ENV") != "" {
+	// 	 llmEmbedProvider = NewMyLLMEmbedder(os.Getenv("YOUR_LLM_API_KEY_ENV"), llmEmbeddingModelName)
+	// 	 logger.Info("LLM Embedding Provider initialized.")
+	// } else {
+	// 	 logger.Warn("LLM Embedding Provider not configured, search functionality might be limited.")
+	// }
+	// For the purpose of this exercise, we are assuming the activity handles LLM calls for storage,
+	// and for search, we'd need a concrete provider here. Let's assume it's passed if needed.
+	// We will stub it for now, the handleSearchBounties will need it.
+	var llmEmbedProvider abb.LLMEmbeddingProvider // Keep as nil for now, to be implemented
+	if llmEmbedProvider == nil {                  // This is just to avoid unused variable error if not used immediately
+		logger.Warn("LLMEmbeddingProvider is not initialized. Search endpoint will not work.")
+	}
+	// --- End LLM Embedding Provider ---
+
 	// Add routes
 	mux.HandleFunc("GET /ping", stools.AdaptHandler(
 		handlePing(),
@@ -280,6 +361,26 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
 		requireStatus(UserStatusDefault),
 	))
+
+	// --- Add New Embedding Routes ---
+	if querier != nil { // Only add routes if DB is connected
+		mux.HandleFunc("POST /bounties/embeddings", stools.AdaptHandler(
+			handleStoreBountyEmbedding(logger, querier), // Assuming dbgen.Querier is the correct type
+			withLogging(logger),
+			atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)), // Secure this endpoint
+			requireStatus(UserStatusSudo),                             // Example: Sudo access
+		))
+
+		mux.HandleFunc("GET /bounties/search", stools.AdaptHandler(
+			handleSearchBounties(logger, querier, tc, llmEmbedProvider, currentEnv), // Pass tc and env for fetching bounty details
+			withLogging(logger),
+			// Add appropriate auth if needed for search, e.g., atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey))
+		))
+		logger.Info("Semantic search routes registered.")
+	} else {
+		logger.Warn("Semantic search routes NOT registered due to missing database connection.")
+	}
+	// --- End New Embedding Routes ---
 
 	// Apply CORS globally
 	corsHandler := handlers.CORS(

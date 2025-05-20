@@ -25,12 +25,14 @@ const (
 	EnvABBSecretKey     = "ABB_SECRET_KEY"
 	EnvABBAuthToken     = "ABB_AUTH_TOKEN"
 	EnvABBPublicBaseURL = "ABB_PUBLIC_BASE_URL"
+	EnvABBDatabaseURL   = "ABB_DATABASE_URL" // New Env Var for Database URL
 
 	EnvLLMAPIKey         = "LLM_API_KEY"          // Corrected: Generic LLM API Key
 	EnvLLMProvider       = "LLM_PROVIDER"         // e.g., "openai", "gemini", "anthropic"
 	EnvLLMModel          = "LLM_MODEL"            // e.g., "gpt-4o", "gemini-1.5-pro"
 	EnvLLMMaxTokens      = "LLM_MAX_TOKENS"       // Added for max tokens
 	EnvLLMBasePromptFile = "LLM_BASE_PROMPT_FILE" // Path to file containing base prompt
+	EnvLLMEmbeddingModel = "LLM_EMBEDDING_MODEL"  // New Env Var for Embedding Model
 
 	EnvSolanaRPCEndpoint      = "SOLANA_RPC_ENDPOINT"
 	EnvSolanaWSEndpoint       = "SOLANA_WS_ENDPOINT"
@@ -119,10 +121,12 @@ type SolanaConfig struct {
 }
 
 type AbbServerConfig struct {
-	APIEndpoint   string `json:"api_endpoint"`
-	SecretKey     string `json:"secret_key"`
-	AuthToken     string `json:"auth_token"`
-	PublicBaseURL string `json:"public_base_url"`
+	APIEndpoint       string `json:"api_endpoint"`
+	SecretKey         string `json:"secret_key"`
+	AuthToken         string `json:"auth_token"`
+	PublicBaseURL     string `json:"public_base_url"`
+	LLMEmbeddingModel string `json:"llm_embedding_model"` // Added field
+	DatabaseURL       string `json:"database_url"`        // Added field
 }
 
 // Configuration holds all necessary configuration for workflows and activities.
@@ -352,10 +356,12 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 
 	// --- ABB Server Config ---
 	abbServerConfig := AbbServerConfig{
-		APIEndpoint:   os.Getenv(EnvABBAPIEndpoint),
-		SecretKey:     os.Getenv(EnvABBSecretKey),
-		AuthToken:     os.Getenv(EnvABBAuthToken),
-		PublicBaseURL: os.Getenv(EnvABBPublicBaseURL),
+		APIEndpoint:       os.Getenv(EnvABBAPIEndpoint),
+		SecretKey:         os.Getenv(EnvABBSecretKey),
+		AuthToken:         os.Getenv(EnvABBAuthToken),
+		PublicBaseURL:     os.Getenv(EnvABBPublicBaseURL),
+		LLMEmbeddingModel: os.Getenv(EnvLLMEmbeddingModel), // Populate new field
+		DatabaseURL:       os.Getenv(EnvABBDatabaseURL),    // Populate new field
 	}
 
 	environmentToStore := currentEnv

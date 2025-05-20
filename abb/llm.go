@@ -42,6 +42,15 @@ type ImageLLMConfig struct {
 	// Potentially add BaseURL if needed for self-hosted vision models
 }
 
+// LLMEmbeddingProvider defines the interface for generating text embeddings.
+type LLMEmbeddingProvider interface {
+	GenerateEmbedding(ctx context.Context, text string, modelName string) ([]float32, error)
+}
+
+// EmbeddingDimension is a placeholder for the actual dimension of your embeddings.
+// This should match the model you are using (e.g., 768, 1536).
+const EmbeddingDimension = 768 // Example dimension, configure as needed
+
 // NewLLMProvider creates a new text LLM provider based on the configuration
 func NewLLMProvider(cfg LLMConfig) (LLMProvider, error) {
 	switch cfg.Provider {

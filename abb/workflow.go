@@ -98,8 +98,31 @@ type BountyAssessmentWorkflowInput struct {
 
 // BountyAssessmentWorkflow represents the workflow that manages bounty assessment
 func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkflowInput) error {
+	logger := workflow.GetLogger(ctx)
+	logger.Info("BountyAssessmentWorkflow started", "workflowID", workflow.GetInfo(ctx).WorkflowExecution.ID, "input", input)
 
-	logger := workflow.GetLogger(ctx) // Moved logger initialization up for validation
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 1 * time.Minute, // Short timeout for most activities
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 3,
+		},
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	// Step 0: Generate and Store Embedding for the bounty
+	embeddingActivityInput := GenerateAndStoreBountyEmbeddingActivityInput{
+		BountyID:      workflow.GetInfo(ctx).WorkflowExecution.ID,
+		WorkflowInput: input,
+	}
+	err := workflow.ExecuteActivity(ctx, actividades.GenerateAndStoreBountyEmbeddingActivity, embeddingActivityInput).Get(ctx, nil)
+	if err != nil {
+		logger.Error("GenerateAndStoreBountyEmbeddingActivity failed.", "error", err)
+		// Decide if this is a critical failure. For now, we log and continue.
+		// If search is critical, you might want to return err here.
+	}
+
+	// Step 1: Await Funding
+	var fundingResult string // To store the result of the funding signal
 
 	// --- Input Validation ---
 	if input.BountyPerPost == nil || !input.BountyPerPost.IsPositive() {
@@ -164,7 +187,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	// await the bounty payment from the funder
-	_, err := awaitBountyFund(ctx, input) // Pass full input
+	_, err = awaitBountyFund(ctx, input) // Pass full input
 	if err != nil {
 		return err
 	}
