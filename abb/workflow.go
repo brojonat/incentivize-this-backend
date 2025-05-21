@@ -121,7 +121,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 		// If search is critical, you might want to return err here.
 	}
 
-	// Step 1: Await Funding
+	// Await Funding
 	var fundingResult string // To store the result of the funding signal
 
 	// --- Input Validation ---
