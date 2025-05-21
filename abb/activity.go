@@ -360,8 +360,8 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		SecretKey:         os.Getenv(EnvABBSecretKey),
 		AuthToken:         os.Getenv(EnvABBAuthToken),
 		PublicBaseURL:     os.Getenv(EnvABBPublicBaseURL),
-		LLMEmbeddingModel: os.Getenv(EnvLLMEmbeddingModel), // Populate new field
-		DatabaseURL:       os.Getenv(EnvABBDatabaseURL),    // Populate new field
+		LLMEmbeddingModel: os.Getenv(EnvLLMEmbeddingModel),
+		DatabaseURL:       os.Getenv(EnvABBDatabaseURL),
 	}
 
 	environmentToStore := currentEnv
