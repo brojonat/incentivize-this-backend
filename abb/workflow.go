@@ -122,7 +122,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	}
 
 	// Await Funding
-	var fundingResult string // To store the result of the funding signal
+	var fundingResult string
 
 	// --- Input Validation ---
 	if input.BountyPerPost == nil || !input.BountyPerPost.IsPositive() {
