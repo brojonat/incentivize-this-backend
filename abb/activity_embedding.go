@@ -29,8 +29,6 @@ func (a *Activities) GenerateAndStoreBountyEmbeddingActivity(ctx context.Context
 		return fmt.Errorf("failed to get configuration: %w", err)
 	}
 
-	// 1. Construct text for embedding
-	// Example: {"content_platform": "reddit", "content_kind": "comment", "requirements": "foo bar baz"}
 	embeddingTextPayload := struct {
 		ContentPlatform string   `json:"content_platform"`
 		ContentKind     string   `json:"content_kind"`
