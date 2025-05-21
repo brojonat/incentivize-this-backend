@@ -79,7 +79,7 @@ func (a *Activities) GenerateAndStoreBountyEmbeddingActivity(ctx context.Context
 	embeddingVector := pgvector.NewVector(embeddingSlice)
 
 	// 3. Get ABB Auth Token
-	abbToken, err := a.getABBAuthToken(ctx, logger, cfg, a.httpClient) // Use existing method
+	abbToken, err := a.getABBAuthToken(ctx, logger, cfg, a.httpClient)
 	if err != nil {
 		return fmt.Errorf("failed to get ABB auth token for embedding storage: %w", err)
 	}
