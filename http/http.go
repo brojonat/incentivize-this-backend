@@ -37,8 +37,8 @@ const (
 	EnvSolanaWSEndpoint                  = "SOLANA_WS_ENDPOINT"
 	EnvSolanaUSDCMintAddress             = "SOLANA_USDC_MINT_ADDRESS"
 	EnvSolanaTreasuryWallet              = "SOLANA_TREASURY_WALLET"
-	EnvAbbDatabaseURL                    = "ABB_DATABASE_URL"    // For DB connection
-	EnvLLMEmbeddingModelName             = "LLM_EMBEDDING_MODEL" // For LLM Provider init
+	EnvAbbDatabaseURL                    = "ABB_DATABASE_URL"
+	EnvLLMEmbeddingModelName             = "LLM_EMBEDDING_MODEL"
 )
 
 type corsConfigKey struct{}
