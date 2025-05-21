@@ -25,7 +25,7 @@ const (
 	EnvABBSecretKey     = "ABB_SECRET_KEY"
 	EnvABBAuthToken     = "ABB_AUTH_TOKEN"
 	EnvABBPublicBaseURL = "ABB_PUBLIC_BASE_URL"
-	EnvABBDatabaseURL   = "ABB_DATABASE_URL" // New Env Var for Database URL
+	EnvABBDatabaseURL   = "ABB_DATABASE_URL"
 
 	EnvLLMAPIKey         = "LLM_API_KEY"          // Corrected: Generic LLM API Key
 	EnvLLMProvider       = "LLM_PROVIDER"         // e.g., "openai", "gemini", "anthropic"
