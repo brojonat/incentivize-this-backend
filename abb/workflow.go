@@ -109,7 +109,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	}
 	ctx = workflow.WithActivityOptions(ctx, ao)
 
-	// Step 0: Generate and Store Embedding for the bounty
+	// Generate and Store Embedding for the bounty
 	embeddingActivityInput := GenerateAndStoreBountyEmbeddingActivityInput{
 		BountyID:      workflow.GetInfo(ctx).WorkflowExecution.ID,
 		WorkflowInput: input,
