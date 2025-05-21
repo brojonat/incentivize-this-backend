@@ -150,7 +150,6 @@ func getConnPool(ctx context.Context, dbURL string, logger *slog.Logger, maxRetr
 			// Ping the database to ensure connectivity
 			pingErr := pool.Ping(ctx)
 			if pingErr == nil {
-				logger.Info("Successfully connected to the database", "url", dbURL) // Consider obfuscating sensitive parts of dbURL
 				return pool, nil
 			}
 			// If ping fails, set err and close the potentially created pool before retrying
