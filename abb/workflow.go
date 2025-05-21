@@ -187,7 +187,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	// await the bounty payment from the funder
-	_, err = awaitBountyFund(ctx, input) // Pass full input
+	_, err = awaitBountyFund(ctx, input)
 	if err != nil {
 		return err
 	}
