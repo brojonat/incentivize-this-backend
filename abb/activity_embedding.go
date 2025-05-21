@@ -81,7 +81,7 @@ func (a *Activities) GenerateAndStoreBountyEmbeddingActivity(ctx context.Context
 		return fmt.Errorf("failed to get ABB auth token for embedding storage: %w", err)
 	}
 
-	// 4. Make HTTP POST request to /bounties/embeddings
+	// Make HTTP POST request to /bounties/embeddings
 	storeEmbeddingReqPayload := struct {
 		BountyID  string          `json:"bounty_id"`
 		Embedding pgvector.Vector `json:"embedding"`
