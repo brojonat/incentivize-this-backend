@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	defaultSearchLimit = 10
+	defaultSearchLimit = 20
 )
 
 // StoreEmbeddingRequest is the request body for storing a bounty embedding.
