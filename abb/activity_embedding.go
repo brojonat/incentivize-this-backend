@@ -96,7 +96,7 @@ func (a *Activities) GenerateAndStoreBountyEmbeddingActivity(ctx context.Context
 	}
 
 	storeURL := strings.TrimSuffix(cfg.ABBServerConfig.APIEndpoint, "/") + "/bounties/embeddings"
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", storeURL, bytes.NewReader(payloadBytes))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, storeURL, bytes.NewReader(payloadBytes))
 	if err != nil {
 		return fmt.Errorf("failed to create store embedding HTTP request: %w", err)
 	}
