@@ -125,8 +125,8 @@ type AbbServerConfig struct {
 	SecretKey         string `json:"secret_key"`
 	AuthToken         string `json:"auth_token"`
 	PublicBaseURL     string `json:"public_base_url"`
-	LLMEmbeddingModel string `json:"llm_embedding_model"` // Added field
-	DatabaseURL       string `json:"database_url"`        // Added field
+	LLMEmbeddingModel string `json:"llm_embedding_model"`
+	DatabaseURL       string `json:"database_url"`
 }
 
 // Configuration holds all necessary configuration for workflows and activities.
