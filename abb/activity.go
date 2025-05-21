@@ -27,12 +27,12 @@ const (
 	EnvABBPublicBaseURL = "ABB_PUBLIC_BASE_URL"
 	EnvABBDatabaseURL   = "ABB_DATABASE_URL"
 
-	EnvLLMAPIKey         = "LLM_API_KEY"          // Corrected: Generic LLM API Key
-	EnvLLMProvider       = "LLM_PROVIDER"         // e.g., "openai", "gemini", "anthropic"
-	EnvLLMModel          = "LLM_MODEL"            // e.g., "gpt-4o", "gemini-1.5-pro"
-	EnvLLMMaxTokens      = "LLM_MAX_TOKENS"       // Added for max tokens
-	EnvLLMBasePromptFile = "LLM_BASE_PROMPT_FILE" // Path to file containing base prompt
-	EnvLLMEmbeddingModel = "LLM_EMBEDDING_MODEL"  // New Env Var for Embedding Model
+	EnvLLMAPIKey         = "LLM_API_KEY"
+	EnvLLMProvider       = "LLM_PROVIDER"
+	EnvLLMModel          = "LLM_MODEL"
+	EnvLLMMaxTokens      = "LLM_MAX_TOKENS"
+	EnvLLMBasePromptFile = "LLM_BASE_PROMPT_FILE"
+	EnvLLMEmbeddingModel = "LLM_EMBEDDING_MODEL"
 
 	EnvSolanaRPCEndpoint      = "SOLANA_RPC_ENDPOINT"
 	EnvSolanaWSEndpoint       = "SOLANA_WS_ENDPOINT"
