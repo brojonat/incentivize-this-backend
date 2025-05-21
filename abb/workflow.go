@@ -102,7 +102,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	logger.Info("BountyAssessmentWorkflow started", "workflowID", workflow.GetInfo(ctx).WorkflowExecution.ID, "input", input)
 
 	ao := workflow.ActivityOptions{
-		StartToCloseTimeout: 1 * time.Minute, // Short timeout for most activities
+		StartToCloseTimeout: 1 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			MaximumAttempts: 3,
 		},
