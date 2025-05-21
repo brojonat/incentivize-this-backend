@@ -48,7 +48,7 @@ type LLMEmbeddingProvider interface {
 }
 
 // EmbeddingDimension should match the model you are using (e.g., 768, 1536).
-const EmbeddingDimension = 768 // Example dimension, configure as needed
+const EmbeddingDimension = 1536
 
 // NewLLMProvider creates a new text LLM provider based on the configuration
 func NewLLMProvider(cfg LLMConfig) (LLMProvider, error) {
