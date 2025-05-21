@@ -136,6 +136,7 @@ type Configuration struct {
 	SolanaConfig           SolanaConfig           `json:"solana_config"`
 	LLMConfig              LLMConfig              `json:"llm_config"`
 	ImageLLMConfig         ImageLLMConfig         `json:"image_llm_config"`
+	EmbeddingConfig        EmbeddingConfig        `json:"embedding_config"`
 	RedditDeps             RedditDependencies     `json:"reddit_deps"`
 	YouTubeDeps            YouTubeDependencies    `json:"youtube_deps"`
 	TwitchDeps             TwitchDependencies     `json:"twitch_deps"`
@@ -242,15 +243,14 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		}
 	}
 
-	// --- LLM Config (Populate as before, this logic is independent of workerEnv for Solana) ---
+	// --- LLM Config ---
 	llmProviderName := os.Getenv(EnvLLMProvider)
 	llmModelName := os.Getenv(EnvLLMModel)
 	llmBasePromptFile := os.Getenv(EnvLLMBasePromptFile)
+	llmAPIKey := os.Getenv(EnvLLMAPIKey)
 
-	llmAPIKey := os.Getenv(EnvLLMAPIKey) // Use the generic LLM API Key env var
-
-	if llmAPIKey == "" && llmProviderName != "" { // Only warn if a provider was set but no key found
-		logger.Warn("LLM API Key not found for configured provider", "provider", llmProviderName, "key_env_var", EnvLLMAPIKey)
+	if llmAPIKey == "" && llmProviderName != "" {
+		return nil, fmt.Errorf("LLM API Key not found for configured provider %s", llmProviderName)
 	}
 
 	maxTokensStr := os.Getenv(EnvLLMMaxTokens)
@@ -263,24 +263,26 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 			logger.Warn("Invalid LLM_MAX_TOKENS value, using default", "value", maxTokensStr, "default", DefaultLLMMaxTokens, "error", err)
 		}
 	}
-
 	llmConfig := LLMConfig{
 		Provider:  llmProviderName,
 		APIKey:    llmAPIKey,
 		Model:     llmModelName,
-		MaxTokens: maxTokens, // Set MaxTokens
+		MaxTokens: maxTokens,
 	}
 
 	// --- Image LLM Config ---
-	// (Similar logic as LLMConfig, assuming separate env vars for image LLM if needed)
-	// For now, let's assume it might reuse the same provider/key or have its own set.
-	// This part needs to be filled based on how ImageLLMConfig is structured and configured.
-	// Example placeholder:
 	imageLLMConfig := ImageLLMConfig{
 		Provider: os.Getenv(EnvLLMImageProvider),
 		APIKey:   os.Getenv(EnvLLMImageAPIKey),
 		Model:    os.Getenv(EnvLLMImageModel),
-		// BasePrompt will be set below
+		// BasePrompt is set belo
+	}
+
+	// --- Embedding Config ---
+	embeddingConfig := EmbeddingConfig{
+		Provider: os.Getenv(EnvLLMProvider),
+		APIKey:   os.Getenv(EnvLLMAPIKey),
+		Model:    os.Getenv(EnvLLMEmbeddingModel),
 	}
 
 	// --- Base Prompt Loading (for CheckContentRequirements) ---
@@ -375,6 +377,7 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		SolanaConfig:           solanaConfig,
 		LLMConfig:              llmConfig,
 		ImageLLMConfig:         imageLLMConfig,
+		EmbeddingConfig:        embeddingConfig,
 		RedditDeps:             redditDeps,
 		YouTubeDeps:            youtubeDeps,
 		TwitchDeps:             twitchDeps,

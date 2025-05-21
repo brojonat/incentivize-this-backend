@@ -8,7 +8,7 @@ embedding = EXCLUDED.embedding;
 SELECT bounty_id, embedding
 FROM bounty_embeddings
 ORDER BY embedding <=> @embedding
-LIMIT @limit;
+LIMIT @row_count;
 
 -- name: DeleteEmbedding :exec
 DELETE FROM bounty_embeddings

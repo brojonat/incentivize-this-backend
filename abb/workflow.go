@@ -114,15 +114,12 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 		BountyID:      workflow.GetInfo(ctx).WorkflowExecution.ID,
 		WorkflowInput: input,
 	}
-	err := workflow.ExecuteActivity(ctx, activities.GenerateAndStoreBountyEmbeddingActivity, embeddingActivityInput).Get(ctx, nil)
+	err := workflow.ExecuteActivity(ctx, (*Activities).GenerateAndStoreBountyEmbeddingActivity, embeddingActivityInput).Get(ctx, nil)
 	if err != nil {
 		logger.Error("GenerateAndStoreBountyEmbeddingActivity failed.", "error", err)
 		// Decide if this is a critical failure. For now, we log and continue.
 		// If search is critical, you might want to return err here.
 	}
-
-	// Await Funding
-	var fundingResult string
 
 	// --- Input Validation ---
 	if input.BountyPerPost == nil || !input.BountyPerPost.IsPositive() {

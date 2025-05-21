@@ -25,6 +25,9 @@ require (
 	github.com/golang/mock v1.6.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.3 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.16.0 // indirect
 	github.com/logrusorgru/aurora v2.0.3+incompatible // indirect
@@ -69,5 +72,7 @@ require (
 
 require (
 	github.com/felixge/httpsnoop v1.0.3 // indirect
+	github.com/jackc/pgx/v5 v5.7.5
 	github.com/jmespath/go-jmespath v0.4.0
+	github.com/pgvector/pgvector-go v0.3.0
 )

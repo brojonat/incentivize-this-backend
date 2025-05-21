@@ -42,6 +42,14 @@ type ImageLLMConfig struct {
 	// Potentially add BaseURL if needed for self-hosted vision models
 }
 
+// EmbeddingConfig holds configuration for embedding LLM providers
+type EmbeddingConfig struct {
+	Provider string
+	APIKey   string
+	Model    string
+	BaseURL  string // Optional: for self-hosted or alternative endpoints
+}
+
 // LLMEmbeddingProvider defines the interface for generating text embeddings.
 type LLMEmbeddingProvider interface {
 	GenerateEmbedding(ctx context.Context, text string, modelName string) ([]float32, error)
@@ -72,6 +80,17 @@ func NewImageLLMProvider(cfg ImageLLMConfig) (ImageLLMProvider, error) {
 		return &OpenAIImageProvider{cfg: cfg}, nil
 	default:
 		return nil, fmt.Errorf("unsupported Image LLM provider: %s", cfg.Provider)
+	}
+}
+
+// NewLLMEmbeddingProvider creates a new LLM embedding provider based on the configuration
+func NewLLMEmbeddingProvider(cfg EmbeddingConfig) (LLMEmbeddingProvider, error) {
+	switch cfg.Provider {
+	case "openai":
+		return &OpenAIEmbeddingProvider{cfg: cfg}, nil
+	// Add other providers like "ollama" here if needed
+	default:
+		return nil, fmt.Errorf("unsupported LLM Embedding provider: %s", cfg.Provider)
 	}
 }
 
@@ -257,6 +276,79 @@ If there are no specific visual requirements mentioned, respond with {"satisfies
 	}
 
 	return result, nil
+}
+
+// OpenAIEmbeddingProvider implements LLMEmbeddingProvider for OpenAI
+type OpenAIEmbeddingProvider struct {
+	cfg EmbeddingConfig
+}
+
+// GenerateEmbedding generates text embeddings using the OpenAI API.
+// The modelName parameter in the interface is available, but this implementation
+// will primarily use the model specified in its own configuration (cfg.ModelName).
+func (p *OpenAIEmbeddingProvider) GenerateEmbedding(ctx context.Context, text string, modelName string) ([]float32, error) {
+	// Use the model from the provider's configuration if modelName argument is empty
+	effectiveModelName := p.cfg.Model
+	if modelName != "" {
+		effectiveModelName = modelName // Allow override if explicitly passed
+	}
+	if effectiveModelName == "" {
+		return nil, fmt.Errorf("OpenAI embedding model name not configured or provided")
+	}
+
+	apiURL := "https://api.openai.com/v1/embeddings"
+	if p.cfg.BaseURL != "" {
+		apiURL = strings.TrimSuffix(p.cfg.BaseURL, "/") + "/v1/embeddings"
+	}
+
+	reqBody := struct {
+		Input string `json:"input"`
+		Model string `json:"model"`
+	}{
+		Input: text,
+		Model: effectiveModelName,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal OpenAI embedding request body: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OpenAI embedding request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+p.cfg.APIKey)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send OpenAI embedding request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("OpenAI Embeddings API returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var result struct {
+		Data []struct {
+			Embedding []float32 `json:"embedding"`
+		} `json:"data"`
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse OpenAI embedding response: %w (body: %s)", err, string(bodyBytes))
+	}
+
+	if len(result.Data) == 0 || len(result.Data[0].Embedding) == 0 {
+		return nil, fmt.Errorf("no embedding data in OpenAI response")
+	}
+
+	return result.Data[0].Embedding, nil
 }
 
 // AnthropicProvider implements LLMProvider for Anthropic (Text)

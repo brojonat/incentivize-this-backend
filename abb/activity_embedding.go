@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -46,32 +47,20 @@ func (a *Activities) GenerateAndStoreBountyEmbeddingActivity(ctx context.Context
 	embeddingText := string(embeddingTextBytes)
 	logger.Info("Constructed text for embedding", "bounty_id", input.BountyID, "text_preview", embeddingText[:100])
 
-	// The actual LLMEmbeddingProvider would be instantiated based on LLMConfig in Configuration.
-	// For this activity, we assume an LLM client/provider is accessible or created here.
-	// This part requires a concrete LLM client or provider setup.
-	// For now, this is a placeholder for the actual embedding generation call.
-
-	// Placeholder for llmProvider initialization and usage:
-	// llmProvider, err := NewLLMEmbeddingProviderFromConfig(cfg.LLMConfig, cfg.ABBServerConfig.LLMEmbeddingModel) // Hypothetical constructor
-	// if err != nil {
-	// 	 return fmt.Errorf("failed to init LLM embedding provider: %w", err)
-	// }
-	// embeddingSlice, err := llmProvider.GenerateEmbedding(ctx, embeddingText, cfg.ABBServerConfig.LLMEmbeddingModel)
-	// if err != nil {
-	// 	 return fmt.Errorf("failed to generate embedding: %w", err)
-	// }
-
-	// !!! SIMULATED EMBEDDING - REPLACE WITH ACTUAL LLM CALL !!!
-	if cfg.ABBServerConfig.LLMEmbeddingModel == "" {
-		logger.Warn("LLMEmbeddingModel not configured, skipping embedding generation for activity.")
-		// Depending on strictness, you might return an error or allow workflow to proceed without embedding
-		return nil // For now, allow to proceed if model not set
+	// Use the EmbeddingConfig from the global Configuration
+	if cfg.EmbeddingConfig.Provider == "" || cfg.EmbeddingConfig.Model == "" {
+		return errors.New("LLM Embedding Provider or Model not configured.")
 	}
-	logger.Info("Simulating embedding generation as actual LLM call is not implemented here.", "model", cfg.ABBServerConfig.LLMEmbeddingModel)
-	embeddingSlice := make([]float32, EmbeddingDimension) // Using EmbeddingDimension from abb/llm.go
-	// Populate with some dummy data for testing if needed, e.g. embeddingSlice[0] = 0.123
-	// In a real scenario, `embeddingSlice` would come from the LLM.
-	// !!! END SIMULATED EMBEDDING !!!
+
+	llmProvider, err := NewLLMEmbeddingProvider(cfg.EmbeddingConfig)
+	if err != nil {
+		return fmt.Errorf("failed to init LLM embedding provider: %w", err)
+	}
+
+	embeddingSlice, err := llmProvider.GenerateEmbedding(ctx, embeddingText, cfg.EmbeddingConfig.Model)
+	if err != nil {
+		return fmt.Errorf("failed to generate embedding: %w", err)
+	}
 
 	embeddingVector := pgvector.NewVector(embeddingSlice)
 

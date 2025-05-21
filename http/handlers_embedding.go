@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	defaultSearchLimit = 20
+	defaultSearchLimit = 10
 )
 
 // StoreEmbeddingRequest is the request body for storing a bounty embedding.
@@ -68,25 +68,18 @@ func handleSearchBounties(logger *slog.Logger, querier dbgen.Querier, tc client.
 			return
 		}
 
-		// This model name should ideally come from a shared config or be consistent
-		// For now, using a placeholder. It must match the model used for storing embeddings.
-		// Ideally, the activity gets this from abb.Configuration which is read from env.
-		// The HTTP server could also get this from an env var for the LLMEmbeddingProvider initialization.
-		// For now, let's assume there is a configured model name available to the provider implicitly or via its init.
-		// If modelName is part of abb.Configuration.ABBServerConfig.LLMEmbeddingModel, it should be passed to the provider.
-		// Let's assume the llmProvider is configured with the correct model.
-		embeddingSlice, err := llmProvider.GenerateEmbedding(r.Context(), queryText, "") // Passing empty model, assuming provider knows.
+		embeddingSlice, err := llmProvider.GenerateEmbedding(r.Context(), queryText, "") // Provider uses its own configured model.
 		if err != nil {
 			writeInternalError(logger, w, fmt.Errorf("failed to generate query embedding: %w", err))
 			return
 		}
 		embeddingVec := pgvector.NewVector(embeddingSlice)
 
-		limit := defaultSearchLimit // Add ability to parse limit from query params if needed
+		limit := defaultSearchLimit
 
 		searchParams := dbgen.SearchEmbeddingsParams{
 			Embedding: embeddingVec,
-			Limit:     int32(limit),
+			RowCount:  int32(limit),
 		}
 
 		results, err := querier.SearchEmbeddings(r.Context(), searchParams)
@@ -96,11 +89,10 @@ func handleSearchBounties(logger *slog.Logger, querier dbgen.Querier, tc client.
 		}
 
 		if len(results) == 0 {
-			writeJSONResponse(w, []BountyListItem{}, http.StatusOK) // Return empty list, not an error
+			writeJSONResponse(w, []BountyListItem{}, http.StatusOK)
 			return
 		}
 
-		// Fetch full bounty details for the found IDs
 		bountyIDs := make([]string, len(results))
 		for i, res := range results {
 			bountyIDs[i] = res.BountyID

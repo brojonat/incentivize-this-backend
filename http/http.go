@@ -281,26 +281,32 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	// --- End Database Connection ---
 
 	// --- LLM Embedding Provider Initialization (Placeholder) ---
-	// In a real scenario, you would initialize your LLMEmbeddingProvider here.
-	// This might involve reading API keys, model names from env, etc.
-	// For now, we'll use a nil provider or a mock if we had one.
-	// var llmEmbedProvider abb.LLMEmbeddingProvider
-	// Example if you had a NewMyLLMEmbedder function:
-	// llmEmbeddingModelName := os.Getenv(EnvLLMEmbeddingModelName)
-	// if llmEmbeddingModelName != "" && os.Getenv("YOUR_LLM_API_KEY_ENV") != "" {
-	// 	 llmEmbedProvider = NewMyLLMEmbedder(os.Getenv("YOUR_LLM_API_KEY_ENV"), llmEmbeddingModelName)
-	// 	 logger.Info("LLM Embedding Provider initialized.")
-	// } else {
-	// 	 logger.Warn("LLM Embedding Provider not configured, search functionality might be limited.")
-	// }
-	// For the purpose of this exercise, we are assuming the activity handles LLM calls for storage,
-	// and for search, we'd need a concrete provider here. Let's assume it's passed if needed.
 	// We will stub it for now, the handleSearchBounties will need it.
 	var llmEmbedProvider abb.LLMEmbeddingProvider // Keep as nil for now, to be implemented
-	if llmEmbedProvider == nil {                  // This is just to avoid unused variable error if not used immediately
-		logger.Warn("LLMEmbeddingProvider is not initialized. Search endpoint will not work.")
+
+	// --- Initialize LLMEmbeddingProvider ---
+	llmProviderName := os.Getenv(abb.EnvLLMProvider)         // e.g., "openai"
+	llmAPIKey := os.Getenv(abb.EnvLLMAPIKey)                 // Shared API key
+	llmEmbeddingModel := os.Getenv(abb.EnvLLMEmbeddingModel) // e.g., "text-embedding-ada-002"
+
+	if llmProviderName != "" && llmAPIKey != "" && llmEmbeddingModel != "" {
+		embeddingCfg := abb.EmbeddingConfig{
+			Provider: llmProviderName,
+			APIKey:   llmAPIKey,
+			Model:    llmEmbeddingModel,
+			// BaseURL: os.Getenv("OPENAI_BASE_URL"), // Optional: if you need to override OpenAI endpoint
+		}
+		var errProvider error
+		llmEmbedProvider, errProvider = abb.NewLLMEmbeddingProvider(embeddingCfg)
+		if errProvider != nil {
+			logger.Error("Failed to initialize LLM Embedding Provider, search will be impaired.", "error", errProvider)
+			llmEmbedProvider = nil // Ensure it's nil if init fails
+		} else {
+			logger.Info("LLM Embedding Provider initialized successfully.", "provider", llmProviderName, "model", llmEmbeddingModel)
+		}
+	} else {
+		logger.Warn("LLM Embedding Provider not configured due to missing env vars (LLM_PROVIDER, LLM_API_KEY, LLM_EMBEDDING_MODEL). Search endpoint will not work.")
 	}
-	// --- End LLM Embedding Provider ---
 
 	// Add routes
 	mux.HandleFunc("GET /ping", stools.AdaptHandler(
@@ -361,25 +367,18 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		requireStatus(UserStatusDefault),
 	))
 
-	// --- Add New Embedding Routes ---
-	if querier != nil { // Only add routes if DB is connected
-		mux.HandleFunc("POST /bounties/embeddings", stools.AdaptHandler(
-			handleStoreBountyEmbedding(logger, querier), // Assuming dbgen.Querier is the correct type
-			withLogging(logger),
-			atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)), // Secure this endpoint
-			requireStatus(UserStatusSudo),                             // Example: Sudo access
-		))
+	mux.HandleFunc("POST /bounties/embeddings", stools.AdaptHandler(
+		handleStoreBountyEmbedding(logger, querier),
+		withLogging(logger),
+		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		requireStatus(UserStatusSudo),
+	))
 
-		mux.HandleFunc("GET /bounties/search", stools.AdaptHandler(
-			handleSearchBounties(logger, querier, tc, llmEmbedProvider, currentEnv), // Pass tc and env for fetching bounty details
-			withLogging(logger),
-			// Add appropriate auth if needed for search, e.g., atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey))
-		))
-		logger.Info("Semantic search routes registered.")
-	} else {
-		logger.Warn("Semantic search routes NOT registered due to missing database connection.")
-	}
-	// --- End New Embedding Routes ---
+	mux.HandleFunc("GET /bounties/search", stools.AdaptHandler(
+		handleSearchBounties(logger, querier, tc, llmEmbedProvider, currentEnv),
+		withLogging(logger),
+		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+	))
 
 	// Apply CORS globally
 	corsHandler := handlers.CORS(
