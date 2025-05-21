@@ -46,7 +46,6 @@ func (a *Activities) GenerateAndStoreBountyEmbeddingActivity(ctx context.Context
 	embeddingText := string(embeddingTextBytes)
 	logger.Info("Constructed text for embedding", "bounty_id", input.BountyID, "text_preview", embeddingText[:100])
 
-	// 2. Generate embedding using LLMProvider (Abstracted)
 	// The actual LLMEmbeddingProvider would be instantiated based on LLMConfig in Configuration.
 	// For this activity, we assume an LLM client/provider is accessible or created here.
 	// This part requires a concrete LLM client or provider setup.
