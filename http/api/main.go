@@ -14,6 +14,8 @@ type BountyListItem struct {
 	BountyPerPost     float64   `json:"bounty_per_post"`
 	TotalBounty       float64   `json:"total_bounty"`
 	BountyOwnerWallet string    `json:"bounty_owner_wallet"`
-	PlatformType      string    `json:"platform_type"`
+	PlatformKind      string    `json:"platform_kind"`
+	ContentKind       string    `json:"content_kind"`
 	CreatedAt         time.Time `json:"created_at"`
+	EndAt             time.Time `json:"end_at"`
 }

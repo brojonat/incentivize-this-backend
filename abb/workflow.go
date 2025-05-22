@@ -109,16 +109,17 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	}
 	ctx = workflow.WithActivityOptions(ctx, ao)
 
-	// Generate and Store Embedding for the bounty
+	// Generate and Store Embedding for the bounty, return if there's an error
 	embeddingActivityInput := GenerateAndStoreBountyEmbeddingActivityInput{
 		BountyID:      workflow.GetInfo(ctx).WorkflowExecution.ID,
 		WorkflowInput: input,
 	}
-	err := workflow.ExecuteActivity(ctx, (*Activities).GenerateAndStoreBountyEmbeddingActivity, embeddingActivityInput).Get(ctx, nil)
-	if err != nil {
-		logger.Error("GenerateAndStoreBountyEmbeddingActivity failed.", "error", err)
-		// Decide if this is a critical failure. For now, we log and continue.
-		// If search is critical, you might want to return err here.
+	if err := workflow.ExecuteActivity(
+		ctx,
+		(*Activities).GenerateAndStoreBountyEmbeddingActivity,
+		embeddingActivityInput,
+	).Get(ctx, nil); err != nil {
+		return err
 	}
 
 	// --- Input Validation ---
@@ -184,7 +185,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	// await the bounty payment from the funder
-	_, err = awaitBountyFund(ctx, input)
+	_, err := awaitBountyFund(ctx, input)
 	if err != nil {
 		return err
 	}
@@ -193,8 +194,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	logger.Info("Executing fee transfer")
 
 	// Update status before attempting fee transfer
-	err = workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusTransferringFee)))
-	if err != nil {
+	if err := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusTransferringFee))); err != nil {
 		logger.Error("Failed to update search attribute BountyStatus to TransferringFee", "error", err)
 	}
 
@@ -213,14 +213,13 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 					MaximumAttempts:    5,
 				},
 			}
-			err = workflow.ExecuteActivity(
+			if err := workflow.ExecuteActivity(
 				workflow.WithActivityOptions(ctx, transferOpts),
 				(*Activities).TransferUSDC,
 				input.TreasuryWallet,
 				feeAmount.ToUSDC(),
 				feeTransferMemo,
-			).Get(ctx, nil)
-			if err != nil {
+			).Get(ctx, nil); err != nil {
 				logger.Error("Failed to execute fee transfer activity", "error", err)
 				return fmt.Errorf("failed to execute fee transfer: %w", err)
 			}
@@ -235,19 +234,17 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	// ---------------------------------------------
 
 	// Set initial search attributes for bounty values
-	err = workflow.UpsertTypedSearchAttributes(ctx,
+	if err := workflow.UpsertTypedSearchAttributes(ctx,
 		BountyTotalAmountKey.ValueSet(input.TotalBounty.ToUSDC()),
 		BountyPerPostAmountKey.ValueSet(input.BountyPerPost.ToUSDC()),
 		BountyValueRemainingKey.ValueSet(input.TotalBounty.ToUSDC()), // Initially, remaining equals total
-	)
-	if err != nil {
+	); err != nil {
 		logger.Error("Failed to upsert initial bounty value search attributes", "error", err)
 		// Decide if this should be fatal or just a warning
 	}
 
 	// Update status after fee transfer (or skip) before listening loop
-	err = workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusListening)))
-	if err != nil {
+	if err := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusListening))); err != nil {
 		logger.Error("Failed to update search attribute BountyStatus to Listening", "error", err)
 	}
 
@@ -932,12 +929,13 @@ func PublishBountiesWorkflow(ctx workflow.Context) error {
 	ctx = workflow.WithActivityOptions(ctx, ao)
 
 	// Execute the activity to publish bounties to Reddit
-	err := workflow.ExecuteActivity(ctx, (*Activities).PublishBountiesReddit).Get(ctx, nil)
-	if err != nil {
-		logger.Error("PublishBountiesReddit activity failed", "error", err)
-		return fmt.Errorf("failed to publish bounties: %w", err)
-	}
+	redditErr := workflow.ExecuteActivity(ctx, (*Activities).PublishBountiesReddit).Get(ctx, nil)
+	// Execute the activity to publish bounties to Discord
+	discordErr := workflow.ExecuteActivity(ctx, (*Activities).PublishBountiesDiscord).Get(ctx, nil)
 
+	if redditErr != nil || discordErr != nil {
+		return fmt.Errorf("failed to publish at least one bounty:\nReddit error: %v\nDiscord error: %v", redditErr, discordErr)
+	}
 	logger.Info("PublishBountiesWorkflow completed successfully")
 	return nil
 }

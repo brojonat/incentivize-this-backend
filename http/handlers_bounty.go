@@ -52,7 +52,7 @@ type CreateBountyRequest struct {
 	TotalBounty        float64          `json:"total_bounty"`
 	BountyOwnerWallet  string           `json:"bounty_owner_wallet"`
 	BountyFunderWallet string           `json:"bounty_funder_wallet"`
-	PlatformType       abb.PlatformKind `json:"platform_type"`
+	PlatformType       abb.PlatformKind `json:"platform_kind"`
 	ContentKind        abb.ContentKind  `json:"content_kind"`
 	TimeoutDuration    string           `json:"timeout_duration"` // Bounty active duration (e.g., "72h", "7d")
 }
@@ -65,7 +65,7 @@ type BountyListItem struct {
 	BountyPerPost        float64          `json:"bounty_per_post"`
 	TotalBounty          float64          `json:"total_bounty"`
 	BountyOwnerWallet    string           `json:"bounty_owner_wallet"`
-	PlatformType         abb.PlatformKind `json:"platform_type"`
+	PlatformType         abb.PlatformKind `json:"platform_kind"`
 	ContentKind          abb.ContentKind  `json:"content_kind"`
 	CreatedAt            time.Time        `json:"created_at"`
 	EndTime              time.Time        `json:"end_time,omitempty"`
@@ -262,7 +262,7 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 				return
 			}
 		default:
-			writeBadRequestError(w, fmt.Errorf("invalid platform_type: must be one of %s, %s, %s, %s, or %s", abb.PlatformReddit, abb.PlatformYouTube, abb.PlatformTwitch, abb.PlatformHackerNews, abb.PlatformBluesky))
+			writeBadRequestError(w, fmt.Errorf("invalid platform_kind: must be one of %s, %s, %s, %s, or %s", abb.PlatformReddit, abb.PlatformYouTube, abb.PlatformTwitch, abb.PlatformHackerNews, abb.PlatformBluesky))
 			return
 		}
 

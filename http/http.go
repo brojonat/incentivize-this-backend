@@ -377,7 +377,6 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	mux.HandleFunc("GET /bounties/search", stools.AdaptHandler(
 		handleSearchBounties(logger, querier, tc, llmEmbedProvider, currentEnv),
 		withLogging(logger),
-		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
 	))
 
 	// Apply CORS globally

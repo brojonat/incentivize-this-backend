@@ -373,7 +373,6 @@ create-and-fund-bounties: ## Create and fund example bounties for all platforms 
 	@pids=""; \
 	for target_name in $(CONCURRENT_BOUNTY_TARGETS); do \
 		echo "Starting $$target_name..."; \
-		sleep 8; \
 		$(MAKE) $$target_name > logs/$${target_name}.log 2>&1 & \
 		pids="$$pids $$!"; \
 	done; \

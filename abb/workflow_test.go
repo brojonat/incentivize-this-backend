@@ -183,6 +183,7 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	env.RegisterActivity(activities.AnalyzeImageURL)
 	env.RegisterActivity(activities.ValidatePayoutWallet)
 	env.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
+	env.RegisterActivity(activities.GenerateAndStoreBountyEmbeddingActivity)
 
 	originalTotalBounty, err := solana.NewUSDCAmount(10.0)
 	require.NoError(t, err)
@@ -266,6 +267,9 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 		}).
 		Return(nil).Once()
 
+	// Mock GenerateAndStoreBountyEmbeddingActivity
+	env.OnActivity(activities.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.AnythingOfType("abb.GenerateAndStoreBountyEmbeddingActivityInput")).Return(nil).Once()
+
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow("assessment", AssessContentSignal{
 			ContentID:    "test-content",
@@ -298,6 +302,7 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	env.RegisterActivity(activities.ValidatePayoutWallet)
 	env.RegisterActivity(activities.AnalyzeImageURL)
 	env.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
+	env.RegisterActivity(activities.GenerateAndStoreBountyEmbeddingActivity)
 
 	bountyPerPost, err := solana.NewUSDCAmount(1.0)
 	require.NoError(t, err)
@@ -351,6 +356,9 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 		expectedTimeoutRefundMemo,
 	).Return(nil).Once()
 
+	// Mock GenerateAndStoreBountyEmbeddingActivity
+	env.OnActivity(activities.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.AnythingOfType("abb.GenerateAndStoreBountyEmbeddingActivityInput")).Return(nil).Once()
+
 	env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
 
 	assert.True(t, env.IsWorkflowCompleted())
@@ -375,6 +383,7 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 	env.RegisterActivity(activities.ValidatePayoutWallet)
 	env.RegisterActivity(activities.AnalyzeImageURL)
 	env.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
+	env.RegisterActivity(activities.GenerateAndStoreBountyEmbeddingActivity)
 
 	originalTotalBounty, _ := solana.NewUSDCAmount(10.0)
 	totalBounty, _ := solana.NewUSDCAmount(5.0)
@@ -427,6 +436,9 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 	cancelRefundAmount := totalBounty.Sub(bountyPerPost)
 	env.OnActivity(activities.TransferUSDC, mock.Anything, ownerWallet.PublicKey().String(), cancelRefundAmount.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Once()
 
+	// Mock GenerateAndStoreBountyEmbeddingActivity
+	env.OnActivity(activities.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.AnythingOfType("abb.GenerateAndStoreBountyEmbeddingActivityInput")).Return(nil).Once()
+
 	signal := AssessContentSignal{
 		ContentID:    contentID,
 		PayoutWallet: payoutWallet.PublicKey().String(),
@@ -465,6 +477,7 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 	env.RegisterActivity(activities.AnalyzeImageURL)
 	env.RegisterActivity(activities.PullContentActivity)
 	env.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
+	env.RegisterActivity(activities.GenerateAndStoreBountyEmbeddingActivity)
 
 	originalTotalBounty, _ := solana.NewUSDCAmount(10.0)
 	totalBounty, _ := solana.NewUSDCAmount(5.0)
@@ -512,6 +525,9 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 		default:
 		}
 	}).Return(nil)
+
+	// Mock GenerateAndStoreBountyEmbeddingActivity
+	env.OnActivity(activities.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.AnythingOfType("abb.GenerateAndStoreBountyEmbeddingActivityInput")).Return(nil).Once()
 
 	input := BountyAssessmentWorkflowInput{
 		Requirements:       []string{"Failure Test"},

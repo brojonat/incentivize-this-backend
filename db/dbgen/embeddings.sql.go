@@ -21,6 +21,26 @@ func (q *Queries) DeleteEmbedding(ctx context.Context, bountyID string) error {
 	return err
 }
 
+const deleteEmbeddings = `-- name: DeleteEmbeddings :exec
+DELETE FROM bounty_embeddings
+WHERE bounty_id = ANY($1)
+`
+
+func (q *Queries) DeleteEmbeddings(ctx context.Context, bountyIds string) error {
+	_, err := q.db.Exec(ctx, deleteEmbeddings, bountyIds)
+	return err
+}
+
+const deleteEmbeddingsNotIn = `-- name: DeleteEmbeddingsNotIn :exec
+DELETE FROM bounty_embeddings
+WHERE NOT bounty_id=ANY($1)
+`
+
+func (q *Queries) DeleteEmbeddingsNotIn(ctx context.Context, bountyIds string) error {
+	_, err := q.db.Exec(ctx, deleteEmbeddingsNotIn, bountyIds)
+	return err
+}
+
 const insertEmbedding = `-- name: InsertEmbedding :exec
 INSERT INTO bounty_embeddings (bounty_id, embedding)
 VALUES ($1, $2)
@@ -36,6 +56,31 @@ type InsertEmbeddingParams struct {
 func (q *Queries) InsertEmbedding(ctx context.Context, arg InsertEmbeddingParams) error {
 	_, err := q.db.Exec(ctx, insertEmbedding, arg.BountyID, arg.Embedding)
 	return err
+}
+
+const listBountyIDs = `-- name: ListBountyIDs :many
+SELECT bounty_id
+FROM bounty_embeddings
+`
+
+func (q *Queries) ListBountyIDs(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listBountyIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var bounty_id string
+		if err := rows.Scan(&bounty_id); err != nil {
+			return nil, err
+		}
+		items = append(items, bounty_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const searchEmbeddings = `-- name: SearchEmbeddings :many

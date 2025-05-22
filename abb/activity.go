@@ -65,6 +65,9 @@ const (
 	EnvLLMCheckReqPromptBase      = "LLM_CHECK_REQ_PROMPT_BASE_B64"
 	EnvLLMImageAnalysisPromptBase = "LLM_IMAGE_ANALYSIS_PROMPT_BASE_B64"
 
+	EnvDiscordBotToken  = "DISCORD_BOT_TOKEN"
+	EnvDiscordChannelID = "DISCORD_CHANNEL_ID"
+
 	DefaultLLMCheckReqPromptBase = `You are an AI assistant evaluating content based on a set of requirements.
 Determine if the provided content satisfies ALL the given requirements.
 Respond with a JSON object: {"satisfies": boolean, "reason": "string explaining why or why not"}.
@@ -120,6 +123,12 @@ type SolanaConfig struct {
 	USDCMintAddress  string               `json:"usdc_mint_address"`
 }
 
+// AbbServerConfig holds configuration related to the ABB server itself.
+type DiscordConfig struct {
+	BotToken  string `json:"bot_token"`
+	ChannelID string `json:"channel_id"`
+}
+
 type AbbServerConfig struct {
 	APIEndpoint       string `json:"api_endpoint"`
 	SecretKey         string `json:"secret_key"`
@@ -142,6 +151,7 @@ type Configuration struct {
 	TwitchDeps             TwitchDependencies     `json:"twitch_deps"`
 	HackerNewsDeps         HackerNewsDependencies `json:"hackernews_deps"`
 	BlueskyDeps            BlueskyDependencies    `json:"bluesky_deps"`
+	DiscordConfig          DiscordConfig          `json:"discord_config"`
 	Prompt                 string                 `json:"prompt"`
 	PublishTargetSubreddit string                 `json:"publish_target_subreddit"`
 	Environment            string                 `json:"environment"`
@@ -356,6 +366,12 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		PDS: os.Getenv("BLUESKY_PDS_URL"), // Example: "https://bsky.social"
 	}
 
+	// --- Discord Config ---
+	discordConfig := DiscordConfig{
+		BotToken:  os.Getenv(EnvDiscordBotToken),
+		ChannelID: os.Getenv(EnvDiscordChannelID),
+	}
+
 	// --- ABB Server Config ---
 	abbServerConfig := AbbServerConfig{
 		APIEndpoint:       os.Getenv(EnvABBAPIEndpoint),
@@ -383,6 +399,7 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		TwitchDeps:             twitchDeps,
 		HackerNewsDeps:         HackerNewsDependencies{},
 		BlueskyDeps:            blueskyDeps,
+		DiscordConfig:          discordConfig,
 		Prompt:                 llmConfig.BasePrompt,
 		PublishTargetSubreddit: targetSubreddit,
 		Environment:            environmentToStore,

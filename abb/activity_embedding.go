@@ -45,7 +45,11 @@ func (a *Activities) GenerateAndStoreBountyEmbeddingActivity(ctx context.Context
 		return fmt.Errorf("failed to marshal text for embedding: %w", err)
 	}
 	embeddingText := string(embeddingTextBytes)
-	logger.Info("Constructed text for embedding", "bounty_id", input.BountyID, "text_preview", embeddingText[:100])
+	textPreview := embeddingText
+	if len(embeddingText) > 100 {
+		textPreview = embeddingText[:100]
+	}
+	logger.Info("Constructed text for embedding", "bounty_id", input.BountyID, "text_preview", textPreview)
 
 	// Use the EmbeddingConfig from the global Configuration
 	if cfg.EmbeddingConfig.Provider == "" || cfg.EmbeddingConfig.Model == "" {

@@ -331,7 +331,7 @@ func (a *Activities) formatBountiesForReddit(bounties []api.BountyListItem, publ
 			b.WorkflowID,
 			publicBaseURL,
 			b.WorkflowID,
-			b.PlatformType,
+			b.PlatformKind,
 			b.BountyPerPost,
 			b.TotalBounty,
 			reqSummary,
