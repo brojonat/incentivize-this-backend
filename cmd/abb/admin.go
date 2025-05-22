@@ -46,6 +46,7 @@ var (
 	// Additional wallet env vars for the balances command
 	EnvSolanaTestCreatorWallet = "SOLANA_TEST_CREATOR_WALLET"
 	EnvSolanaTreasuryWallet    = "SOLANA_TREASURY_WALLET"
+	EnvSolanaEscrowPrivateKey  = "SOLANA_ESCROW_PRIVATE_KEY"
 )
 
 func getAuthToken(ctx *cli.Context) error {
@@ -747,6 +748,108 @@ func searchBountiesAction(ctx *cli.Context) error {
 	return printServerResponse(res)
 }
 
+func defundEscrowAction(c *cli.Context) error {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	ctxCLI := c.Context
+
+	// Get flag values
+	amount := c.Float64("amount")
+	memo := c.String("memo")
+	escrowPrivKeyStr := c.String("escrow-private-key")
+	recipientPubKeyStr := c.String("recipient-wallet")
+	rpcEndpoint := c.String("rpc-endpoint")
+	usdcMintAddrStr := c.String("usdc-mint")
+	noPrompt := c.Bool("no-prompt")
+
+	logger.Info("Initiating USDC defund from Escrow...",
+		"amount", amount,
+		"memo", memo,
+		"recipient_wallet", recipientPubKeyStr,
+		"rpc_endpoint", rpcEndpoint,
+		"usdc_mint", usdcMintAddrStr)
+
+	// Validate inputs & convert
+	if amount <= 0 {
+		return fmt.Errorf("amount must be positive, got %.6f", amount)
+	}
+	usdcAmount, err := solanautil.NewUSDCAmount(amount)
+	if err != nil {
+		return fmt.Errorf("invalid amount %.6f: %w", amount, err)
+	}
+	amountLamports := usdcAmount.ToSmallestUnit().Uint64()
+
+	escrowPrivateKey, err := solanago.PrivateKeyFromBase58(escrowPrivKeyStr)
+	if err != nil {
+		return fmt.Errorf("error parsing escrow private key: %w", err)
+	}
+	escrowPublicKey := escrowPrivateKey.PublicKey()
+
+	recipientPublicKey, err := solanago.PublicKeyFromBase58(recipientPubKeyStr) // Changed from treasuryPublicKey
+	if err != nil {
+		return fmt.Errorf("invalid recipient public key address '%s': %w", recipientPubKeyStr, err)
+	}
+
+	usdcMint, err := solanago.PublicKeyFromBase58(usdcMintAddrStr)
+	if err != nil {
+		return fmt.Errorf("invalid USDC mint address '%s': %w", usdcMintAddrStr, err)
+	}
+
+	// Confirmation prompt
+	if !noPrompt {
+		fmt.Printf("\nWARNING: You are about to defund (transfer) %.6f USDC\n", amount)
+		fmt.Printf("  from Escrow Wallet: %s\n", escrowPublicKey.String())
+		fmt.Printf("  to Recipient Wallet: %s\n", recipientPublicKey.String()) // Changed
+		fmt.Printf("  with Memo: '%s'\n", memo)
+		fmt.Printf("Proceed? [y/N]: ")
+
+		reader := bufio.NewReader(os.Stdin)
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(strings.ToLower(input))
+		if input != "y" && input != "yes" {
+			logger.Info("Defund action cancelled by user.")
+			return nil
+		}
+	}
+
+	// Initialize Solana Client
+	clientRPC := solanautil.NewRPCClient(rpcEndpoint)
+	if err := solanautil.CheckRPCHealth(context.Background(), clientRPC); err != nil { // Use a background context for health check
+		return fmt.Errorf("RPC health check failed for %s: %w", rpcEndpoint, err)
+	}
+	logger.Info("RPC connection successful.")
+
+	// Perform Transfer
+	logger.Info("Sending transaction...")
+	sig, err := solanautil.SendUSDCWithMemo(
+		ctxCLI,
+		clientRPC,
+		usdcMint,
+		escrowPrivateKey,
+		recipientPublicKey,
+		amountLamports,
+		memo,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to send USDC from escrow to recipient: %w", err)
+	}
+	logger.Info("Transaction sent!", "signature", sig.String())
+
+	// Confirm Transaction
+	logger.Info("Waiting for final confirmation...")
+	confirmCtx, cancel := context.WithTimeout(ctxCLI, 90*time.Second) // 90s timeout for confirmation
+	defer cancel()
+	err = solanautil.ConfirmTransaction(confirmCtx, clientRPC, sig, rpc.CommitmentFinalized)
+	if err != nil {
+		logger.Warn("Failed to confirm transaction within timeout. Check explorer.", "signature", sig.String(), "error", err)
+		fmt.Printf("  You can check the status manually: solana confirm -v %s --url %s\n", sig, rpcEndpoint)
+	} else {
+		logger.Info("Transaction confirmed successfully!")
+	}
+
+	logger.Info("USDC defund process from Escrow to Recipient complete.")
+	return nil
+}
+
 func adminCommands() []*cli.Command {
 	return []*cli.Command{
 		{
@@ -1068,6 +1171,54 @@ func adminCommands() []*cli.Command {
 						},
 					},
 					Action: pruneStaleEmbeddingsAction,
+				},
+				{
+					Name:        "defund-escrow",
+					Usage:       "Transfers USDC from the configured Escrow wallet to a specified recipient wallet.",
+					Description: "Requires SOLANA_ESCROW_PRIVATE_KEY to be set in env. Opposite of fund-escrow.",
+					Flags: []cli.Flag{
+						&cli.Float64Flag{
+							Name:     "amount",
+							Aliases:  []string{"a"},
+							Usage:    "Amount of USDC to transfer from Escrow",
+							Required: true,
+						},
+						&cli.StringFlag{
+							Name:  "memo",
+							Usage: "Optional memo for the transaction",
+							Value: "Defund Escrow", // Default memo reflecting the action
+						},
+						&cli.StringFlag{
+							Name:     "escrow-private-key",
+							Usage:    "Base58 encoded private key of the escrow wallet (source)",
+							EnvVars:  []string{EnvSolanaEscrowPrivateKey},
+							Required: true,
+						},
+						&cli.StringFlag{
+							Name:     "recipient-wallet",
+							Usage:    "Public key of the recipient wallet (destination)",
+							Required: true,
+						},
+						&cli.StringFlag{
+							Name:     "rpc-endpoint",
+							Usage:    "Solana RPC endpoint URL",
+							EnvVars:  []string{EnvSolanaRPCEndpoint},
+							Required: true,
+						},
+						&cli.StringFlag{
+							Name:     "usdc-mint",
+							Usage:    "USDC mint public key address",
+							EnvVars:  []string{EnvSolanaUSDCMintAddress},
+							Required: true,
+						},
+						&cli.BoolFlag{
+							Name:    "no-prompt",
+							Usage:   "Skip confirmation prompt before sending",
+							Value:   false,
+							EnvVars: []string{"ABB_NO_PROMPT"},
+						},
+					},
+					Action: defundEscrowAction,
 				},
 			},
 		},
