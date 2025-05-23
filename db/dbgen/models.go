@@ -12,3 +12,8 @@ type BountyEmbedding struct {
 	BountyID  string          `json:"bounty_id"`
 	Embedding pgvector.Vector `json:"embedding"`
 }
+
+type BountySummary struct {
+	BountyID string `json:"bounty_id"`
+	Summary  []byte `json:"summary"`
+}

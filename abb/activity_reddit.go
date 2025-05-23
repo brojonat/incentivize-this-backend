@@ -103,11 +103,12 @@ type RedditContent struct {
 	Title       string    `json:"title"`
 	Selftext    string    `json:"selftext"`
 	URL         string    `json:"url"`
-	Body        string    `json:"body"`      // For comments
-	Author      string    `json:"author"`    // For both posts and comments
-	Subreddit   string    `json:"subreddit"` // For both posts and comments
+	Body        string    `json:"body"`
+	Author      string    `json:"author"`
+	Subreddit   string    `json:"subreddit"`
 	Score       int       `json:"score"`
 	Created     time.Time `json:"created_utc"`
+	Edited      bool      `json:"edited"`
 	IsComment   bool      `json:"is_comment"`
 	Permalink   string    `json:"permalink"`
 	NumComments int       `json:"num_comments"`
@@ -153,6 +154,30 @@ func (r *RedditContent) UnmarshalJSON(data []byte) error {
 	default:
 		// Allow for created_utc to be missing or null, default to zero time
 		createdTime = time.Time{}
+	}
+
+	// Handle the edited field
+	r.Edited = false // Default to false (not edited)
+	if editedVal, ok := rawData["edited"]; ok {
+		switch v := editedVal.(type) {
+		case bool:
+			// If Reddit sends a boolean, it's 'false' for not edited.
+			// If 'v' is somehow true here (unexpected), r.Edited would become true.
+			r.Edited = v
+		case float64:
+			// If Reddit sends a number, it's a Unix timestamp (potentially 0.0 if not edited but field is present)
+			if v > 0 { // Any positive timestamp indicates an edit
+				r.Edited = true
+			}
+			// If v is 0.0 or negative, r.Edited remains false (due to default or if bool case set it)
+		case string:
+			// Less common for 'edited', but if it's a string representation of the timestamp or 'false'
+			if tsFloat, err := strconv.ParseFloat(v, 64); err == nil && tsFloat > 0 {
+				r.Edited = true
+			} else if strings.ToLower(v) == "false" {
+				r.Edited = false
+			}
+		}
 	}
 
 	type Aux struct {

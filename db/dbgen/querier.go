@@ -12,9 +12,12 @@ type Querier interface {
 	DeleteEmbedding(ctx context.Context, bountyID string) error
 	DeleteEmbeddings(ctx context.Context, bountyIds string) error
 	DeleteEmbeddingsNotIn(ctx context.Context, bountyIds string) error
+	GetBountySummary(ctx context.Context, bountyID string) ([]byte, error)
 	InsertEmbedding(ctx context.Context, arg InsertEmbeddingParams) error
 	ListBountyIDs(ctx context.Context) ([]string, error)
 	SearchEmbeddings(ctx context.Context, arg SearchEmbeddingsParams) ([]BountyEmbedding, error)
+	UpdateBountySummary(ctx context.Context, arg UpdateBountySummaryParams) error
+	UpsertBountySummary(ctx context.Context, arg UpsertBountySummaryParams) error
 }
 
 var _ Querier = (*Queries)(nil)

@@ -73,6 +73,7 @@ func RunWorker(ctx context.Context, l *slog.Logger, thp, tns string) error {
 	w.RegisterActivity(activities.AnalyzeImageURL)
 	w.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
 	w.RegisterActivity(activities.SendTokenEmail)
+	w.RegisterActivity(activities.SummarizeAndStoreBountyActivity)
 
 	// Run the single worker
 	l.Info("Starting worker", "TaskQueue", taskQueue)

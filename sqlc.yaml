@@ -1,7 +1,9 @@
 version: "2"
 sql:
   - engine: "postgresql"
-    queries: "db/sqlc/embeddings.sql" # Path to SQL queries
+    queries:
+      - "db/sqlc/embeddings.sql"
+      - "db/sqlc/bounty_summary.sql"
     schema: "db/sqlc/schema.sql"   # Path to database schema
     gen:
       go:

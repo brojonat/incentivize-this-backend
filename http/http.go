@@ -20,6 +20,7 @@ import (
 	"github.com/gorilla/handlers"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/temporal"
 )
 
 // Environment Variable Keys
@@ -379,6 +380,13 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		withLogging(logger),
 	))
 
+	mux.HandleFunc("POST /bounties/summaries", stools.AdaptHandler(
+		handleStoreBountySummary(logger, querier),
+		withLogging(logger),
+		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		requireStatus(UserStatusSudo),
+	))
+
 	// Apply CORS globally
 	corsHandler := handlers.CORS(
 		handlers.AllowedHeaders(allowedHeaders),
@@ -462,8 +470,11 @@ func setupPeriodicPublisherSchedule(ctx context.Context, logger *slog.Logger, tc
 		},
 		Action: &client.ScheduleWorkflowAction{
 			Workflow:  abb.PublishBountiesWorkflow,
-			ID:        fmt.Sprintf("bounty-publisher"),
+			ID:        fmt.Sprintf("bounty-publisher-%s", env),
 			TaskQueue: taskQueue,
+			TypedSearchAttributes: temporal.NewSearchAttributes(
+				abb.EnvironmentKey.ValueSet(env),
+			),
 		},
 	})
 

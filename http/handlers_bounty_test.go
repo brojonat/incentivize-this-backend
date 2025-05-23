@@ -112,7 +112,7 @@ func TestHandleListBounties(t *testing.T) {
 			expectedBody: []BountyListItem{
 				{
 					WorkflowID:           "test-workflow-1",
-					Status:               "Running",
+					Status:               "Listening",
 					Requirements:         []string{"Test requirement 1", "Test requirement 2"},
 					BountyPerPost:        10.0,
 					TotalBounty:          100.0,
