@@ -414,10 +414,6 @@ type PlatformDependencies interface {
 }
 
 // ContentProvider is an interface for retrieving content from a platform
-// FIXME/TODO: this interface MUST also accept a ContentKind to indicate the type of content to pull
-// for the platform (comment, post, review, etc.). Right now we just infer the content kind before
-// supplying the ID but this isn't a viable long-term solution. This will become abundantly clear
-// when we more explicitly implement this as a graph based agentic workflow.
 type ContentProvider interface {
 	// PullContent pulls content from a platform given a content ID
 	PullContent(ctx context.Context, contentID string, contentKind ContentKind) ([]byte, error)
