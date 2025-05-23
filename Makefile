@@ -373,7 +373,6 @@ create-and-fund-bounties: ## Create and fund example bounties for all platforms 
 	@pids=""; \
 	for target_name in $(CONCURRENT_BOUNTY_TARGETS); do \
 		echo "Starting $$target_name..."; \
-		sleep 8; \
 		$(MAKE) $$target_name > logs/$${target_name}.log 2>&1 & \
 		pids="$$pids $$!"; \
 	done; \
@@ -382,3 +381,7 @@ create-and-fund-bounties: ## Create and fund example bounties for all platforms 
 		wait $$pid || echo "A bounty creation job (PID: $$pid) may have failed."; \
 	done; \
 	echo "All platform bounty creation and funding processes complete."
+
+migrate:
+	$(call setup_env, .env.server.prod)
+	migrate -database ${ABB_DATABASE_URL} -path db/migrations up

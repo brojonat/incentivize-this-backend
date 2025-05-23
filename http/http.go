@@ -12,12 +12,15 @@ import (
 	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/abb"
+	"github.com/brojonat/affiliate-bounty-board/db/dbgen"
 	"github.com/brojonat/affiliate-bounty-board/http/api"
 	"github.com/brojonat/affiliate-bounty-board/internal/stools"
 	solanago "github.com/gagliardetto/solana-go"
 	solanarpc "github.com/gagliardetto/solana-go/rpc"
 	"github.com/gorilla/handlers"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/temporal"
 )
 
 // Environment Variable Keys
@@ -35,6 +38,8 @@ const (
 	EnvSolanaWSEndpoint                  = "SOLANA_WS_ENDPOINT"
 	EnvSolanaUSDCMintAddress             = "SOLANA_USDC_MINT_ADDRESS"
 	EnvSolanaTreasuryWallet              = "SOLANA_TREASURY_WALLET"
+	EnvAbbDatabaseURL                    = "ABB_DATABASE_URL"
+	EnvLLMEmbeddingModelName             = "LLM_EMBEDDING_MODEL"
 )
 
 type corsConfigKey struct{}
@@ -130,6 +135,39 @@ func writeJSONResponse(w http.ResponseWriter, resp interface{}, code int) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// getConnPool establishes a connection pool to the database with retries.
+func getConnPool(ctx context.Context, dbURL string, logger *slog.Logger, maxRetries int, retryInterval time.Duration) (*pgxpool.Pool, error) {
+	var pool *pgxpool.Pool
+	var err error
+
+	for i := 0; i < maxRetries; i++ {
+		cfg, parseErr := pgxpool.ParseConfig(dbURL)
+		if parseErr != nil {
+			return nil, fmt.Errorf("failed to parse database URL: %w", parseErr)
+		}
+
+		pool, err = pgxpool.NewWithConfig(ctx, cfg)
+		if err == nil {
+			// Ping the database to ensure connectivity
+			pingErr := pool.Ping(ctx)
+			if pingErr == nil {
+				return pool, nil
+			}
+			// If ping fails, set err and close the potentially created pool before retrying
+			err = fmt.Errorf("failed to ping database: %w", pingErr)
+			pool.Close() // Close the pool as ping failed
+			pool = nil   // Set pool to nil as it's not usable
+		} // If NewWithConfig failed, err is already set
+
+		logger.Error("Failed to connect to database", "attempt", i+1, "max_attempts", maxRetries, "error", err)
+		if i < maxRetries-1 {
+			logger.Info("Retrying database connection", "interval", retryInterval)
+			time.Sleep(retryInterval)
+		}
+	}
+	return nil, fmt.Errorf("could not connect to database after %d attempts: %w", maxRetries, err)
+}
+
 // RunServer starts the HTTP server with the given configuration
 func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port string) error {
 	mux := http.NewServeMux()
@@ -222,6 +260,55 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	// Create Rate Limiter for JWT-based assessment endpoint
 	jwtAssessLimiter := NewRateLimiter(1*time.Hour, 10) // 10 requests per hour per JWT
 
+	// --- Database Connection ---
+	dbURL := os.Getenv(EnvAbbDatabaseURL)
+	var querier dbgen.Querier // Define querier, to be initialized if dbURL is set
+	var dbPool *pgxpool.Pool
+
+	if dbURL != "" {
+		var errDb error
+		dbPool, errDb = getConnPool(ctx, dbURL, logger, 5, 5*time.Second)
+		if errDb != nil {
+			// Depending on criticality, you might want to return errDb here and fail server startup
+			logger.Error("Failed to connect to database, semantic search features will be unavailable", "error", errDb)
+		} else {
+			querier = dbgen.New(dbPool) // Initialize querier with the pool
+			defer dbPool.Close()
+			logger.Info("Database connection established for semantic search.")
+		}
+	} else {
+		logger.Warn("ABB_DATABASE_URL not set, semantic search features will be disabled.")
+	}
+	// --- End Database Connection ---
+
+	// --- LLM Embedding Provider Initialization (Placeholder) ---
+	// We will stub it for now, the handleSearchBounties will need it.
+	var llmEmbedProvider abb.LLMEmbeddingProvider // Keep as nil for now, to be implemented
+
+	// --- Initialize LLMEmbeddingProvider ---
+	llmProviderName := os.Getenv(abb.EnvLLMProvider)         // e.g., "openai"
+	llmAPIKey := os.Getenv(abb.EnvLLMAPIKey)                 // Shared API key
+	llmEmbeddingModel := os.Getenv(abb.EnvLLMEmbeddingModel) // e.g., "text-embedding-ada-002"
+
+	if llmProviderName != "" && llmAPIKey != "" && llmEmbeddingModel != "" {
+		embeddingCfg := abb.EmbeddingConfig{
+			Provider: llmProviderName,
+			APIKey:   llmAPIKey,
+			Model:    llmEmbeddingModel,
+			// BaseURL: os.Getenv("OPENAI_BASE_URL"), // Optional: if you need to override OpenAI endpoint
+		}
+		var errProvider error
+		llmEmbedProvider, errProvider = abb.NewLLMEmbeddingProvider(embeddingCfg)
+		if errProvider != nil {
+			logger.Error("Failed to initialize LLM Embedding Provider, search will be impaired.", "error", errProvider)
+			llmEmbedProvider = nil // Ensure it's nil if init fails
+		} else {
+			logger.Info("LLM Embedding Provider initialized successfully.", "provider", llmProviderName, "model", llmEmbeddingModel)
+		}
+	} else {
+		logger.Warn("LLM Embedding Provider not configured due to missing env vars (LLM_PROVIDER, LLM_API_KEY, LLM_EMBEDDING_MODEL). Search endpoint will not work.")
+	}
+
 	// Add routes
 	mux.HandleFunc("GET /ping", stools.AdaptHandler(
 		handlePing(),
@@ -279,6 +366,25 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		jwtRateLimitMiddleware(jwtAssessLimiter, "email"),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
 		requireStatus(UserStatusDefault),
+	))
+
+	mux.HandleFunc("POST /bounties/embeddings", stools.AdaptHandler(
+		handleStoreBountyEmbedding(logger, querier),
+		withLogging(logger),
+		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		requireStatus(UserStatusSudo),
+	))
+
+	mux.HandleFunc("GET /bounties/search", stools.AdaptHandler(
+		handleSearchBounties(logger, querier, tc, llmEmbedProvider, currentEnv),
+		withLogging(logger),
+	))
+
+	mux.HandleFunc("POST /bounties/summaries", stools.AdaptHandler(
+		handleStoreBountySummary(logger, querier),
+		withLogging(logger),
+		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		requireStatus(UserStatusSudo),
 	))
 
 	// Apply CORS globally
@@ -364,8 +470,11 @@ func setupPeriodicPublisherSchedule(ctx context.Context, logger *slog.Logger, tc
 		},
 		Action: &client.ScheduleWorkflowAction{
 			Workflow:  abb.PublishBountiesWorkflow,
-			ID:        fmt.Sprintf("bounty-publisher"),
+			ID:        fmt.Sprintf("bounty-publisher-%s", env),
 			TaskQueue: taskQueue,
+			TypedSearchAttributes: temporal.NewSearchAttributes(
+				abb.EnvironmentKey.ValueSet(env),
+			),
 		},
 	})
 

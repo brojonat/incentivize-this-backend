@@ -25,12 +25,14 @@ const (
 	EnvABBSecretKey     = "ABB_SECRET_KEY"
 	EnvABBAuthToken     = "ABB_AUTH_TOKEN"
 	EnvABBPublicBaseURL = "ABB_PUBLIC_BASE_URL"
+	EnvABBDatabaseURL   = "ABB_DATABASE_URL"
 
-	EnvLLMAPIKey         = "LLM_API_KEY"          // Corrected: Generic LLM API Key
-	EnvLLMProvider       = "LLM_PROVIDER"         // e.g., "openai", "gemini", "anthropic"
-	EnvLLMModel          = "LLM_MODEL"            // e.g., "gpt-4o", "gemini-1.5-pro"
-	EnvLLMMaxTokens      = "LLM_MAX_TOKENS"       // Added for max tokens
-	EnvLLMBasePromptFile = "LLM_BASE_PROMPT_FILE" // Path to file containing base prompt
+	EnvLLMAPIKey         = "LLM_API_KEY"
+	EnvLLMProvider       = "LLM_PROVIDER"
+	EnvLLMModel          = "LLM_MODEL"
+	EnvLLMMaxTokens      = "LLM_MAX_TOKENS"
+	EnvLLMBasePromptFile = "LLM_BASE_PROMPT_FILE"
+	EnvLLMEmbeddingModel = "LLM_EMBEDDING_MODEL"
 
 	EnvSolanaRPCEndpoint      = "SOLANA_RPC_ENDPOINT"
 	EnvSolanaWSEndpoint       = "SOLANA_WS_ENDPOINT"
@@ -62,6 +64,9 @@ const (
 	EnvLLMImageModel              = "LLM_IMAGE_MODEL"
 	EnvLLMCheckReqPromptBase      = "LLM_CHECK_REQ_PROMPT_BASE_B64"
 	EnvLLMImageAnalysisPromptBase = "LLM_IMAGE_ANALYSIS_PROMPT_BASE_B64"
+
+	EnvDiscordBotToken  = "DISCORD_BOT_TOKEN"
+	EnvDiscordChannelID = "DISCORD_CHANNEL_ID"
 
 	DefaultLLMCheckReqPromptBase = `You are an AI assistant evaluating content based on a set of requirements.
 Determine if the provided content satisfies ALL the given requirements.
@@ -118,11 +123,19 @@ type SolanaConfig struct {
 	USDCMintAddress  string               `json:"usdc_mint_address"`
 }
 
+// AbbServerConfig holds configuration related to the ABB server itself.
+type DiscordConfig struct {
+	BotToken  string `json:"bot_token"`
+	ChannelID string `json:"channel_id"`
+}
+
 type AbbServerConfig struct {
-	APIEndpoint   string `json:"api_endpoint"`
-	SecretKey     string `json:"secret_key"`
-	AuthToken     string `json:"auth_token"`
-	PublicBaseURL string `json:"public_base_url"`
+	APIEndpoint       string `json:"api_endpoint"`
+	SecretKey         string `json:"secret_key"`
+	AuthToken         string `json:"auth_token"`
+	PublicBaseURL     string `json:"public_base_url"`
+	LLMEmbeddingModel string `json:"llm_embedding_model"`
+	DatabaseURL       string `json:"database_url"`
 }
 
 // Configuration holds all necessary configuration for workflows and activities.
@@ -132,11 +145,13 @@ type Configuration struct {
 	SolanaConfig           SolanaConfig           `json:"solana_config"`
 	LLMConfig              LLMConfig              `json:"llm_config"`
 	ImageLLMConfig         ImageLLMConfig         `json:"image_llm_config"`
+	EmbeddingConfig        EmbeddingConfig        `json:"embedding_config"`
 	RedditDeps             RedditDependencies     `json:"reddit_deps"`
 	YouTubeDeps            YouTubeDependencies    `json:"youtube_deps"`
 	TwitchDeps             TwitchDependencies     `json:"twitch_deps"`
 	HackerNewsDeps         HackerNewsDependencies `json:"hackernews_deps"`
 	BlueskyDeps            BlueskyDependencies    `json:"bluesky_deps"`
+	DiscordConfig          DiscordConfig          `json:"discord_config"`
 	Prompt                 string                 `json:"prompt"`
 	PublishTargetSubreddit string                 `json:"publish_target_subreddit"`
 	Environment            string                 `json:"environment"`
@@ -238,15 +253,14 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		}
 	}
 
-	// --- LLM Config (Populate as before, this logic is independent of workerEnv for Solana) ---
+	// --- LLM Config ---
 	llmProviderName := os.Getenv(EnvLLMProvider)
 	llmModelName := os.Getenv(EnvLLMModel)
 	llmBasePromptFile := os.Getenv(EnvLLMBasePromptFile)
+	llmAPIKey := os.Getenv(EnvLLMAPIKey)
 
-	llmAPIKey := os.Getenv(EnvLLMAPIKey) // Use the generic LLM API Key env var
-
-	if llmAPIKey == "" && llmProviderName != "" { // Only warn if a provider was set but no key found
-		logger.Warn("LLM API Key not found for configured provider", "provider", llmProviderName, "key_env_var", EnvLLMAPIKey)
+	if llmAPIKey == "" && llmProviderName != "" {
+		return nil, fmt.Errorf("LLM API Key not found for configured provider %s", llmProviderName)
 	}
 
 	maxTokensStr := os.Getenv(EnvLLMMaxTokens)
@@ -259,24 +273,26 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 			logger.Warn("Invalid LLM_MAX_TOKENS value, using default", "value", maxTokensStr, "default", DefaultLLMMaxTokens, "error", err)
 		}
 	}
-
 	llmConfig := LLMConfig{
 		Provider:  llmProviderName,
 		APIKey:    llmAPIKey,
 		Model:     llmModelName,
-		MaxTokens: maxTokens, // Set MaxTokens
+		MaxTokens: maxTokens,
 	}
 
 	// --- Image LLM Config ---
-	// (Similar logic as LLMConfig, assuming separate env vars for image LLM if needed)
-	// For now, let's assume it might reuse the same provider/key or have its own set.
-	// This part needs to be filled based on how ImageLLMConfig is structured and configured.
-	// Example placeholder:
 	imageLLMConfig := ImageLLMConfig{
 		Provider: os.Getenv(EnvLLMImageProvider),
 		APIKey:   os.Getenv(EnvLLMImageAPIKey),
 		Model:    os.Getenv(EnvLLMImageModel),
-		// BasePrompt will be set below
+		// BasePrompt is set belo
+	}
+
+	// --- Embedding Config ---
+	embeddingConfig := EmbeddingConfig{
+		Provider: os.Getenv(EnvLLMProvider),
+		APIKey:   os.Getenv(EnvLLMAPIKey),
+		Model:    os.Getenv(EnvLLMEmbeddingModel),
 	}
 
 	// --- Base Prompt Loading (for CheckContentRequirements) ---
@@ -350,12 +366,20 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		PDS: os.Getenv("BLUESKY_PDS_URL"), // Example: "https://bsky.social"
 	}
 
+	// --- Discord Config ---
+	discordConfig := DiscordConfig{
+		BotToken:  os.Getenv(EnvDiscordBotToken),
+		ChannelID: os.Getenv(EnvDiscordChannelID),
+	}
+
 	// --- ABB Server Config ---
 	abbServerConfig := AbbServerConfig{
-		APIEndpoint:   os.Getenv(EnvABBAPIEndpoint),
-		SecretKey:     os.Getenv(EnvABBSecretKey),
-		AuthToken:     os.Getenv(EnvABBAuthToken),
-		PublicBaseURL: os.Getenv(EnvABBPublicBaseURL),
+		APIEndpoint:       os.Getenv(EnvABBAPIEndpoint),
+		SecretKey:         os.Getenv(EnvABBSecretKey),
+		AuthToken:         os.Getenv(EnvABBAuthToken),
+		PublicBaseURL:     os.Getenv(EnvABBPublicBaseURL),
+		LLMEmbeddingModel: os.Getenv(EnvLLMEmbeddingModel),
+		DatabaseURL:       os.Getenv(EnvABBDatabaseURL),
 	}
 
 	environmentToStore := currentEnv
@@ -369,11 +393,13 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		SolanaConfig:           solanaConfig,
 		LLMConfig:              llmConfig,
 		ImageLLMConfig:         imageLLMConfig,
+		EmbeddingConfig:        embeddingConfig,
 		RedditDeps:             redditDeps,
 		YouTubeDeps:            youtubeDeps,
 		TwitchDeps:             twitchDeps,
 		HackerNewsDeps:         HackerNewsDependencies{},
 		BlueskyDeps:            blueskyDeps,
+		DiscordConfig:          discordConfig,
 		Prompt:                 llmConfig.BasePrompt,
 		PublishTargetSubreddit: targetSubreddit,
 		Environment:            environmentToStore,

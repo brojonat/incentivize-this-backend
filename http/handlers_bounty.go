@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/abb"
+	"github.com/brojonat/affiliate-bounty-board/db/dbgen"
 	"github.com/brojonat/affiliate-bounty-board/internal/stools"
 	"github.com/brojonat/affiliate-bounty-board/solana"
 	solanagrpc "github.com/gagliardetto/solana-go/rpc"
@@ -52,7 +53,7 @@ type CreateBountyRequest struct {
 	TotalBounty        float64          `json:"total_bounty"`
 	BountyOwnerWallet  string           `json:"bounty_owner_wallet"`
 	BountyFunderWallet string           `json:"bounty_funder_wallet"`
-	PlatformType       abb.PlatformKind `json:"platform_type"`
+	PlatformType       abb.PlatformKind `json:"platform_kind"`
 	ContentKind        abb.ContentKind  `json:"content_kind"`
 	TimeoutDuration    string           `json:"timeout_duration"` // Bounty active duration (e.g., "72h", "7d")
 }
@@ -65,7 +66,7 @@ type BountyListItem struct {
 	BountyPerPost        float64          `json:"bounty_per_post"`
 	TotalBounty          float64          `json:"total_bounty"`
 	BountyOwnerWallet    string           `json:"bounty_owner_wallet"`
-	PlatformType         abb.PlatformKind `json:"platform_type"`
+	PlatformType         abb.PlatformKind `json:"platform_kind"`
 	ContentKind          abb.ContentKind  `json:"content_kind"`
 	CreatedAt            time.Time        `json:"created_at"`
 	EndTime              time.Time        `json:"end_time,omitempty"`
@@ -262,7 +263,7 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 				return
 			}
 		default:
-			writeBadRequestError(w, fmt.Errorf("invalid platform_type: must be one of %s, %s, %s, %s, or %s", abb.PlatformReddit, abb.PlatformYouTube, abb.PlatformTwitch, abb.PlatformHackerNews, abb.PlatformBluesky))
+			writeBadRequestError(w, fmt.Errorf("invalid platform_kind: must be one of %s, %s, %s, %s, or %s", abb.PlatformReddit, abb.PlatformYouTube, abb.PlatformTwitch, abb.PlatformHackerNews, abb.PlatformBluesky))
 			return
 		}
 
@@ -287,7 +288,8 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 		if env == "prod" {
 			currentTime := time.Now().UTC().Format("2006-01-02")
 			timestampReq := fmt.Sprintf("Content must be created after %s", currentTime)
-			req.Requirements = append(req.Requirements, timestampReq)
+			noEditReq := "If the content contains an field indicating whether it was edited, the content must not have been edited."
+			req.Requirements = append(req.Requirements, timestampReq, noEditReq)
 		}
 
 		// Apply revenue sharing using the calculator function
@@ -448,6 +450,8 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 
 			// Extract EndTime from Search Attributes (from the ListWorkflow response)
 			var endTime time.Time
+			var status string
+
 			if execution.SearchAttributes != nil {
 				if saPayload, ok := execution.SearchAttributes.GetIndexedFields()[abb.BountyTimeoutTimeKey.GetName()]; ok {
 					err = converter.GetDefaultDataConverter().FromPayload(saPayload, &endTime)
@@ -459,9 +463,25 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 					l.Warn("BountyTimeoutTime search attribute not found for list item", "workflow_id", execution.Execution.WorkflowId)
 					endTime = time.Time{} // Set zero value if missing
 				}
+
+				// Get BountyStatus from Search Attributes
+				if statusPayload, ok := execution.SearchAttributes.GetIndexedFields()[abb.BountyStatusKey.GetName()]; ok {
+					var decodedStatus string
+					err = converter.GetDefaultDataConverter().FromPayload(statusPayload, &decodedStatus)
+					if err != nil {
+						l.Warn("Failed to decode BountyStatus search attribute for list item", "workflow_id", execution.Execution.WorkflowId, "error", err)
+						status = execution.Status.String() // Fallback to Temporal status
+					} else {
+						status = decodedStatus
+					}
+				} else {
+					l.Warn("BountyStatus search attribute not found for list item", "workflow_id", execution.Execution.WorkflowId)
+					status = execution.Status.String() // Fallback to Temporal status
+				}
 			} else {
 				l.Warn("SearchAttributes missing in ListWorkflow response item", "workflow_id", execution.Execution.WorkflowId)
-				endTime = time.Time{} // Set zero value if missing
+				endTime = time.Time{}
+				status = execution.Status.String()
 			}
 
 			var remainingBountyValue float64
@@ -479,7 +499,7 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 
 			bounties = append(bounties, BountyListItem{
 				WorkflowID:           execution.Execution.WorkflowId,
-				Status:               execution.Status.String(),
+				Status:               status, // Use the status derived from search attribute
 				Requirements:         input.Requirements,
 				BountyPerPost:        input.BountyPerPost.ToUSDC(),
 				TotalBounty:          input.TotalBounty.ToUSDC(),
@@ -488,7 +508,7 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 				PlatformType:         input.Platform,
 				ContentKind:          input.ContentKind,
 				CreatedAt:            execution.StartTime.AsTime(),
-				EndTime:              endTime, // Populate EndTime here
+				EndTime:              endTime,
 			})
 		}
 
@@ -961,38 +981,66 @@ func handleGetBountyByID(l *slog.Logger, tc client.Client) http.HandlerFunc {
 		// Construct the response using BountyListItem
 		// Extract EndTime from Search Attributes
 		var endTime time.Time
-		if saPayload, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyTimeoutTimeKey.GetName()]; ok {
-			err = converter.GetDefaultDataConverter().FromPayload(saPayload, &endTime)
-			if err != nil {
-				// Log error but maybe don't fail the request? Or return partial data?
-				l.Warn("Failed to decode BountyTimeoutTime search attribute", "workflow_id", workflowID, "error", err)
-				// Set endTime to zero value if decoding fails
-				endTime = time.Time{}
+		var status string // Variable to store the bounty status
+
+		if descResp.WorkflowExecutionInfo != nil && descResp.WorkflowExecutionInfo.SearchAttributes != nil {
+			if saPayload, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyTimeoutTimeKey.GetName()]; ok {
+				err = converter.GetDefaultDataConverter().FromPayload(saPayload, &endTime)
+				if err != nil {
+					// Log error but maybe don't fail the request? Or return partial data?
+					l.Warn("Failed to decode BountyTimeoutTime search attribute", "workflow_id", workflowID, "error", err)
+					// Set endTime to zero value if decoding fails
+					endTime = time.Time{}
+				} else {
+					l.Debug("Successfully decoded end time from search attribute", "workflow_id", workflowID, "end_time", endTime)
+				}
 			} else {
-				l.Debug("Successfully decoded end time from search attribute", "workflow_id", workflowID, "end_time", endTime)
+				l.Warn("BountyTimeoutTime search attribute not found", "workflow_id", workflowID)
+				// Set endTime to zero value if attribute is missing
+				endTime = time.Time{}
+			}
+
+			// Get BountyStatus from Search Attributes
+			if statusPayload, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyStatusKey.GetName()]; ok {
+				var decodedStatus string
+				err = converter.GetDefaultDataConverter().FromPayload(statusPayload, &decodedStatus)
+				if err != nil {
+					l.Warn("Failed to decode BountyStatus search attribute", "workflow_id", workflowID, "error", err)
+					status = descResp.WorkflowExecutionInfo.Status.String() // Fallback to Temporal status
+				} else {
+					status = decodedStatus
+				}
+			} else {
+				l.Warn("BountyStatus search attribute not found", "workflow_id", workflowID)
+				status = descResp.WorkflowExecutionInfo.Status.String() // Fallback to Temporal status
 			}
 		} else {
-			l.Warn("BountyTimeoutTime search attribute not found", "workflow_id", workflowID)
-			// Set endTime to zero value if attribute is missing
-			endTime = time.Time{}
+			l.Warn("SearchAttributes missing in DescribeWorkflowExecution response", "workflow_id", workflowID)
+			endTime = time.Time{}                                   // Set zero value if missing
+			status = descResp.WorkflowExecutionInfo.Status.String() // Fallback to Temporal status if all search attributes are missing
 		}
 
 		var remainingBountyValue float64
-		if val, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyValueRemainingKey.GetName()]; ok {
-			err = converter.GetDefaultDataConverter().FromPayload(val, &remainingBountyValue)
-			if err != nil {
-				l.Error("Failed to decode BountyValueRemainingKey", "error", err, "workflow_id", workflowID)
-				remainingBountyValue = 0.0 // Default to 0 on error
+		if descResp.WorkflowExecutionInfo != nil && descResp.WorkflowExecutionInfo.SearchAttributes != nil {
+			if val, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyValueRemainingKey.GetName()]; ok {
+				err = converter.GetDefaultDataConverter().FromPayload(val, &remainingBountyValue)
+				if err != nil {
+					l.Error("Failed to decode BountyValueRemainingKey", "error", err, "workflow_id", workflowID)
+					remainingBountyValue = 0.0 // Default to 0 on error
+				}
+			} else {
+				l.Warn("BountyValueRemainingKey not found", "workflow_id", workflowID)
+				// Default remaining to total if not found (might happen for older workflows or before initial set)
+				remainingBountyValue = input.TotalBounty.ToUSDC()
 			}
 		} else {
-			l.Warn("BountyValueRemainingKey not found", "workflow_id", workflowID)
-			// Default remaining to total if not found (might happen for older workflows or before initial set)
-			remainingBountyValue = input.TotalBounty.ToUSDC()
+			l.Warn("SearchAttributes missing in DescribeWorkflowExecution response", "workflow_id", workflowID)
+			remainingBountyValue = 0.0 // Default to 0 if search attributes are missing
 		}
 
 		bountyDetail := BountyListItem{
 			WorkflowID:           workflowID,
-			Status:               descResp.WorkflowExecutionInfo.Status.String(),
+			Status:               status, // Use the status derived from search attribute
 			Requirements:         input.Requirements,
 			BountyPerPost:        input.BountyPerPost.ToUSDC(),
 			TotalBounty:          input.TotalBounty.ToUSDC(),
@@ -1005,5 +1053,44 @@ func handleGetBountyByID(l *slog.Logger, tc client.Client) http.HandlerFunc {
 		}
 
 		writeJSONResponse(w, bountyDetail, http.StatusOK)
+	}
+}
+
+// handleStoreBountySummary handles storing the final summary of a bounty.
+// This is intended to be called by a Temporal activity at the end of a bounty workflow.
+func handleStoreBountySummary(logger *slog.Logger, querier dbgen.Querier) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var summaryData abb.BountySummaryData
+		if err := stools.DecodeJSONBody(r, &summaryData); err != nil {
+			writeBadRequestError(w, fmt.Errorf("invalid request body for bounty summary: %w", err))
+			return
+		}
+
+		if summaryData.BountyID == "" {
+			writeBadRequestError(w, fmt.Errorf("bounty_id is required in summary data"))
+			return
+		}
+
+		// The summaryData is already in the correct struct form (abb.BountySummaryData)
+		// We need to marshal it to json.RawMessage for sqlc, as the db column is JSONB.
+		summaryJSON, err := json.Marshal(summaryData)
+		if err != nil {
+			writeInternalError(logger, w, fmt.Errorf("failed to marshal summary data to JSON for DB: %w", err))
+			return
+		}
+
+		params := dbgen.UpsertBountySummaryParams{
+			BountyID: summaryData.BountyID,
+			Summary:  summaryJSON, // Pass the json.RawMessage
+		}
+
+		if err := querier.UpsertBountySummary(r.Context(), params); err != nil {
+			// Check for specific DB errors if needed, e.g., constraint violations
+			writeInternalError(logger, w, fmt.Errorf("failed to store bounty summary in DB: %w", err))
+			return
+		}
+
+		logger.Info("Successfully stored bounty summary", "bounty_id", summaryData.BountyID, "final_status", summaryData.FinalStatus)
+		writeJSONResponse(w, DefaultJSONResponse{Message: "Bounty summary stored successfully"}, http.StatusCreated)
 	}
 }

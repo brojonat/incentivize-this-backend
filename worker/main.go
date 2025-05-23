@@ -62,15 +62,18 @@ func RunWorker(ctx context.Context, l *slog.Logger, thp, tns string) error {
 	w.RegisterWorkflow(abb.EmailTokenWorkflow)
 
 	// Register all activities
+	w.RegisterActivity(activities.GenerateAndStoreBountyEmbeddingActivity)
 	w.RegisterActivity(activities.PullContentActivity)
 	w.RegisterActivity(activities.CheckContentRequirements)
 	w.RegisterActivity(activities.ValidatePayoutWallet)
 	w.RegisterActivity(activities.VerifyPayment)
 	w.RegisterActivity(activities.TransferUSDC)
 	w.RegisterActivity(activities.PublishBountiesReddit)
+	w.RegisterActivity(activities.PublishBountiesDiscord)
 	w.RegisterActivity(activities.AnalyzeImageURL)
 	w.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
 	w.RegisterActivity(activities.SendTokenEmail)
+	w.RegisterActivity(activities.SummarizeAndStoreBountyActivity)
 
 	// Run the single worker
 	l.Info("Starting worker", "TaskQueue", taskQueue)

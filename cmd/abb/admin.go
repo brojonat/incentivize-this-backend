@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,12 +17,18 @@ import (
 
 	"crypto/tls"
 
+	"bufio"
+
+	"github.com/brojonat/affiliate-bounty-board/db/dbgen"
 	"github.com/brojonat/affiliate-bounty-board/http/api"
 	solanautil "github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/jsonrpc"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/urfave/cli/v2"
+	"go.temporal.io/api/workflowservice/v1"
+	"go.temporal.io/sdk/client"
 )
 
 var (
@@ -39,6 +46,7 @@ var (
 	// Additional wallet env vars for the balances command
 	EnvSolanaTestCreatorWallet = "SOLANA_TEST_CREATOR_WALLET"
 	EnvSolanaTreasuryWallet    = "SOLANA_TREASURY_WALLET"
+	EnvSolanaEscrowPrivateKey  = "SOLANA_ESCROW_PRIVATE_KEY"
 )
 
 func getAuthToken(ctx *cli.Context) error {
@@ -135,7 +143,7 @@ func createBounty(ctx *cli.Context) error {
 		"total_bounty":         ctx.Float64("total"),
 		"bounty_owner_wallet":  bountyOwnerWallet,
 		"bounty_funder_wallet": bountyFunderWallet,
-		"platform_type":        ctx.String("platform"),
+		"platform_kind":        ctx.String("platform"),
 		"content_kind":         ctx.String("content-kind"),
 	}
 
@@ -543,6 +551,305 @@ func getUsdcBalance(ctx context.Context, rpcClient *rpc.Client, wallet solanago.
 
 // --- End of new code for get-balances command ---
 
+// getCLIDBPool establishes a connection pool to the database with retries for CLI commands.
+func getCLIDBPool(ctx context.Context, dbURL string, logger *slog.Logger, maxRetries int, retryInterval time.Duration) (*pgxpool.Pool, error) {
+	var pool *pgxpool.Pool
+	var err error
+
+	for i := 0; i < maxRetries; i++ {
+		cfg, parseErr := pgxpool.ParseConfig(dbURL)
+		if parseErr != nil {
+			return nil, fmt.Errorf("failed to parse database URL: %w", parseErr)
+		}
+
+		pool, err = pgxpool.NewWithConfig(ctx, cfg)
+		if err == nil {
+			// Ping the database to ensure connectivity
+			pingErr := pool.Ping(ctx)
+			if pingErr == nil {
+				logger.Info("Successfully connected to database", "url", dbURL)
+				return pool, nil
+			}
+			// If ping fails, set err and close the potentially created pool before retrying
+			err = fmt.Errorf("failed to ping database: %w", pingErr)
+			pool.Close() // Close the pool as ping failed
+			pool = nil   // Set pool to nil as it's not usable
+		} // If NewWithConfig failed, err is already set
+
+		logger.Error("Failed to connect to database", "attempt", i+1, "max_attempts", maxRetries, "error", err)
+		if i < maxRetries-1 {
+			logger.Info("Retrying database connection", "interval", retryInterval)
+			time.Sleep(retryInterval)
+		}
+	}
+	return nil, fmt.Errorf("could not connect to database after %d attempts: %w", maxRetries, err)
+}
+
+func pruneStaleEmbeddingsAction(c *cli.Context) error {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	temporalAddress := c.String("temporal-address")
+	temporalNamespace := c.String("temporal-namespace")
+	dbURL := c.String("db-url")
+	noPrompt := c.Bool("no-prompt")
+
+	ctx, cancel := context.WithTimeout(c.Context, 10*time.Minute) // Overall timeout for the operation, increased for listworkflow
+	defer cancel()
+
+	logger.Info("Starting stale embeddings pruning process...")
+
+	// 1. Connect to Temporal
+	tc, errDial := client.Dial(client.Options{
+		HostPort:  temporalAddress,
+		Namespace: temporalNamespace,
+	})
+	if errDial != nil {
+		return fmt.Errorf("failed to connect to Temporal at %s (namespace %s): %w", temporalAddress, temporalNamespace, errDial)
+	}
+	defer tc.Close()
+	logger.Info("Successfully connected to Temporal", "address", temporalAddress, "namespace", temporalNamespace)
+
+	// 2. Connect to Database
+	dbPool, errDb := getCLIDBPool(ctx, dbURL, logger, 3, 5*time.Second) // 3 retries, 5s interval
+	if errDb != nil {
+		return fmt.Errorf("failed to connect to database: %w", errDb)
+	}
+	defer dbPool.Close()
+	querier := dbgen.New(dbPool)
+
+	// 3. Fetch active workflow IDs from Temporal
+	logger.Info("Fetching active workflow IDs from Temporal...")
+	var activeWorkflowIDs []string
+	var nextPageToken []byte
+	listQuery := fmt.Sprintf("WorkflowType = 'BountyAssessmentWorkflow' AND ExecutionStatus = 'Running'")
+
+	for {
+		resp, errList := tc.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
+			Query:         listQuery,
+			NextPageToken: nextPageToken,
+		})
+		if errList != nil {
+			return fmt.Errorf("failed to list workflows from Temporal: %w", errList)
+		}
+		for _, execution := range resp.GetExecutions() {
+			activeWorkflowIDs = append(activeWorkflowIDs, execution.GetExecution().GetWorkflowId())
+		}
+		nextPageToken = resp.GetNextPageToken()
+		if len(nextPageToken) == 0 {
+			break
+		}
+	}
+	logger.Info("Fetched active workflow IDs from Temporal", "count", len(activeWorkflowIDs))
+
+	// 4. Decide deletion strategy based on active workflows
+	if len(activeWorkflowIDs) == 0 {
+		logger.Info("No active 'BountyAssessmentWorkflow' workflows found in Temporal.")
+		// Fetch all IDs from the embeddings table to delete them
+		allDBBountyIDs, errListDB := querier.ListBountyIDs(ctx)
+		if errListDB != nil {
+			return fmt.Errorf("failed to list bounty IDs from embeddings table for deletion: %w", errListDB)
+		}
+		if len(allDBBountyIDs) == 0 {
+			logger.Info("No embeddings found in the database. Nothing to prune.")
+			return nil
+		}
+
+		if !noPrompt {
+			fmt.Printf("About to delete all %d embeddings from the database because no active workflows were found. Proceed? [y/N]: ", len(allDBBountyIDs))
+			reader := bufio.NewReader(os.Stdin)
+			input, _ := reader.ReadString('\n')
+			input = strings.TrimSpace(strings.ToLower(input))
+			if input != "y" && input != "yes" {
+				logger.Info("Pruning action cancelled by user.")
+				return nil
+			}
+		}
+
+		// Format for ANY($1) - e.g., "{id1,id2}"
+		allDBBountyIDsStr := "{" + strings.Join(allDBBountyIDs, ",") + "}"
+		if errDel := querier.DeleteEmbeddings(ctx, allDBBountyIDsStr); errDel != nil {
+			// It's possible DeleteEmbeddings expects a different format or pgx driver handles slices directly if SQL was ANY($1::TEXT[])
+			// For now, sticking to the "{id1,id2}" format based on typical pg array string representation.
+			logger.Error("Failed to delete all embeddings from database.", "error", errDel, "attempted_param_format", allDBBountyIDsStr)
+			return fmt.Errorf("failed to delete all embeddings: %w. Note: check string format for ANY operator", errDel)
+		}
+		logger.Info("Successfully deleted all embeddings from database.", "deleted_count", len(allDBBountyIDs))
+
+	} else {
+
+		if !noPrompt {
+			fmt.Printf("About to delete embeddings that are NOT in the list of %d active workflows. Proceed? [y/N]: ", len(activeWorkflowIDs))
+			reader := bufio.NewReader(os.Stdin)
+			input, _ := reader.ReadString('\n')
+			input = strings.TrimSpace(strings.ToLower(input))
+			if input != "y" && input != "yes" {
+				logger.Info("Pruning action cancelled by user.")
+				return nil
+			}
+		}
+
+		// Format for $1 in "NOT IN ($1)" - this is the tricky part.
+		// Assuming the user's SQL `NOT IN ($1)` with a string param expects a PostgreSQL array string e.g. "{id1,id2}"
+		// This is often NOT how `NOT IN ($scalar)` works. `NOT (col = ANY($array))` is more robust for array strings.
+		// But we must use the provided query.
+		activeWorkflowIDsStr := "{" + strings.Join(activeWorkflowIDs, ",") + "}"
+
+		logger.Info(
+			"Attempting deletion with `NOT (bounty_id = ANY($1))` using a string parameter.",
+			"param_format", activeWorkflowIDsStr,
+			"sql_query_note", "Ensure pgx driver correctly interprets the string as a PostgreSQL array for the ANY operator.",
+		)
+
+		if errDelNotIn := querier.DeleteEmbeddingsNotIn(ctx, activeWorkflowIDsStr); errDelNotIn != nil {
+			logger.Error("Failed to delete embeddings not in active list.", "error", errDelNotIn, "attempted_param_format", activeWorkflowIDsStr)
+			return fmt.Errorf("failed to delete embeddings not in active list: %w", errDelNotIn)
+		}
+		logger.Info("Successfully executed command to delete embeddings not in the active list. Review logs and DB for actual rows affected.", "active_workflow_ids_param", activeWorkflowIDsStr)
+	}
+
+	logger.Info("Stale embeddings pruning process completed.")
+	return nil
+}
+
+func searchBountiesAction(ctx *cli.Context) error {
+	query := ctx.String("query")
+	endpoint := ctx.String("endpoint")
+	token := ctx.String("token")
+	limit := ctx.Int("limit")
+
+	searchURL, err := url.Parse(endpoint + "/bounties/search")
+	if err != nil {
+		return fmt.Errorf("failed to parse search endpoint URL: %w", err)
+	}
+	params := url.Values{}
+	params.Add("q", query)
+	params.Add("limit", fmt.Sprintf("%d", limit))
+	searchURL.RawQuery = params.Encode()
+
+	httpReq, err := http.NewRequest(http.MethodGet, searchURL.String(), nil)
+	if err != nil {
+		return fmt.Errorf("failed to create search request: %w", err)
+	}
+
+	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("Accept", "application/json")
+
+	// Use a client that can handle potential self-signed certs in local dev
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{Transport: tr}
+
+	res, err := client.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("search request failed: %w", err)
+	}
+
+	return printServerResponse(res)
+}
+
+func defundEscrowAction(c *cli.Context) error {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	ctxCLI := c.Context
+
+	// Get flag values
+	amount := c.Float64("amount")
+	memo := c.String("memo")
+	escrowPrivKeyStr := c.String("escrow-private-key")
+	recipientPubKeyStr := c.String("recipient-wallet")
+	rpcEndpoint := c.String("rpc-endpoint")
+	usdcMintAddrStr := c.String("usdc-mint")
+	noPrompt := c.Bool("no-prompt")
+
+	logger.Info("Initiating USDC defund from Escrow...",
+		"amount", amount,
+		"memo", memo,
+		"recipient_wallet", recipientPubKeyStr,
+		"rpc_endpoint", rpcEndpoint,
+		"usdc_mint", usdcMintAddrStr)
+
+	// Validate inputs & convert
+	if amount <= 0 {
+		return fmt.Errorf("amount must be positive, got %.6f", amount)
+	}
+	usdcAmount, err := solanautil.NewUSDCAmount(amount)
+	if err != nil {
+		return fmt.Errorf("invalid amount %.6f: %w", amount, err)
+	}
+	amountLamports := usdcAmount.ToSmallestUnit().Uint64()
+
+	escrowPrivateKey, err := solanago.PrivateKeyFromBase58(escrowPrivKeyStr)
+	if err != nil {
+		return fmt.Errorf("error parsing escrow private key: %w", err)
+	}
+	escrowPublicKey := escrowPrivateKey.PublicKey()
+
+	recipientPublicKey, err := solanago.PublicKeyFromBase58(recipientPubKeyStr) // Changed from treasuryPublicKey
+	if err != nil {
+		return fmt.Errorf("invalid recipient public key address '%s': %w", recipientPubKeyStr, err)
+	}
+
+	usdcMint, err := solanago.PublicKeyFromBase58(usdcMintAddrStr)
+	if err != nil {
+		return fmt.Errorf("invalid USDC mint address '%s': %w", usdcMintAddrStr, err)
+	}
+
+	// Confirmation prompt
+	if !noPrompt {
+		fmt.Printf("\nWARNING: You are about to defund (transfer) %.6f USDC\n", amount)
+		fmt.Printf("  from Escrow Wallet: %s\n", escrowPublicKey.String())
+		fmt.Printf("  to Recipient Wallet: %s\n", recipientPublicKey.String()) // Changed
+		fmt.Printf("  with Memo: '%s'\n", memo)
+		fmt.Printf("Proceed? [y/N]: ")
+
+		reader := bufio.NewReader(os.Stdin)
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(strings.ToLower(input))
+		if input != "y" && input != "yes" {
+			logger.Info("Defund action cancelled by user.")
+			return nil
+		}
+	}
+
+	// Initialize Solana Client
+	clientRPC := solanautil.NewRPCClient(rpcEndpoint)
+	if err := solanautil.CheckRPCHealth(context.Background(), clientRPC); err != nil { // Use a background context for health check
+		return fmt.Errorf("RPC health check failed for %s: %w", rpcEndpoint, err)
+	}
+	logger.Info("RPC connection successful.")
+
+	// Perform Transfer
+	logger.Info("Sending transaction...")
+	sig, err := solanautil.SendUSDCWithMemo(
+		ctxCLI,
+		clientRPC,
+		usdcMint,
+		escrowPrivateKey,
+		recipientPublicKey,
+		amountLamports,
+		memo,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to send USDC from escrow to recipient: %w", err)
+	}
+	logger.Info("Transaction sent!", "signature", sig.String())
+
+	// Confirm Transaction
+	logger.Info("Waiting for final confirmation...")
+	confirmCtx, cancel := context.WithTimeout(ctxCLI, 90*time.Second) // 90s timeout for confirmation
+	defer cancel()
+	err = solanautil.ConfirmTransaction(confirmCtx, clientRPC, sig, rpc.CommitmentFinalized)
+	if err != nil {
+		logger.Warn("Failed to confirm transaction within timeout. Check explorer.", "signature", sig.String(), "error", err)
+		fmt.Printf("  You can check the status manually: solana confirm -v %s --url %s\n", sig, rpcEndpoint)
+	} else {
+		logger.Info("Transaction confirmed successfully!")
+	}
+
+	logger.Info("USDC defund process from Escrow to Recipient complete.")
+	return nil
+}
+
 func adminCommands() []*cli.Command {
 	return []*cli.Command{
 		{
@@ -739,6 +1046,37 @@ func adminCommands() []*cli.Command {
 					},
 					Action: listPaidBountiesAction,
 				},
+				{
+					Name:  "search",
+					Usage: "Search for bounties using a query string (requires embedding and DB setup)",
+					Flags: []cli.Flag{
+						&cli.StringFlag{
+							Name:     "query",
+							Aliases:  []string{"q"},
+							Usage:    "Search query string",
+							Required: true,
+						},
+						&cli.StringFlag{
+							Name:    "endpoint",
+							Aliases: []string{"end", "e"},
+							Value:   "http://localhost:8080",
+							Usage:   "Server endpoint",
+							EnvVars: []string{EnvServerEndpoint},
+						},
+						&cli.StringFlag{
+							Name:     "token",
+							Usage:    "Authorization token",
+							EnvVars:  []string{EnvAuthToken},
+							Required: true,
+						},
+						&cli.IntFlag{
+							Name:  "limit",
+							Usage: "Limit the number of search results",
+							Value: 10,
+						},
+					},
+					Action: searchBountiesAction,
+				},
 			},
 		},
 		{
@@ -802,6 +1140,85 @@ func adminCommands() []*cli.Command {
 						},
 					},
 					Action: fundEscrowAction,
+				},
+				{
+					Name:  "prune-stale-embeddings",
+					Usage: "Removes embeddings from bounty_embeddings table if no corresponding Temporal workflow exists.",
+					Flags: []cli.Flag{
+						&cli.StringFlag{
+							Name:    "temporal-address",
+							Usage:   "Temporal server address (e.g., localhost:7233)",
+							EnvVars: []string{"TEMPORAL_ADDRESS"},
+							Value:   "localhost:7233",
+						},
+						&cli.StringFlag{
+							Name:    "temporal-namespace",
+							Usage:   "Temporal namespace",
+							EnvVars: []string{"TEMPORAL_NAMESPACE"},
+							Value:   "default",
+						},
+						&cli.StringFlag{
+							Name:     "db-url",
+							Usage:    "PostgreSQL database URL for bounty embeddings (e.g., postgresql://user:pass@host:port/dbname)",
+							EnvVars:  []string{"ABB_DATABASE_URL"},
+							Required: true,
+						},
+						&cli.BoolFlag{
+							Name:    "no-prompt",
+							Usage:   "Skip confirmation prompts before deleting embeddings",
+							Value:   false,
+							EnvVars: []string{"ABB_NO_PROMPT"},
+						},
+					},
+					Action: pruneStaleEmbeddingsAction,
+				},
+				{
+					Name:        "defund-escrow",
+					Usage:       "Transfers USDC from the configured Escrow wallet to a specified recipient wallet.",
+					Description: "Requires SOLANA_ESCROW_PRIVATE_KEY to be set in env. Opposite of fund-escrow.",
+					Flags: []cli.Flag{
+						&cli.Float64Flag{
+							Name:     "amount",
+							Aliases:  []string{"a"},
+							Usage:    "Amount of USDC to transfer from Escrow",
+							Required: true,
+						},
+						&cli.StringFlag{
+							Name:  "memo",
+							Usage: "Optional memo for the transaction",
+							Value: "Defund Escrow", // Default memo reflecting the action
+						},
+						&cli.StringFlag{
+							Name:     "escrow-private-key",
+							Usage:    "Base58 encoded private key of the escrow wallet (source)",
+							EnvVars:  []string{EnvSolanaEscrowPrivateKey},
+							Required: true,
+						},
+						&cli.StringFlag{
+							Name:     "recipient-wallet",
+							Usage:    "Public key of the recipient wallet (destination)",
+							Required: true,
+						},
+						&cli.StringFlag{
+							Name:     "rpc-endpoint",
+							Usage:    "Solana RPC endpoint URL",
+							EnvVars:  []string{EnvSolanaRPCEndpoint},
+							Required: true,
+						},
+						&cli.StringFlag{
+							Name:     "usdc-mint",
+							Usage:    "USDC mint public key address",
+							EnvVars:  []string{EnvSolanaUSDCMintAddress},
+							Required: true,
+						},
+						&cli.BoolFlag{
+							Name:    "no-prompt",
+							Usage:   "Skip confirmation prompt before sending",
+							Value:   false,
+							EnvVars: []string{"ABB_NO_PROMPT"},
+						},
+					},
+					Action: defundEscrowAction,
 				},
 			},
 		},
