@@ -928,11 +928,12 @@ func awaitLoopUntilEmptyOrTimeout(
 				if !payoutAmount.IsZero() {
 					payOpts := workflow.ActivityOptions{StartToCloseTimeout: DefaultPayoutTimeout}
 					type PayoutMemo struct {
-						WorkflowID  string      `json:"workflow_id"`
-						ContentID   string      `json:"content_id"`
-						ContentKind ContentKind `json:"content_kind,omitempty"`
+						WorkflowID  string       `json:"workflow_id"`
+						ContentID   string       `json:"content_id"`
+						Platform    PlatformKind `json:"platform,omitempty"`
+						ContentKind ContentKind  `json:"content_kind,omitempty"`
 					}
-					memoData := PayoutMemo{WorkflowID: workflowID, ContentID: signal.ContentID, ContentKind: signal.ContentKind}
+					memoData := PayoutMemo{WorkflowID: workflowID, ContentID: signal.ContentID, Platform: signal.Platform, ContentKind: signal.ContentKind}
 					memoBytes, mErr := json.Marshal(memoData)
 					if mErr != nil {
 						logger.Error("Failed to marshal payout memo", "error", mErr)
