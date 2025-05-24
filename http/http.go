@@ -252,8 +252,8 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 
 	// --- Setup Temporal Schedule for Periodic Publisher ---
 	if err := setupPeriodicPublisherSchedule(ctx, logger, tc, currentEnv); err != nil {
-		// Log error but don't prevent server startup
-		logger.Error("Failed to set up periodic publisher schedule", "error", err)
+		// Log error but don't prevent server startup; this is expected to fail if the schedule already exists
+		logger.Info("Failed to set up periodic publisher schedule", "error", err)
 	}
 	// --- End Schedule Setup ---
 
@@ -265,48 +265,61 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	var querier dbgen.Querier // Define querier, to be initialized if dbURL is set
 	var dbPool *pgxpool.Pool
 
-	if dbURL != "" {
-		var errDb error
-		dbPool, errDb = getConnPool(ctx, dbURL, logger, 5, 5*time.Second)
-		if errDb != nil {
-			// Depending on criticality, you might want to return errDb here and fail server startup
-			logger.Error("Failed to connect to database, semantic search features will be unavailable", "error", errDb)
-		} else {
-			querier = dbgen.New(dbPool) // Initialize querier with the pool
-			defer dbPool.Close()
-			logger.Info("Database connection established for semantic search.")
-		}
-	} else {
-		logger.Warn("ABB_DATABASE_URL not set, semantic search features will be disabled.")
+	if dbURL == "" {
+		return fmt.Errorf("server startup error: %s not set", EnvAbbDatabaseURL)
 	}
-	// --- End Database Connection ---
-
-	// --- LLM Embedding Provider Initialization (Placeholder) ---
-	// We will stub it for now, the handleSearchBounties will need it.
-	var llmEmbedProvider abb.LLMEmbeddingProvider // Keep as nil for now, to be implemented
-
-	// --- Initialize LLMEmbeddingProvider ---
-	llmProviderName := os.Getenv(abb.EnvLLMProvider)         // e.g., "openai"
-	llmAPIKey := os.Getenv(abb.EnvLLMAPIKey)                 // Shared API key
-	llmEmbeddingModel := os.Getenv(abb.EnvLLMEmbeddingModel) // e.g., "text-embedding-ada-002"
-
-	if llmProviderName != "" && llmAPIKey != "" && llmEmbeddingModel != "" {
-		embeddingCfg := abb.EmbeddingConfig{
-			Provider: llmProviderName,
-			APIKey:   llmAPIKey,
-			Model:    llmEmbeddingModel,
-			// BaseURL: os.Getenv("OPENAI_BASE_URL"), // Optional: if you need to override OpenAI endpoint
-		}
-		var errProvider error
-		llmEmbedProvider, errProvider = abb.NewLLMEmbeddingProvider(embeddingCfg)
-		if errProvider != nil {
-			logger.Error("Failed to initialize LLM Embedding Provider, search will be impaired.", "error", errProvider)
-			llmEmbedProvider = nil // Ensure it's nil if init fails
-		} else {
-			logger.Info("LLM Embedding Provider initialized successfully.", "provider", llmProviderName, "model", llmEmbeddingModel)
-		}
+	var errDb error
+	dbPool, errDb = getConnPool(ctx, dbURL, logger, 5, 5*time.Second)
+	if errDb != nil {
+		// Depending on criticality, you might want to return errDb here and fail server startup
+		logger.Error("Failed to connect to database, semantic search features will be unavailable", "error", errDb)
 	} else {
-		logger.Warn("LLM Embedding Provider not configured due to missing env vars (LLM_PROVIDER, LLM_API_KEY, LLM_EMBEDDING_MODEL). Search endpoint will not work.")
+		querier = dbgen.New(dbPool) // Initialize querier with the pool
+		defer dbPool.Close()
+		logger.Info("Database connection established for semantic search.")
+	}
+
+	// --- Initialize LLMProviders ---
+	llmProviderName := os.Getenv(abb.EnvLLMProvider)
+	llmModel := os.Getenv(abb.EnvLLMModel)
+	llmEmbeddingModel := os.Getenv(abb.EnvLLMEmbeddingModel)
+	llmAPIKey := os.Getenv(abb.EnvLLMAPIKey)
+
+	if llmProviderName == "" || llmModel == "" || llmEmbeddingModel == "" || llmAPIKey == "" {
+		return fmt.Errorf("server startup error: LLM configuration (Provider, Model, EmbeddingModel, APIKey) not fully set")
+	}
+
+	// Read MaxTokens for LLMConfig, similar to how it's done in getConfiguration
+	maxTokensStr := os.Getenv(abb.EnvLLMMaxTokens)
+	maxTokens := abb.DefaultLLMMaxTokens // Default from abb package
+	if maxTokensStr != "" {
+		parsedMaxTokens, errAtoi := strconv.Atoi(maxTokensStr)
+		if errAtoi == nil && parsedMaxTokens > 0 {
+			maxTokens = parsedMaxTokens
+		} else {
+			logger.Warn("Invalid LLM_MAX_TOKENS value in http/http.go, using default", "value", maxTokensStr, "default", abb.DefaultLLMMaxTokens, "error", errAtoi)
+		}
+	}
+
+	// standard provider
+	llmProvider, err := abb.NewLLMProvider(abb.LLMConfig{
+		Provider:  llmProviderName,
+		APIKey:    llmAPIKey,
+		Model:     llmModel,
+		MaxTokens: maxTokens,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to initialize LLM Provider: %w", err)
+	}
+
+	// embedding provider
+	llmEmbedProvider, err := abb.NewLLMEmbeddingProvider(abb.EmbeddingConfig{
+		Provider: llmProviderName,
+		APIKey:   llmAPIKey,
+		Model:    llmEmbeddingModel,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to initialize LLM Embedding Provider: %w", err)
 	}
 
 	// Add routes
@@ -346,7 +359,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 
 	// create bounty routes
 	mux.HandleFunc("POST /bounties", stools.AdaptHandler(
-		handleCreateBounty(logger, tc, DefaultPayoutCalculator(), currentEnv),
+		handleCreateBounty(logger, tc, llmProvider, llmEmbedProvider, DefaultPayoutCalculator(), currentEnv),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
 		requireStatus(UserStatusSudo),

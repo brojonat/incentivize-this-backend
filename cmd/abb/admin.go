@@ -143,8 +143,6 @@ func createBounty(ctx *cli.Context) error {
 		"total_bounty":         ctx.Float64("total"),
 		"bounty_owner_wallet":  bountyOwnerWallet,
 		"bounty_funder_wallet": bountyFunderWallet,
-		"platform_kind":        ctx.String("platform"),
-		"content_kind":         ctx.String("content-kind"),
 	}
 
 	// Marshal to JSON
@@ -937,17 +935,6 @@ func adminCommands() []*cli.Command {
 							Usage:   "Solana wallet address providing the initial bounty funds (checked for payment)",
 							EnvVars: []string{EnvTestFunderWallet},
 						},
-						&cli.StringFlag{
-							Name:     "platform",
-							Required: true,
-							Usage:    "Platform type (reddit, youtube, yelp, google)",
-							Value:    "reddit",
-						},
-						&cli.StringFlag{
-							Name:     "content-kind",
-							Required: true,
-							Usage:    "Kind of content for the platform (e.g., post, comment, video, clip)",
-						},
 					},
 					Action: createBounty,
 				},
@@ -1196,6 +1183,7 @@ func adminCommands() []*cli.Command {
 						},
 						&cli.StringFlag{
 							Name:     "recipient-wallet",
+							Aliases:  []string{"d"},
 							Usage:    "Public key of the recipient wallet (destination)",
 							Required: true,
 						},
@@ -1220,15 +1208,11 @@ func adminCommands() []*cli.Command {
 					},
 					Action: defundEscrowAction,
 				},
-			},
-		},
-		{
-			Name:   "get-balances",
-			Usage:  "Retrieves and prints the SOL and USDC balances for configured wallets (reads from env vars like SOLANA_TEST_FUNDER_WALLET, etc.)",
-			Action: getWalletBalancesAction,
-			Flags:  []cli.Flag{
-				// No specific flags needed for this command as it reads from env.
-				// Common flags like rpc-endpoint could be added if desired for override.
+				{
+					Name:   "get-balances",
+					Usage:  "Retrieves and prints the SOL and USDC balances for configured wallets (reads from env vars like SOLANA_TEST_FUNDER_WALLET, etc.)",
+					Action: getWalletBalancesAction,
+				},
 			},
 		},
 	}

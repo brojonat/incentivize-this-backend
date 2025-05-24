@@ -107,8 +107,9 @@ func (p *OpenAIProvider) Complete(ctx context.Context, prompt string) (string, e
 			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"messages"`
-		MaxTokens   int     `json:"max_tokens"`
-		Temperature float64 `json:"temperature"`
+		MaxTokens      int               `json:"max_tokens"`
+		Temperature    float64           `json:"temperature"`
+		ResponseFormat map[string]string `json:"response_format,omitempty"`
 	}{
 		Model: p.cfg.Model,
 		Messages: []struct {
@@ -120,8 +121,9 @@ func (p *OpenAIProvider) Complete(ctx context.Context, prompt string) (string, e
 				Content: prompt,
 			},
 		},
-		MaxTokens:   p.cfg.MaxTokens,
-		Temperature: p.cfg.Temperature,
+		MaxTokens:      p.cfg.MaxTokens,
+		Temperature:    p.cfg.Temperature,
+		ResponseFormat: map[string]string{"type": "json_object"},
 	}
 
 	// Marshal request body

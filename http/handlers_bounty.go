@@ -48,14 +48,12 @@ type ReturnBountyToOwnerRequest struct {
 
 // CreateBountyRequest represents the request body for creating a new bounty
 type CreateBountyRequest struct {
-	Requirements       []string         `json:"requirements"`
-	BountyPerPost      float64          `json:"bounty_per_post"`
-	TotalBounty        float64          `json:"total_bounty"`
-	BountyOwnerWallet  string           `json:"bounty_owner_wallet"`
-	BountyFunderWallet string           `json:"bounty_funder_wallet"`
-	PlatformType       abb.PlatformKind `json:"platform_kind"`
-	ContentKind        abb.ContentKind  `json:"content_kind"`
-	TimeoutDuration    string           `json:"timeout_duration"` // Bounty active duration (e.g., "72h", "7d")
+	Requirements       []string `json:"requirements"`
+	BountyPerPost      float64  `json:"bounty_per_post"`
+	TotalBounty        float64  `json:"total_bounty"`
+	BountyOwnerWallet  string   `json:"bounty_owner_wallet"`
+	BountyFunderWallet string   `json:"bounty_funder_wallet"`
+	TimeoutDuration    string   `json:"timeout_duration"` // Bounty active duration (e.g., "72h", "7d")
 }
 
 // BountyListItem represents a single bounty in the list response
@@ -191,7 +189,21 @@ func handlePayBounty(l *slog.Logger, tc client.Client) http.HandlerFunc {
 }
 
 // handleCreateBounty handles the creation of a new bounty and starts a workflow
-func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator PayoutCalculator, env string) http.HandlerFunc {
+func handleCreateBounty(
+	logger *slog.Logger,
+	tc client.Client,
+	llmProvider abb.LLMProvider,
+	llmEmbedProvider abb.LLMEmbeddingProvider,
+	payoutCalculator PayoutCalculator,
+	env string,
+) http.HandlerFunc {
+	// Define a local struct for parsing the LLM's JSON response for content parameters
+	type inferredContentParamsRequest struct {
+		PlatformKind string `json:"PlatformKind"`
+		ContentKind  string `json:"ContentKind"`
+		Error        string `json:"Error,omitempty"`
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req CreateBountyRequest
 		if err := stools.DecodeJSONBody(r, &req); err != nil {
@@ -204,6 +216,7 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 			writeBadRequestError(w, fmt.Errorf("requirements is required"))
 			return
 		}
+		requirementsStr := strings.Join(req.Requirements, "\n")
 		if req.BountyPerPost <= 0 {
 			writeBadRequestError(w, fmt.Errorf("bounty_per_post must be greater than 0"))
 			return
@@ -222,7 +235,6 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 		}
 
 		// --- Requirements Length Check ---
-		requirementsStr := strings.Join(req.Requirements, "\n") // Join with newline for length check
 		if len(requirementsStr) > abb.MaxRequirementsCharsForLLMCheck {
 			warnMsg := fmt.Sprintf("Total length of requirements exceeds maximum limit (%d > %d)", len(requirementsStr), abb.MaxRequirementsCharsForLLMCheck)
 			logger.Warn(warnMsg)
@@ -231,9 +243,122 @@ func handleCreateBounty(logger *slog.Logger, tc client.Client, payoutCalculator 
 		}
 		// --- End Requirements Length Check ---
 
-		// Normalize platform and content kind to lowercase for consistent handling
-		normalizedPlatform := abb.PlatformKind(strings.ToLower(string(req.PlatformType)))
-		normalizedContentKind := abb.ContentKind(strings.ToLower(string(req.ContentKind)))
+		// --- Infer PlatformKind and ContentKind using LLM ---
+		validPlatformKinds := []abb.PlatformKind{
+			abb.PlatformReddit,
+			abb.PlatformYouTube,
+			abb.PlatformTwitch,
+			abb.PlatformHackerNews,
+			abb.PlatformBluesky,
+		}
+		validContentKinds := []abb.ContentKind{
+			abb.ContentKindPost,
+			abb.ContentKindComment,
+			abb.ContentKindVideo,
+			abb.ContentKindClip,
+		}
+
+		// Convert valid kinds to string slices for the prompt
+		validPlatformKindsStr := make([]string, len(validPlatformKinds))
+		for i, pk := range validPlatformKinds {
+			validPlatformKindsStr[i] = string(pk)
+		}
+		validContentKindsStr := make([]string, len(validContentKinds))
+		for i, ck := range validContentKinds {
+			validContentKindsStr[i] = string(ck)
+		}
+
+		promptFormat := `Given the bounty requirement: "%s".
+Determine the PlatformKind and ContentKind.
+Valid PlatformKinds are: [%s].
+Valid ContentKinds are: [%s].
+
+You MUST respond ONLY with a valid JSON object with two string keys: "PlatformKind" and "ContentKind".
+- "PlatformKind" must be one of the valid PlatformKinds, or an empty string if not determinable.
+- "ContentKind" must be one of the valid ContentKinds, or an empty string if not determinable.
+If you are unable to confidently determine both PlatformKind and ContentKind from the requirement, or if the requirement is ambiguous, you should return empty strings for both fields or a descriptive error message in a key named "Error".
+
+Example of a valid JSON response:
+{
+  "PlatformKind": "reddit",
+  "ContentKind": "post",
+  "Error": ""
+}
+
+Example of a response where parameters cannot be determined:
+{
+  "PlatformKind": "",
+  "ContentKind": "",
+  "Error": "The requirement is too vague to determine platform and content kind."
+}
+`
+		prompt := fmt.Sprintf(promptFormat, requirementsStr, strings.Join(validPlatformKindsStr, ", "), strings.Join(validContentKindsStr, ", "))
+
+		logger.Debug("Sending prompt to LLM for Platform/Content Kind inference", "prompt", prompt)
+
+		llmJSONResponse, err := llmProvider.Complete(r.Context(), prompt)
+		if err != nil {
+			logger.Error("LLM completion failed for content param inference", "error", err)
+			writeInternalError(logger, w, fmt.Errorf("failed to process requirements via LLM: %w", err))
+			return
+		}
+
+		logger.Debug("Received LLM response for Platform/Content Kind inference", "llm_response", llmJSONResponse)
+
+		var inferredParams inferredContentParamsRequest
+		// Clean the response - LLMs sometimes add ```json ``` wrappers
+		cleanedLLMResponse := strings.TrimSpace(llmJSONResponse)
+		if strings.HasPrefix(cleanedLLMResponse, "```json") {
+			cleanedLLMResponse = strings.TrimPrefix(cleanedLLMResponse, "```json")
+		}
+		if strings.HasSuffix(cleanedLLMResponse, "```") {
+			cleanedLLMResponse = strings.TrimSuffix(cleanedLLMResponse, "```")
+		}
+		cleanedLLMResponse = strings.TrimSpace(cleanedLLMResponse)
+
+		if err := json.Unmarshal([]byte(cleanedLLMResponse), &inferredParams); err != nil {
+			logger.Error("Failed to unmarshal LLM response for content param inference", "raw_response", llmJSONResponse, "cleaned_response", cleanedLLMResponse, "error", err)
+			writeBadRequestError(w, fmt.Errorf("LLM provided an invalid response format. Raw response: %s", llmJSONResponse))
+			return
+		}
+
+		if inferredParams.Error != "" || inferredParams.PlatformKind == "" || inferredParams.ContentKind == "" {
+			logger.Warn("LLM could not determine PlatformKind/ContentKind", "llm_error", inferredParams.Error)
+			writeBadRequestError(w, fmt.Errorf("could not determine PlatformKind and ContentKind from requirements: %s", inferredParams.Error))
+			return
+		}
+
+		// Validate inferred PlatformKind
+		normalizedPlatform := abb.PlatformKind(strings.ToLower(inferredParams.PlatformKind))
+		validPlatformFound := false
+		for _, vp := range validPlatformKinds {
+			if normalizedPlatform == vp {
+				validPlatformFound = true
+				break
+			}
+		}
+		if !validPlatformFound {
+			errMsg := fmt.Sprintf("LLM inferred an unsupported PlatformKind: '%s'. Supported kinds are: %s", inferredParams.PlatformKind, strings.Join(validPlatformKindsStr, ", "))
+			logger.Warn(errMsg)
+			writeBadRequestError(w, fmt.Errorf("%s", errMsg))
+			return
+		}
+
+		// Validate inferred ContentKind
+		normalizedContentKind := abb.ContentKind(strings.ToLower(inferredParams.ContentKind))
+		validContentFound := false
+		for _, vc := range validContentKinds {
+			if normalizedContentKind == vc {
+				validContentFound = true
+				break
+			}
+		}
+		if !validContentFound {
+			errMsg := fmt.Sprintf("LLM inferred an unsupported ContentKind: '%s'. Supported kinds are: %s", inferredParams.ContentKind, strings.Join(validContentKindsStr, ", "))
+			logger.Warn(errMsg)
+			writeBadRequestError(w, fmt.Errorf("%s", errMsg))
+			return
+		}
 
 		// Validate platform type and content kind using normalized values
 		switch normalizedPlatform {

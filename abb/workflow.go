@@ -514,7 +514,7 @@ func awaitBountyFund(
 			BackoffCoefficient:     2.0,
 			MaximumInterval:        10 * time.Second,
 			MaximumAttempts:        5,
-			NonRetryableErrorTypes: []string{"TimeoutError"},
+			NonRetryableErrorTypes: []string{"TimeoutError", "PaymentVerificationTimeout"},
 		},
 	}
 	verifyPaymentCtx := workflow.WithActivityOptions(ctx, verifyPaymentActivityOptions)

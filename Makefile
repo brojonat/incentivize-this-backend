@@ -262,9 +262,8 @@ FUND_AMOUNT = $(TOTAL_AMOUNT) # Amount to fund via fund-escrow, assuming it matc
 create-reddit-bounty: ## Create and fund a Reddit example bounty
 	@echo "--- Creating and Funding Reddit Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "Must have positive score" \
-		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT) \
-		--platform reddit --content-kind post`; \
+		-r "This bounty is for a Reddit post or comment. The content must achieve a positive score." \
+		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
@@ -285,9 +284,8 @@ create-reddit-bounty: ## Create and fund a Reddit example bounty
 create-youtube-bounty: ## Create and fund a YouTube example bounty
 	@echo "--- Creating and Funding YouTube Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "Must have at least 10 views" \
-		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT) \
-		--platform youtube --content-kind video`; \
+		-r "This bounty is for a YouTube video. The video must gain at least 10 views." \
+		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
 	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
@@ -303,9 +301,8 @@ create-youtube-bounty: ## Create and fund a YouTube example bounty
 create-twitch-bounty: ## Create and fund a Twitch example bounty
 	@echo "--- Creating and Funding Twitch Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "Video must be about dota2 and have at least 100 views" \
-		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT) \
-		--platform twitch --content-kind video`; \
+		-r "This bounty is for a Twitch clip. The content must be about Dota2 and achieve at least 100 views." \
+		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
 	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
@@ -321,9 +318,8 @@ create-twitch-bounty: ## Create and fund a Twitch example bounty
 create-bluesky-bounty: ## Create and fund a Bluesky example bounty
 	@echo "--- Creating and Funding Bluesky Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "Must include the hashtag #bounty" \
-		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT) \
-		--platform bluesky --content-kind post`; \
+		-r "This bounty is for a Bluesky post. The post must include the hashtag #bounty." \
+		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
 	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
@@ -339,9 +335,8 @@ create-bluesky-bounty: ## Create and fund a Bluesky example bounty
 create-hackernews-bounty: ## Create and fund a Hacker News example bounty
 	@echo "--- Creating and Funding Hacker News Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "Must be at least 50 characters long" \
-		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT) \
-		--platform hackernews --content-kind comment`; \
+		-r "This bounty is for a Hacker News story or comment. The content must be at least 50 characters long." \
+		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
 	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \

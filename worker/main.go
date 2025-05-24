@@ -9,11 +9,19 @@ import (
 
 	"github.com/brojonat/affiliate-bounty-board/abb"
 	"go.temporal.io/sdk/client"
+	sdklog "go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/worker"
 )
 
 // RunWorker runs the worker with the specified options
 func RunWorker(ctx context.Context, l *slog.Logger, thp, tns string) error {
+	// --- Create a new slog.Logger for Temporal, configured to LevelWarn ---
+	temporalSlogHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelWarn,
+	})
+	temporalLogger := sdklog.NewStructuredLogger(slog.New(temporalSlogHandler))
+	// --- End Temporal logger setup ---
+
 	// connect to temporal with retries
 	var c client.Client
 	var err error
@@ -22,7 +30,7 @@ func RunWorker(ctx context.Context, l *slog.Logger, thp, tns string) error {
 
 	for i := 0; i < maxRetries; i++ {
 		c, err = client.Dial(client.Options{
-			Logger:    l,
+			Logger:    temporalLogger,
 			HostPort:  thp,
 			Namespace: tns,
 		})

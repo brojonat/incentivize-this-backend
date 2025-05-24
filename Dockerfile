@@ -20,6 +20,7 @@ COPY http/ ./http/
 COPY internal/ ./internal/
 COPY solana/ ./solana/
 COPY worker/ ./worker/
+COPY db/ ./db/
 
 # Build the application binary statically for Linux
 # Use ldflags to strip debug info and reduce binary size

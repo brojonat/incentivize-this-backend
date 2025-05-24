@@ -13,6 +13,7 @@ import (
 	"github.com/brojonat/affiliate-bounty-board/http"
 	"github.com/urfave/cli/v2"
 	"go.temporal.io/sdk/client"
+	sdklog "go.temporal.io/sdk/log"
 )
 
 const (
@@ -22,7 +23,27 @@ const (
 	EnvCORSHaders        = "CORS_HEADERS"
 	EnvCORSMethods       = "CORS_METHODS"
 	EnvCORSOrigins       = "CORS_ORIGINS"
+	EnvLogLevel          = "LOG_LEVEL"
 )
+
+// parseLogLevel converts a string log level to slog.Level
+// Defaults to slog.LevelWarn for unrecognized values.
+func parseLogLevel(levelStr string) slog.Level {
+	switch strings.ToUpper(levelStr) {
+	case "DEBUG":
+		return slog.LevelDebug
+	case "INFO":
+		return slog.LevelInfo
+	case "WARN":
+		return slog.LevelWarn
+	case "ERROR":
+		return slog.LevelError
+	default:
+		// Log a message here if you want to indicate an invalid level was used and warn is the default
+		// For now, just defaulting silently.
+		return slog.LevelWarn
+	}
+}
 
 func serverCommands() []*cli.Command {
 	return []*cli.Command{
@@ -50,6 +71,13 @@ func serverCommands() []*cli.Command {
 					EnvVars: []string{EnvTemporalNamespace},
 					Value:   "default",
 				},
+				&cli.StringFlag{
+					Name:    "log-level",
+					Aliases: []string{"ll"},
+					Usage:   "Set the logging level (DEBUG, INFO, WARN, ERROR)",
+					EnvVars: []string{EnvLogLevel},
+					Value:   "WARN",
+				},
 			},
 			Action: run_server,
 		},
@@ -69,8 +97,18 @@ func run_server(c *cli.Context) error {
 		cancel()
 	}()
 
-	// Set up logger
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	// Parse log level from flag
+	logLevelStr := c.String("log-level")
+	parsedLogLevel := parseLogLevel(logLevelStr)
+
+	// Set up main application logger
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: parsedLogLevel}))
+
+	// Set up Temporal client specific logger
+	temporalSlogHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: parsedLogLevel,
+	})
+	temporalLogger := sdklog.NewStructuredLogger(slog.New(temporalSlogHandler))
 
 	// Set up Temporal client with retries
 	var tc client.Client
@@ -82,7 +120,7 @@ func run_server(c *cli.Context) error {
 
 	for i := 0; i < maxRetries; i++ {
 		tc, err = client.Dial(client.Options{
-			Logger:    logger,
+			Logger:    temporalLogger,
 			HostPort:  temporalAddress,
 			Namespace: temporalNamespace,
 		})
