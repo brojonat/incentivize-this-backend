@@ -259,10 +259,14 @@ PER_POST_AMOUNT = 0.01
 TOTAL_AMOUNT = 0.10
 FUND_AMOUNT = $(TOTAL_AMOUNT) # Amount to fund via fund-escrow, assuming it matches total bounty for this script
 
-create-reddit-bounty: ## Create and fund a Reddit example bounty
+create-reddit-post-bounty:
 	@echo "--- Creating and Funding Reddit Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This bounty is for a Reddit post or comment. The content must achieve a positive score." \
+		-r "This bounty is for a Reddit post. The post must have a score of at least 100" \
+		   " and be in the programmerhumor, devops, or programming subreddits" \
+		   " and it must be implying that LLMs/AI is not particularly useful." \
+		   " It should evoke a sense of dissatisfaction with the current state of AI" \
+		   " and downplay it's effectiveness." \
 		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
@@ -271,8 +275,8 @@ create-reddit-bounty: ## Create and fund a Reddit example bounty
 		echo "Error: Could not extract Workflow ID from create command output." >&2; \
 		exit 1; \
 	fi; \
-	echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
-	echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
 	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
 		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
 	else \
@@ -281,10 +285,34 @@ create-reddit-bounty: ## Create and fund a Reddit example bounty
 	fi
 	@echo "--- Reddit Bounty Funded (according to Makefile logic) ---"
 
-create-youtube-bounty: ## Create and fund a YouTube example bounty
+create-reddit-comment-bounty:
+	@echo "--- Creating and Funding Reddit Bounty ---"
+	@OUTPUT=`$(ABB_CMD) admin bounty create \
+		-r "This bounty is for a Reddit comment. The comment must have a score of at least 100" \
+		   " and be in a post talking about hikes in Orange County." \
+		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
+	echo "Create Output: $$OUTPUT"; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
+	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
+	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
+		echo "Error: Could not extract Workflow ID from create command output." >&2; \
+		exit 1; \
+	fi; \
+	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
+		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
+	else \
+		echo "!!! fund-escrow command FAILED for $$WORKFLOW_ID (exit code $$?) !!!" >&2; \
+		exit 1; \
+	fi
+	@echo "--- Reddit Bounty Funded (according to Makefile logic) ---"
+
+create-youtube-bounty:
 	@echo "--- Creating and Funding YouTube Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This bounty is for a YouTube video. The video must gain at least 10 views." \
+		-r "This bounty is for a YouTube video. The video must have at least 1000 views" \
+		   " and be about cookware. It must not make the cookware look dangerous." \
 		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
@@ -298,10 +326,11 @@ create-youtube-bounty: ## Create and fund a YouTube example bounty
 		--amount $(FUND_AMOUNT)
 	@echo "--- YouTube Bounty Funded ---"
 
-create-twitch-bounty: ## Create and fund a Twitch example bounty
+create-twitch-bounty:
 	@echo "--- Creating and Funding Twitch Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This bounty is for a Twitch clip. The content must be about Dota2 and achieve at least 100 views." \
+		-r "This bounty is for a Twitch clip. The content must be about Dota2 and" \
+		" have at least 100 views. The thumbnail must include an image of a real person."
 		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
@@ -315,10 +344,11 @@ create-twitch-bounty: ## Create and fund a Twitch example bounty
 		--amount $(FUND_AMOUNT)
 	@echo "--- Twitch Bounty Funded ---"
 
-create-bluesky-bounty: ## Create and fund a Bluesky example bounty
+create-bluesky-bounty:
 	@echo "--- Creating and Funding Bluesky Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This bounty is for a Bluesky post. The post must include the hashtag #bounty." \
+		-r "This bounty is for a Bluesky post. The post should mention technology and" \
+		" be about the latest trends in AI." \
 		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
@@ -332,10 +362,36 @@ create-bluesky-bounty: ## Create and fund a Bluesky example bounty
 		--amount $(FUND_AMOUNT)
 	@echo "--- Bluesky Bounty Funded ---"
 
-create-hackernews-bounty: ## Create and fund a Hacker News example bounty
+create-hackernews-comment-bounty:
 	@echo "--- Creating and Funding Hacker News Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This bounty is for a Hacker News story or comment. The content must be at least 50 characters long." \
+		-r "This bounty is for a Hacker News comment. The content must be at " \
+		" least 50 characters long. It should be on a Show HN post that discusses IncentivizeThis." \
+		" The comment must portray IncentivizeThis in a positive light, " \
+		" otherwise it should not be approved for the bounty." \
+		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
+	echo "Create Output: $$OUTPUT"; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
+	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
+	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
+		echo "Error: Could not extract Workflow ID from create command output." >&2; \
+		exit 1; \
+	fi; \
+	$(ABB_CMD) admin util fund-escrow \
+		--workflow-id $$WORKFLOW_ID \
+		--amount $(FUND_AMOUNT)
+	@echo "--- Hacker News Bounty Funded ---"
+
+create-hackernews-post-bounty:
+	@echo "--- Creating and Funding Hacker News Bounty ---"
+	@OUTPUT=`$(ABB_CMD) admin bounty create \
+		-r "This bounty is for a Hacker News post. This must be a 'Show HN' post. The content must be at " \
+		" least 250 characters long. It should discuss IncentivizeThis and promote it as " \
+		" a way to get paid. It should mention that it facilitates the production of " \
+		" content that people actually want to see and/or it should mention that it's a " \
+		" way for advertising companies to get more people to see their ads without " \
+		" knowing it's an ad. The post must show IncentivizeThis in a positive light, " \
+		" otherwise it should not be approved for the bounty." \
 		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
@@ -351,7 +407,7 @@ create-hackernews-bounty: ## Create and fund a Hacker News example bounty
 
 .PHONY: help create-and-fund-bounties create-reddit-bounty create-youtube-bounty create-twitch-bounty create-bluesky-bounty create-hackernews-bounty
 
-help: ## Show this help message
+help:
 	@echo "Available targets:"
 	@awk -F ':.*?## ' '/^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST) | sort
 
