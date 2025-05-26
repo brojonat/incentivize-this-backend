@@ -154,7 +154,7 @@ func handleSearchBounties(logger *slog.Logger, querier dbgen.Querier, tc client.
 			}
 
 			bountyItem := BountyListItem{
-				WorkflowID:           id,
+				BountyID:             id,
 				Status:               descResp.WorkflowExecutionInfo.Status.String(),
 				Requirements:         input.Requirements, // May be empty if history fetch failed
 				BountyPerPost:        input.BountyPerPost.ToUSDC(),

@@ -98,9 +98,9 @@ func (a *Activities) formatBountiesForDiscord(bounties []api.BountyListItem, pub
 		}
 
 		// Constructing a direct link to the bounty details page
-		bountyURL := fmt.Sprintf("%s/bounties/%s", strings.TrimSuffix(publicBaseURL, "/"), b.WorkflowID)
+		bountyURL := fmt.Sprintf("%s/bounties/%s", strings.TrimSuffix(publicBaseURL, "/"), b.BountyID)
 
-		sb.WriteString(fmt.Sprintf("### [%s](%s)\n", b.WorkflowID, bountyURL)) // Title as link
+		sb.WriteString(fmt.Sprintf("### [%s](%s)\n", b.BountyID, bountyURL)) // Title as link
 		sb.WriteString(fmt.Sprintf("- **Platform**: %s (%s)\n", b.PlatformKind, b.ContentKind))
 		sb.WriteString(fmt.Sprintf("- **Reward/Post**: $%.2f\n", b.BountyPerPost))
 		sb.WriteString(fmt.Sprintf("- **Total Bounty Pool**: $%.2f\n", b.TotalBounty))

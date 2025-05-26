@@ -59,7 +59,7 @@ type CreateBountyRequest struct {
 
 // BountyListItem represents a single bounty in the list response
 type BountyListItem struct {
-	WorkflowID           string           `json:"workflow_id"`
+	BountyID             string           `json:"bounty_id"`
 	Status               string           `json:"status"`
 	Requirements         []string         `json:"requirements"`
 	BountyPerPost        float64          `json:"bounty_per_post"`
@@ -625,7 +625,7 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 			}
 
 			bounties = append(bounties, BountyListItem{
-				WorkflowID:           execution.Execution.WorkflowId,
+				BountyID:             execution.Execution.WorkflowId,
 				Status:               status, // Use the status derived from search attribute
 				Requirements:         input.Requirements,
 				BountyPerPost:        input.BountyPerPost.ToUSDC(),
@@ -1189,7 +1189,7 @@ func handleGetBountyByID(l *slog.Logger, tc client.Client) http.HandlerFunc {
 		}
 
 		bountyDetail := BountyListItem{
-			WorkflowID:           workflowID,
+			BountyID:             workflowID,
 			Status:               status, // Use the status derived from search attribute
 			Requirements:         input.Requirements,
 			BountyPerPost:        input.BountyPerPost.ToUSDC(),

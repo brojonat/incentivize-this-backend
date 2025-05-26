@@ -353,9 +353,9 @@ func (a *Activities) formatBountiesForReddit(bounties []api.BountyListItem, publ
 			reqSummary = reqSummary[:2045] + "..."
 		}
 		line := fmt.Sprintf("| [%s](%s/bounties/%s) | %s | $%.2f | $%.2f | %s |\n",
-			b.WorkflowID,
+			b.BountyID,
 			publicBaseURL,
-			b.WorkflowID,
+			b.BountyID,
 			b.PlatformKind,
 			b.BountyPerPost,
 			b.TotalBounty,
