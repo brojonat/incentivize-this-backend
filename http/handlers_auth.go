@@ -59,7 +59,10 @@ func handleIssueSudoToken(l *slog.Logger) http.HandlerFunc {
 			writeInternalError(l, w, fmt.Errorf("failed to generate token: %w", err))
 			return
 		}
-		resp := api.DefaultJSONResponse{Message: token}
+		resp := api.TokenResponse{
+			AccessToken: token,
+			TokenType:   "Bearer",
+		}
 		writeJSONResponse(w, resp, http.StatusOK)
 	}
 }

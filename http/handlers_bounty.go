@@ -17,6 +17,7 @@ import (
 
 	"github.com/brojonat/affiliate-bounty-board/abb"
 	"github.com/brojonat/affiliate-bounty-board/db/dbgen"
+	"github.com/brojonat/affiliate-bounty-board/http/api"
 	"github.com/brojonat/affiliate-bounty-board/internal/stools"
 	"github.com/brojonat/affiliate-bounty-board/solana"
 	solanagrpc "github.com/gagliardetto/solana-go/rpc"
@@ -496,8 +497,9 @@ Example of a response where parameters cannot be determined:
 			return
 		}
 
-		writeJSONResponse(w, DefaultJSONResponse{
-			Message: fmt.Sprintf("Workflow started: %s", workflowID),
+		writeJSONResponse(w, api.CreateBountySuccessResponse{
+			Message:  "Bounty creation initiated and workflow started.",
+			BountyID: workflowID,
 		}, http.StatusOK)
 	}
 }
@@ -905,6 +907,29 @@ func handleListPaidBounties(
 				// Skip transactions to the treasury wallet
 				if treasuryWalletAddress != "" && recipientOwnerWallet == treasuryWalletAddress {
 					l.Debug("Background refresh: Skipping transaction to treasury wallet", "signature", sigInfo.Signature.String(), "recipient", recipientOwnerWallet, "amount_lamports", transferAmountLamports)
+					continue
+				}
+
+				// Check if the memo indicates a bounty payout
+				isBountyPayout := false
+				if sigInfo.Memo != nil {
+					memoStr := *sigInfo.Memo
+					// Attempt to unmarshal the memo to check for specific fields
+					var memoData map[string]interface{}
+					if err := json.Unmarshal([]byte(memoStr), &memoData); err == nil {
+						_, hasWorkflowID := memoData["bounty_id"]
+						_, hasContentID := memoData["content_id"]
+						isBountyPayout = hasWorkflowID && hasContentID
+					} else {
+						// Fallback for memos that might not be JSON but still relevant (e.g. older formats or simple strings)
+						// For now, we are strict: only JSON memos with both fields are considered.
+						// If other memo types should be considered, this logic needs adjustment.
+						l.Debug("Background refresh: Memo is not valid JSON or does not contain expected fields, skipping as not a bounty payout", "signature", sigInfo.Signature.String(), "memo", memoStr)
+					}
+				}
+
+				if !isBountyPayout {
+					l.Debug("Background refresh: Skipping transaction as it does not appear to be a bounty payout based on memo", "signature", sigInfo.Signature.String(), "memo", sigInfo.Memo)
 					continue
 				}
 

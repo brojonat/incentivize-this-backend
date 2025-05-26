@@ -469,9 +469,9 @@ func PayBountyWorkflow(ctx workflow.Context, input PayBountyWorkflowInput) error
 
 	// --- Create Memo for Direct Payment --- //
 	type DirectPaymentMemo struct {
-		WorkflowID string `json:"workflow_id"`
+		BountyID string `json:"bounty_id"`
 	}
-	memoData := DirectPaymentMemo{WorkflowID: workflow.GetInfo(ctx).WorkflowExecution.ID}
+	memoData := DirectPaymentMemo{BountyID: workflow.GetInfo(ctx).WorkflowExecution.ID}
 	memoBytes, err := json.Marshal(memoData)
 	if err != nil {
 		// Log error, but maybe proceed without memo?
@@ -602,9 +602,9 @@ func awaitLoopUntilEmptyOrTimeout(
 
 				// --- Create Memo for Timeout Refund --- //
 				type RefundMemo struct {
-					WorkflowID string `json:"workflow_id"`
+					BountyID string `json:"bounty_id"`
 				}
-				memoData := RefundMemo{WorkflowID: workflowID}
+				memoData := RefundMemo{BountyID: workflowID}
 				memoBytes, mErr := json.Marshal(memoData)
 				if mErr != nil {
 					logger.Error("Failed to marshal refund memo", "error", mErr)
@@ -928,12 +928,12 @@ func awaitLoopUntilEmptyOrTimeout(
 				if !payoutAmount.IsZero() {
 					payOpts := workflow.ActivityOptions{StartToCloseTimeout: DefaultPayoutTimeout}
 					type PayoutMemo struct {
-						WorkflowID  string       `json:"workflow_id"`
+						BountyID    string       `json:"bounty_id"`
 						ContentID   string       `json:"content_id"`
 						Platform    PlatformKind `json:"platform,omitempty"`
 						ContentKind ContentKind  `json:"content_kind,omitempty"`
 					}
-					memoData := PayoutMemo{WorkflowID: workflowID, ContentID: signal.ContentID, Platform: signal.Platform, ContentKind: signal.ContentKind}
+					memoData := PayoutMemo{BountyID: workflowID, ContentID: signal.ContentID, Platform: signal.Platform, ContentKind: signal.ContentKind}
 					memoBytes, mErr := json.Marshal(memoData)
 					if mErr != nil {
 						logger.Error("Failed to marshal payout memo", "error", mErr)
@@ -1036,9 +1036,9 @@ func awaitLoopUntilEmptyOrTimeout(
 				cancelOpts := workflow.ActivityOptions{StartToCloseTimeout: DefaultPayoutTimeout}
 				// --- Create Memo for Cancellation Refund --- //
 				type CancelRefundMemo struct {
-					WorkflowID string `json:"workflow_id"`
+					BountyID string `json:"bounty_id"`
 				}
-				memoData := CancelRefundMemo{WorkflowID: workflowID}
+				memoData := CancelRefundMemo{BountyID: workflowID}
 				memoBytes, mErr := json.Marshal(memoData)
 				if mErr != nil {
 					logger.Error("Failed to marshal cancel refund memo", "error", mErr)

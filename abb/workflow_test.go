@@ -176,6 +176,7 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	activities, err := NewActivities()
 	require.NoError(t, err)
 
+	env.RegisterActivity(activities.GenerateAndStoreBountyEmbeddingActivity)
 	env.RegisterActivity(activities.VerifyPayment)
 	env.RegisterActivity(activities.TransferUSDC)
 	env.RegisterActivity(activities.PullContentActivity)
@@ -183,7 +184,7 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	env.RegisterActivity(activities.AnalyzeImageURL)
 	env.RegisterActivity(activities.ValidatePayoutWallet)
 	env.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
-	env.RegisterActivity(activities.GenerateAndStoreBountyEmbeddingActivity)
+	env.RegisterActivity(activities.SummarizeAndStoreBountyActivity)
 
 	originalTotalBounty, err := solana.NewUSDCAmount(10.0)
 	require.NoError(t, err)
@@ -210,8 +211,8 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 		TreasuryWallet:     treasuryWallet.PublicKey().String(), // Passed to workflow
 		Platform:           PlatformReddit,
 		ContentKind:        ContentKindPost,
-		Timeout:            30 * time.Second,
-		PaymentTimeout:     5 * time.Second,
+		Timeout:            300 * time.Second,
+		PaymentTimeout:     30 * time.Second,
 	}
 
 	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).
@@ -222,7 +223,8 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 
 	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: true, Reason: "mocked-should-analyze"}, nil).Once()
 
-	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), mock.AnythingOfType("string")).
+	expectedFeeMemo := fmt.Sprintf("%s-fee-transfer", "default-test-workflow-id")
+	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), expectedFeeMemo).
 		Return(nil).Once()
 
 	mockThumbnailURL := "https://example.com/reddit_thumb.jpg"
@@ -258,17 +260,29 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	env.OnActivity(activities.ValidatePayoutWallet, mock.Anything, payoutWallet.PublicKey().String(), input.Requirements).
 		Return(ValidateWalletResult{Satisfies: true, Reason: "Wallet validation passed in test"}, nil).Once()
 
-	expectedPayoutMemo := fmt.Sprintf("{\"workflow_id\":\"%s\",\"content_id\":\"%s\",\"content_kind\":\"%s\"}", "default-test-workflow-id", "test-content", ContentKindPost)
+	// Mock GenerateAndStoreBountyEmbeddingActivity (placed with other activity mocks)
+	env.OnActivity(activities.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.AnythingOfType("abb.GenerateAndStoreBountyEmbeddingActivityInput")).Return(nil).Once()
+	// Mock SummarizeAndStoreBountyActivity
+	env.OnActivity(activities.SummarizeAndStoreBountyActivity, mock.Anything, mock.AnythingOfType("SummarizeAndStoreBountyActivityInput")).Return(nil).Maybe()
+
+	expectedPayoutMemo := fmt.Sprintf("{\"bounty_id\":\"%s\",\"content_id\":\"%s\",\"platform\":\"%s\",\"content_kind\":\"%s\"}", "default-test-workflow-id", "test-content", string(input.Platform), string(ContentKindPost))
 	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), expectedPayoutMemo).Return(nil).Once()
 
-	remainingBountyAfterPayout := totalBounty.Sub(bountyPerPost)
-	env.OnActivity(activities.TransferUSDC, mock.Anything, ownerWallet.PublicKey().String(), remainingBountyAfterPayout.ToUSDC(), mock.AnythingOfType("string")).
+	// After one payout of 'bountyPerPost', if the workflow times out,
+	// the remaining bounty (TotalBounty - BountyPerPost) should be refunded.
+	amountToRefundAfterPayout := input.TotalBounty.Sub(input.BountyPerPost) // e.g., 9.0 - 1.0 = 8.0 USDC
+	expectedOwnerRefundMemo := fmt.Sprintf("{\"bounty_id\":\"%s\"}", "default-test-workflow-id")
+	env.OnActivity(
+		activities.TransferUSDC,
+		mock.Anything,
+		ownerWallet.PublicKey().String(),
+		amountToRefundAfterPayout.ToUSDC(), // Use the corrected amount
+		expectedOwnerRefundMemo,
+	).
 		Run(func(args mock.Arguments) {
+			// This Run function can be used for debugging or asserting calls if needed
 		}).
 		Return(nil).Once()
-
-	// Mock GenerateAndStoreBountyEmbeddingActivity
-	env.OnActivity(activities.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.AnythingOfType("abb.GenerateAndStoreBountyEmbeddingActivityInput")).Return(nil).Once()
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow("assessment", AssessContentSignal{
@@ -303,6 +317,7 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	env.RegisterActivity(activities.AnalyzeImageURL)
 	env.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
 	env.RegisterActivity(activities.GenerateAndStoreBountyEmbeddingActivity)
+	env.RegisterActivity(activities.SummarizeAndStoreBountyActivity)
 
 	bountyPerPost, err := solana.NewUSDCAmount(1.0)
 	require.NoError(t, err)
@@ -337,7 +352,8 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 
 	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "mocked-no-analysis"}, nil).Maybe()
 
-	env.OnActivity(activities.TransferUSDC, mock.Anything, mock.AnythingOfType("string"), feeAmount.ToUSDC(), mock.AnythingOfType("string")).
+	expectedFeeMemoTimeout := fmt.Sprintf("%s-fee-transfer", "default-test-workflow-id")
+	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), expectedFeeMemoTimeout).
 		Return(nil).Maybe()
 
 	env.OnActivity(activities.PullContentActivity, mock.Anything, mock.AnythingOfType("string"), ContentKindPost).
@@ -348,7 +364,7 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	env.OnActivity(activities.ValidatePayoutWallet, mock.Anything, mock.AnythingOfType("string"), input.Requirements).
 		Return(ValidateWalletResult{Satisfies: true, Reason: "Wallet validation passed in test"}, nil).Maybe()
 
-	expectedTimeoutRefundMemo := fmt.Sprintf("{\"workflow_id\":\"%s\"}", "default-test-workflow-id")
+	expectedTimeoutRefundMemo := fmt.Sprintf("{\"bounty_id\":\"%s\"}", "default-test-workflow-id")
 	env.OnActivity(activities.TransferUSDC,
 		mock.Anything,
 		ownerWallet.PublicKey().String(),
@@ -358,6 +374,8 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 
 	// Mock GenerateAndStoreBountyEmbeddingActivity
 	env.OnActivity(activities.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.AnythingOfType("abb.GenerateAndStoreBountyEmbeddingActivityInput")).Return(nil).Once()
+	// Mock SummarizeAndStoreBountyActivity
+	env.OnActivity(activities.SummarizeAndStoreBountyActivity, mock.Anything, mock.AnythingOfType("SummarizeAndStoreBountyActivityInput")).Return(nil).Maybe()
 
 	env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
 
@@ -384,6 +402,7 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 	env.RegisterActivity(activities.AnalyzeImageURL)
 	env.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
 	env.RegisterActivity(activities.GenerateAndStoreBountyEmbeddingActivity)
+	env.RegisterActivity(activities.SummarizeAndStoreBountyActivity)
 
 	originalTotalBounty, _ := solana.NewUSDCAmount(10.0)
 	totalBounty, _ := solana.NewUSDCAmount(5.0)
@@ -415,7 +434,8 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 
 	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "mocked-no-analysis"}, nil).Maybe()
 
-	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), mock.AnythingOfType("string")).
+	expectedFeeMemoIdempotency := fmt.Sprintf("%s-fee-transfer", "default-test-workflow-id")
+	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), expectedFeeMemoIdempotency).
 		Return(nil).Once()
 
 	mockRedditContent := &RedditContent{ID: contentID, Title: "Idempotent Test"}
@@ -431,13 +451,17 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 	env.OnActivity(activities.ValidatePayoutWallet, mock.Anything, payoutWallet.PublicKey().String(), input.Requirements).
 		Return(ValidateWalletResult{Satisfies: true, Reason: "Wallet validation passed in test"}, nil).Once()
 
-	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Once()
+	expectedPayoutMemoIdempotency := fmt.Sprintf("{\"bounty_id\":\"%s\",\"content_id\":\"%s\",\"platform\":\"%s\",\"content_kind\":\"%s\"}", "default-test-workflow-id", contentID, string(input.Platform), string(ContentKindPost))
+	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), expectedPayoutMemoIdempotency).Return(nil).Once()
 
 	cancelRefundAmount := totalBounty.Sub(bountyPerPost)
-	env.OnActivity(activities.TransferUSDC, mock.Anything, ownerWallet.PublicKey().String(), cancelRefundAmount.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Once()
+	expectedOwnerRefundMemoIdempotency := fmt.Sprintf("{\"bounty_id\":\"%s\"}", "default-test-workflow-id")
+	env.OnActivity(activities.TransferUSDC, mock.Anything, ownerWallet.PublicKey().String(), cancelRefundAmount.ToUSDC(), expectedOwnerRefundMemoIdempotency).Return(nil).Once()
 
 	// Mock GenerateAndStoreBountyEmbeddingActivity
 	env.OnActivity(activities.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.AnythingOfType("abb.GenerateAndStoreBountyEmbeddingActivityInput")).Return(nil).Once()
+	// Mock SummarizeAndStoreBountyActivity
+	env.OnActivity(activities.SummarizeAndStoreBountyActivity, mock.Anything, mock.AnythingOfType("SummarizeAndStoreBountyActivityInput")).Return(nil).Maybe()
 
 	signal := AssessContentSignal{
 		ContentID:    contentID,
@@ -478,6 +502,7 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 	env.RegisterActivity(activities.PullContentActivity)
 	env.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
 	env.RegisterActivity(activities.GenerateAndStoreBountyEmbeddingActivity)
+	env.RegisterActivity(activities.SummarizeAndStoreBountyActivity)
 
 	originalTotalBounty, _ := solana.NewUSDCAmount(10.0)
 	totalBounty, _ := solana.NewUSDCAmount(5.0)
@@ -498,7 +523,8 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 
 	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "mocked-no-analysis"}, nil).Maybe()
 
-	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), mock.AnythingOfType("string")).
+	expectedFeeMemoNotMet := fmt.Sprintf("%s-fee-transfer", "default-test-workflow-id")
+	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), expectedFeeMemoNotMet).
 		Return(nil).Once()
 
 	mockedRedditBytesFailure, err := json.Marshal(mockRedditContent)
@@ -514,11 +540,12 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 
 	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Never()
 
+	expectedCancellationRefundMemo := fmt.Sprintf("{\"bounty_id\":\"%s\"}", "default-test-workflow-id")
 	env.OnActivity(activities.TransferUSDC,
 		mock.Anything,
 		ownerWallet.PublicKey().String(),
 		totalBounty.ToUSDC(),
-		mock.AnythingOfType("string"),
+		expectedCancellationRefundMemo,
 	).Run(func(args mock.Arguments) {
 		select {
 		case refundCalled <- struct{}{}:
@@ -528,6 +555,8 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 
 	// Mock GenerateAndStoreBountyEmbeddingActivity
 	env.OnActivity(activities.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.AnythingOfType("abb.GenerateAndStoreBountyEmbeddingActivityInput")).Return(nil).Once()
+	// Mock SummarizeAndStoreBountyActivity
+	env.OnActivity(activities.SummarizeAndStoreBountyActivity, mock.Anything, mock.AnythingOfType("SummarizeAndStoreBountyActivityInput")).Return(nil).Maybe()
 
 	input := BountyAssessmentWorkflowInput{
 		Requirements:       []string{"Failure Test"},

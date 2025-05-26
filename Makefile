@@ -269,7 +269,7 @@ create-reddit-post-bounty:
 		   " and downplay it's effectiveness." \
 		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
-	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Bounty started: "; "")'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
 	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
 		echo "Error: Could not extract Workflow ID from create command output." >&2; \
@@ -292,7 +292,7 @@ create-reddit-comment-bounty:
 		   " and be in a post talking about hikes in Orange County." \
 		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
-	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Bounty started: "; "")'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
 	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
 		echo "Error: Could not extract Workflow ID from create command output." >&2; \
@@ -315,7 +315,7 @@ create-youtube-bounty:
 		   " and be about cookware. It must not make the cookware look dangerous." \
 		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
-	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Bounty started: "; "")'`; \
 	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
 	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
 		echo "Error: Could not extract Workflow ID from create command output." >&2; \
@@ -333,7 +333,7 @@ create-twitch-bounty:
 		" have at least 100 views. The thumbnail must include an image of a real person."
 		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
-	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Bounty started: "; "")'`; \
 	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
 	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
 		echo "Error: Could not extract Workflow ID from create command output." >&2; \
@@ -351,7 +351,7 @@ create-bluesky-bounty:
 		" be about the latest trends in AI." \
 		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
-	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Bounty started: "; "")'`; \
 	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
 	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
 		echo "Error: Could not extract Workflow ID from create command output." >&2; \
@@ -371,7 +371,7 @@ create-hackernews-comment-bounty:
 		" otherwise it should not be approved for the bounty." \
 		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
-	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Bounty started: "; "")'`; \
 	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
 	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
 		echo "Error: Could not extract Workflow ID from create command output." >&2; \
@@ -394,7 +394,7 @@ create-hackernews-post-bounty:
 		" otherwise it should not be approved for the bounty." \
 		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
-	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Workflow started: "; "")'`; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Bounty started: "; "")'`; \
 	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
 	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
 		echo "Error: Could not extract Workflow ID from create command output." >&2; \

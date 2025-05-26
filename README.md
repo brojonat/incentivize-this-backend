@@ -1,15 +1,11 @@
 # affiliate-bounty-board
 
-# NOTE FOR FUTURE: the llm should construct the promp for the image llm!
-
-# ALSO NOTE FOR FUTURE: we should use this to Incentive the ProductHunt launch
-
 I was watching this new show on Apple with Seth Rogan where he has to make a cinematic Koolaid movie. This got me thinking about advertising on Reddit. Advertisers would pay for favorable mentions of their product. We can facilitate that. This is a collection of Temporal workflows and activities that provide a sort of "bounty" board for producing content on the Internet.
 
 1. Funder (e.g., a business owner) creates a bounty with a reward amount and stipulations.
 2. Content creator sees the bounty.
-3. Content creator produces some content that fulfills the bounty and sends us a link along with their Solana wallet address.
-4. We assess the content using our not-so-secret sauce.
+3. Content creator produces some content that fulfills the bounty and provides a link along with their Solana wallet address.
+4. The content is assessed using our automated content analysis system.
 5. If the content fulfills the requirements set by the bounty funder, the content creator gets paid with USDC from the escrow.
 
 ## Development
@@ -84,12 +80,12 @@ This flow demonstrates how to create a bounty, fund it using the CLI utility (si
     ```
 
 2.  **Create the Bounty (in the tmux CLI pane):**
-    Run the `bounty create` command. Note the `Workflow started: <WORKFLOW_ID>` message in the output.
+    Run the `bounty create` command. Note the `Bounty started: <WORKFLOW_ID>` message in the output.
 
     ```bash
     # Example:
-    ./bin/abb admin bounty create -r "foo" -r "bar" -r "baz" --per-post 0.01 --total 0.1 --platform reddit
-    # Output will include: Workflow started: bounty-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    ./bin/abb admin bounty create -r "Foo. Bar. Baz." --per-post 0.01 --total 0.1
+    # Output will include: Bounty started: bounty-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
     ```
 
 3.  **Prepare Funder Private Key (CLI pane):**
@@ -111,6 +107,11 @@ This flow demonstrates how to create a bounty, fund it using the CLI utility (si
     # Replace {bounty_workflow_id} with the actual ID from step 2
     ./bin/abb admin util fund-escrow -a 0.1 -w {bounty_workflow_id}
     ```
+
+    **Note on Transaction Memos:**
+
+    - Funding transactions (from funder to escrow) use the `bounty_id` (which is the `workflow_id`) directly as the memo string.
+    - Payout transactions (from escrow to creator) use a JSON memo structure: `{"bounty_id": "<BOUNTY_ID>", "platform": "<PLATFORM>", "content_id": "<CONTENT_ID>"}`. This is important for the `handleListPaidBounties` endpoint to correctly identify and list actual bounty payouts. FIXME: double check this.
 
 5.  **Observe Verification (in the tmux Worker pane):**
     The worker logs (`logs/worker.log`) should show the `VerifyPayment` activity polling for transactions. Once it finds the funding transaction matching the amount and the workflow ID in the memo, it will log `Matching payment transaction found` and `Payment verified successfully`, allowing the workflow to proceed.
@@ -441,9 +442,9 @@ The system uses Temporal for orchestrating the bounty verification process:
 
 ### Workflows
 
-1. **BountyCreationWorkflow**
+1. **BountyAssessmentWorkflow**
 
-   - Handles the creation and initialization of new bounties
+   - Handles the creation and initialization of new bounties, assessment, and payment.
    - Sets up escrow and initializes verification parameters
 
 2. **SubmissionVerificationWorkflow**
@@ -722,7 +723,7 @@ spl-token create-account $SOLANA_USDC_MINT_ADDRESS --owner $SOLANA_TEST_CREATOR_
 # And now check the balance (you should see 0)
 spl-token balance --address $SOLANA_TEST_CREATOR_USDC_ACA
 # Ok, now, pretend a hypothetical advertiser creates a bounty. This will use SOLANA_TEST_FUNDER_WALLET by default
-./bin/abb admin bounty create -r "write a post in r/orangecounty that is about microcenter and has at least 100 comments" --total 1 --per-post 0.05 --platform reddit
+./bin/abb admin bounty create -r "write a post in r/orangecounty that is about microcenter and has at least 100 comments" --total 1 --per-post 0.05
 # Now fund the bounty escrow within the timeout window. This will use the
 # SOLANA_TEST_FUNDER_WALLET and SOLANA_TEST_FUNDER_PRIVATE_KEY by default
 ./bin/abb admin util fund-escrow -a 1.0 -w bounty-some-uuid

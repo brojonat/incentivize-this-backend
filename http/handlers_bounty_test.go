@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/abb"
+	"github.com/brojonat/affiliate-bounty-board/http/api"
 	"github.com/brojonat/affiliate-bounty-board/solana"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -109,17 +110,18 @@ func TestHandleListBounties(t *testing.T) {
 				// --- End Mock GetWorkflowHistory ---
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody: []BountyListItem{
+			expectedBody: []api.BountyListItem{
 				{
-					WorkflowID:           "test-workflow-1",
-					Status:               "Listening",
-					Requirements:         []string{"Test requirement 1", "Test requirement 2"},
-					BountyPerPost:        10.0,
-					TotalBounty:          100.0,
-					BountyOwnerWallet:    "test-owner",
-					PlatformType:         abb.PlatformReddit,
-					CreatedAt:            now.UTC(),
-					RemainingBountyValue: 0.0,
+					WorkflowID:        "test-workflow-1",
+					Status:            "Listening",
+					Requirements:      []string{"Test requirement 1", "Test requirement 2"},
+					BountyPerPost:     10.0,
+					TotalBounty:       100.0,
+					BountyOwnerWallet: "test-owner",
+					PlatformKind:      string(abb.PlatformReddit),
+					ContentKind:       "",
+					CreatedAt:         now.UTC(),
+					EndAt:             time.Time{},
 				},
 			},
 		},
@@ -130,7 +132,7 @@ func TestHandleListBounties(t *testing.T) {
 					Return(nil, assert.AnError)
 			},
 			expectedStatus: http.StatusInternalServerError,
-			expectedBody: DefaultJSONResponse{
+			expectedBody: api.DefaultJSONResponse{
 				Message: "",
 				Error:   "internal error",
 			},
@@ -157,12 +159,12 @@ func TestHandleListBounties(t *testing.T) {
 
 			var response interface{}
 			if tt.expectedStatus == http.StatusOK {
-				var bounties []BountyListItem
+				var bounties []api.BountyListItem
 				err := json.NewDecoder(rec.Body).Decode(&bounties)
 				assert.NoError(t, err)
 				response = bounties
 			} else {
-				var resp DefaultJSONResponse
+				var resp api.DefaultJSONResponse
 				err := json.NewDecoder(rec.Body).Decode(&resp)
 				assert.NoError(t, err)
 				response = resp

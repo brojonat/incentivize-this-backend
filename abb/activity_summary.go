@@ -57,9 +57,6 @@ func (a *Activities) SummarizeAndStoreBountyActivity(ctx context.Context, input 
 		return fmt.Errorf("ABB_API_ENDPOINT not configured")
 	}
 
-	// Get ABB Auth Token - this uses the same httpClient as other activities
-	// Assuming getABBAuthToken can be called from here or is refactored into a shared utility if needed.
-	// For now, we'll assume 'a' has access to the shared httpClient and cfg.
 	abbToken, err := a.getABBAuthToken(ctx, logger, cfg, a.httpClient)
 	if err != nil {
 		logger.Error("Failed to get ABB auth token for summary storage", "bounty_id", input.SummaryData.BountyID, "error", err)

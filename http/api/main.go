@@ -2,6 +2,11 @@ package api
 
 import "time"
 
+type TokenResponse struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+}
+
 type DefaultJSONResponse struct {
 	Message string `json:"message"`
 	Error   string `json:"error"`
@@ -18,4 +23,9 @@ type BountyListItem struct {
 	ContentKind       string    `json:"content_kind"`
 	CreatedAt         time.Time `json:"created_at"`
 	EndAt             time.Time `json:"end_at"`
+}
+
+type CreateBountySuccessResponse struct {
+	Message  string `json:"message"`
+	BountyID string `json:"bounty_id"`
 }

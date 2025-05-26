@@ -37,16 +37,16 @@ func (a *Activities) getABBAuthToken(ctx context.Context, logger temporal_log.Lo
 		return "", fmt.Errorf("ABB token request returned status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	var tokenResp api.DefaultJSONResponse
+	var tokenResp api.TokenResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
 		return "", fmt.Errorf("failed to decode ABB token response: %w", err)
 	}
 
-	if tokenResp.Message == "" {
-		return "", fmt.Errorf("ABB token response did not contain a token in the message field")
+	if tokenResp.AccessToken == "" {
+		return "", fmt.Errorf("ABB access_token is empty")
 	}
 
-	return tokenResp.Message, nil
+	return tokenResp.AccessToken, nil
 }
 
 // Fetches the list of bounties from the ABB /bounties endpoint

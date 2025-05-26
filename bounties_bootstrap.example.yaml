@@ -1,0 +1,15 @@
+bounties:
+  - name: "Tech Review Post on Reddit"
+    requirements: "Write a detailed review of a new tech gadget. Must be at least 500 words and include pros and cons. Post in r/technology."
+    total_amount: 10.0
+    per_post_amount: 2.0
+
+  - name: "YouTube Video about Sustainable Travel"
+    requirements: "Create a 5-10 minute YouTube video showcasing sustainable travel tips for Southeast Asia. Must include at least 3 specific examples."
+    total_amount: 25.0
+    per_post_amount: 25.0 # Assuming one video per bounty fulfillment
+
+  - name: "Hacker News Comment on AI Ethics"
+    requirements: "Post a thoughtful comment on a Hacker News article discussing AI ethics. Comment must be at least 100 characters and contribute meaningfully to the discussion."
+    total_amount: 5.0
+    per_post_amount: 0.5
