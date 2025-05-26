@@ -1,15 +1,107 @@
 bounties:
-  - name: "Tech Review Post on Reddit"
-    requirements: "Write a detailed review of a new tech gadget. Must be at least 500 words and include pros and cons. Post in r/technology."
+  - name: "Reddit Comment on Local Business (Austin Hardwoods)"
+    requirements: >
+      Write a comment about Austin Hardwoods lumber store. The comment must show
+      the business in a positive light and emphasize their competitive prices and
+      the fact that they're a local business. The comment must have at least 10
+      upvotes. Comment must be in one of the following subreddits:
+      - r/OrangeCounty
+      - r/Irvine
+      - r/SantaAna
+      - r/woodworking
+      - r/beginnerwoodworking
+    total_amount: 5.0
+    per_post_amount: 0.25
+
+  - name: "Reddit Post on Local Business (Suzie Cakes)"
+    requirements: >
+      Write a post about Suzie Cakes. The post must show the business in
+      a positive light and emphasize their amazing baked goods and the fact that
+      they're a local business. The post must have at least 20 upvotes.
+      Post must be in one of the following subreddits:
+      - r/OrangeCounty
+      - r/Irvine
+      - r/CostaMesa
+    total_amount: 5.0
+    per_post_amount: 1.0
+
+  - name: "Reddit Comment on Sustainable Living"
+    requirements: >
+      Post a helpful comment on a Reddit thread in r/sustainability offering a
+      practical tip for reducing household waste. Comment should be at least 50
+      characters and have at least 10 upvotes.
+    total_amount: 5.0
+    per_post_amount: 0.25
+
+  - name: "Reddit Comment: Brawndo vs. Pepsi"
+    requirements: >
+      Write a Reddit comment no more than 10 words that conveys that Brawndo is
+      better than Pepsi.
     total_amount: 10.0
-    per_post_amount: 2.0
+    per_post_amount: 0.25
 
   - name: "YouTube Video about Sustainable Travel"
-    requirements: "Create a 5-10 minute YouTube video showcasing sustainable travel tips for Southeast Asia. Must include at least 3 specific examples."
-    total_amount: 25.0
-    per_post_amount: 25.0 # Assuming one video per bounty fulfillment
+    requirements: >
+      Create a 5-10 minute YouTube video showcasing sustainable travel tips for
+      Southeast Asia. Must include at least 3 specific examples.
+    total_amount: 5.0
+    per_post_amount: 1.0
+
+  - name: "YouTube Video About Someone's Cool Workshop Jig"
+    requirements: >
+      YouTube video must be about YouTuber 3x3 Custom - Tamar's router jig and
+      should emphasize how insanely cool it is. Video creator must have at least
+      10k subscribers and the video must have at least 20k views. The video must
+      be at least 10 minutes long and demonstrate how to use the jig in the
+      following ways: it can be used to do X. It can be used to do Y. It can
+      even Z.
+    total_amount: 20.0
+    per_post_amount: 5.0
+
+  - name: "YouTube Video About Someone's Cool Gym Accessory"
+    requirements: >
+      YouTube video must be about Mark Bell's SlingSot. Video creator must have at least
+      10k subscribers and the video must have at least 20k views, and they must bench
+      at least 315 in the video. The video must be at least 10 minutes long.
+    total_amount: 5.0
+    per_post_amount: 0.05
+
+  - name: "YouTube Comment on Educational Video"
+    requirements: >
+      Leave a thoughtful and constructive comment on a YouTube video explaining
+      a complex scientific concept. Comment should ask a clarifying question or
+      offer an additional insight. At least 75 characters.
+    total_amount: 5.0
+    per_post_amount: 0.05
 
   - name: "Hacker News Comment on AI Ethics"
-    requirements: "Post a thoughtful comment on a Hacker News article discussing AI ethics. Comment must be at least 100 characters and contribute meaningfully to the discussion."
+    requirements: >
+      This HackerNews comment must be a thoughtful in nature and it must be
+      posted on a post (not the comment but the post) that has a score of at
+      least 50. Also the link/post itself must be about LLM tool use and it must
+      link to github.com.
+    total_amount: 5.0
+    per_post_amount: 0.5
+
+  - name: "Hacker News Post about Open Source Project"
+    requirements: >
+      Submit a new post to Hacker News highlighting an interesting, under-the-radar
+      open source project. Include a brief description and a link to the project.
+      Post title must start with 'Show HN:'.
+    total_amount: 5.0
+    per_post_amount: 0.50
+
+  - name: "Twitch Clip of a Funny Gaming Moment"
+    requirements: >
+      Create a Twitch clip (max 60 seconds) of a genuinely funny or surprising
+      moment from any live stream. Clip title should be witty.
+    total_amount: 5.0
+    per_post_amount: 1.0
+
+  - name: "Bluesky Post about a New Indie Game"
+    requirements: >
+      Post on Bluesky about a recently released indie game you're excited about.
+      Include the game's name, a brief reason why it's interesting, and the
+      #IndieGaming hashtag. Must be at least 100 characters.
     total_amount: 5.0
     per_post_amount: 0.5

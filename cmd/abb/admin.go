@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"crypto/tls"
@@ -902,166 +903,194 @@ func bootstrapBountiesAction(ctx *cli.Context) error {
 
 	logger.Info("Successfully parsed YAML file", "bounties_to_process", len(bootstrapConfig.Bounties))
 
-	// 1. Create the bounty
 	defaultBountyOwnerWallet := os.Getenv(EnvTestOwnerWallet)
 	defaultBountyFunderWallet := os.Getenv(EnvTestFunderWallet)
 
-	for i, bountyDef := range bootstrapConfig.Bounties {
-		logger.Info("Processing bounty definition", "index", i+1, "name", bountyDef.Name, "requirements", bountyDef.Requirements)
+	specifiedBountyNames := ctx.StringSlice("name")
+	bountiesToProcessInLoop := bootstrapConfig.Bounties
 
-		bountyOwnerWallet := bountyDef.OwnerWallet
-		if bountyOwnerWallet == "" {
-			bountyOwnerWallet = defaultBountyOwnerWallet
-		}
-		bountyFunderWallet := bountyDef.FunderWallet
-		if bountyFunderWallet == "" {
-			bountyFunderWallet = defaultBountyFunderWallet
+	if len(specifiedBountyNames) > 0 {
+		logger.Info("Filtering bounties by specified names", "names", specifiedBountyNames)
+		nameLookup := make(map[string]bool)
+		for _, name := range specifiedBountyNames {
+			nameLookup[name] = true
 		}
 
-		if bountyOwnerWallet == "" {
-			logger.Error("Bounty owner wallet not specified in YAML or env", "bounty_name", bountyDef.Name)
-			continue // Skip this bounty
+		var filteredBounties []BountyDefinition
+		foundNames := make(map[string]bool)
+		for _, bountyDef := range bootstrapConfig.Bounties {
+			if nameLookup[bountyDef.Name] {
+				filteredBounties = append(filteredBounties, bountyDef)
+				foundNames[bountyDef.Name] = true
+			}
 		}
-		if bountyFunderWallet == "" {
-			logger.Error("Bounty funder wallet not specified in YAML or env", "bounty_name", bountyDef.Name)
-			continue // Skip this bounty
-		}
+		bountiesToProcessInLoop = filteredBounties
 
-		createReqPayload := map[string]interface{}{
-			"requirements":         []string{bountyDef.Requirements},
-			"bounty_per_post":      bountyDef.PerPostAmount,
-			"total_bounty":         bountyDef.TotalAmount,
-			"bounty_owner_wallet":  bountyOwnerWallet,
-			"bounty_funder_wallet": bountyFunderWallet,
+		// Log any specified names that were not found
+		for _, specifiedName := range specifiedBountyNames {
+			if !foundNames[specifiedName] {
+				logger.Warn("Specified bounty name not found in YAML file", "name", specifiedName)
+			}
 		}
-
-		payloadBytes, err := json.Marshal(createReqPayload)
-		if err != nil {
-			logger.Error("Failed to marshal bounty creation request", "bounty_name", bountyDef.Name, "error", err)
-			continue
-		}
-
-		httpReq, err := http.NewRequest(http.MethodPost, apiEndpoint+"/bounties", bytes.NewBuffer(payloadBytes))
-		if err != nil {
-			logger.Error("Failed to create HTTP request for bounty creation", "bounty_name", bountyDef.Name, "error", err)
-			continue
-		}
-		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("Authorization", "Bearer "+authToken)
-
-		httpClient := &http.Client{Timeout: 30 * time.Second}
-		res, err := httpClient.Do(httpReq)
-		if err != nil {
-			logger.Error("Bounty creation HTTP request failed", "bounty_name", bountyDef.Name, "error", err)
-			continue
-		}
-
-		respBodyBytes, ioErr := io.ReadAll(res.Body)
-		if ioErr != nil {
-			logger.Error("Failed to read bounty creation response body", "bounty_name", bountyDef.Name, "status_code", res.StatusCode, "error", ioErr)
-			res.Body.Close()
-			continue
-		}
-		res.Body.Close()
-
-		if res.StatusCode != http.StatusCreated {
-			logger.Error("Bounty creation failed", "bounty_name", bountyDef.Name, "status_code", res.StatusCode, "response", string(respBodyBytes))
-			continue
-		}
-
-		var creationResp api.CreateBountySuccessResponse
-
-		if err := json.Unmarshal(respBodyBytes, &creationResp); err != nil {
-			logger.Error("Failed to unmarshal bounty creation response", "bounty_name", bountyDef.Name, "response_body", string(respBodyBytes), "error", err)
-			continue
-		}
-
-		if creationResp.BountyID == "" {
-			logger.Error("Could not extract bounty_id from bounty creation response", "bounty_name", bountyDef.Name, "response_body", string(respBodyBytes))
-			continue
-		}
-		logger.Info("Bounty created successfully", "bounty_name", bountyDef.Name, "bounty_id", creationResp.BountyID)
-
-		// 2. Fund the bounty escrow
-		logger.Info("Attempting to fund escrow for bounty...", "bounty_id", creationResp.BountyID, "amount", bountyDef.TotalAmount)
-
-		// Validate necessary funding parameters
-		if funderSecretKey == "" {
-			logger.Error("Funder secret key not provided for escrow funding. Skipping funding.", "bounty_id", creationResp.BountyID)
-			continue
-		}
-		if escrowWalletAddress == "" {
-			logger.Error("Escrow wallet address not provided for escrow funding. Skipping funding.", "bounty_id", creationResp.BountyID)
-			continue
-		}
-		if rpcEndpoint == "" {
-			logger.Error("Solana RPC endpoint not provided for escrow funding. Skipping funding.", "bounty_id", creationResp.BountyID)
-			continue
-		}
-		if usdcMintAddress == "" {
-			logger.Error("USDC Mint address not provided for escrow funding. Skipping funding.", "bounty_id", creationResp.BountyID)
-			continue
-		}
-
-		// Convert amount to USDCAmount and then to lamports
-		usdcFundingAmount, err := solanautil.NewUSDCAmount(bountyDef.TotalAmount)
-		if err != nil {
-			logger.Error("Invalid total_amount for funding", "bounty_name", bountyDef.Name, "amount", bountyDef.TotalAmount, "error", err)
-			continue
-		}
-		amountLamports := usdcFundingAmount.ToSmallestUnit().Uint64()
-
-		funderPrivKey, err := solanago.PrivateKeyFromBase58(funderSecretKey)
-		if err != nil {
-			logger.Error("Error parsing funder private key for funding", "bounty_id", creationResp.BountyID, "error", err)
-			continue
-		}
-		escrowPubKey, err := solanago.PublicKeyFromBase58(escrowWalletAddress)
-		if err != nil {
-			logger.Error("Invalid recipient escrow address for funding", "bounty_id", creationResp.BountyID, "address", escrowWalletAddress, "error", err)
-			continue
-		}
-		usdcMintPubKey, err := solanago.PublicKeyFromBase58(usdcMintAddress)
-		if err != nil {
-			logger.Error("Invalid USDC mint address for funding", "bounty_id", creationResp.BountyID, "address", usdcMintAddress, "error", err)
-			continue
-		}
-
-		solClient := solanautil.NewRPCClient(rpcEndpoint)
-		if err := solanautil.CheckRPCHealth(context.Background(), solClient); err != nil {
-			logger.Error("Solana RPC health check failed for funding", "bounty_id", creationResp.BountyID, "rpc_endpoint", rpcEndpoint, "error", err)
-			continue
-		}
-
-		sig, err := solanautil.SendUSDCWithMemo(
-			context.Background(),
-			solClient,
-			usdcMintPubKey,
-			funderPrivKey,
-			escrowPubKey,
-			amountLamports,
-			creationResp.BountyID,
-		)
-		if err != nil {
-			logger.Error("Failed to send USDC for escrow funding", "bounty_id", creationResp.BountyID, "error", err)
-			continue
-		}
-		logger.Info("Escrow funding transaction sent!", "bounty_id", creationResp.BountyID, "signature", sig.String())
-
-		// Optional: Confirm transaction (can be slow, might want to make it conditional or skip in bootstrap)
-		confirmCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-		err = solanautil.ConfirmTransaction(confirmCtx, solClient, sig, rpc.CommitmentFinalized)
-		if err != nil {
-			logger.Warn("Failed to confirm funding transaction within timeout. Check explorer.", "bounty_id", creationResp.BountyID, "signature", sig.String(), "error", err)
-		} else {
-			logger.Info("Escrow funding transaction confirmed successfully!", "bounty_id", creationResp.BountyID, "signature", sig.String())
-		}
-		cancel()
-
-		logger.Info("Successfully created and initiated funding for bounty", "name", bountyDef.Name, "bounty_id", creationResp.BountyID)
-		// Add a small delay to avoid overwhelming the server or Solana network if many bounties
-		time.Sleep(2 * time.Second)
 	}
+
+	if len(bountiesToProcessInLoop) == 0 {
+		if len(specifiedBountyNames) > 0 {
+			logger.Warn("No bounties matched the specified names. Nothing to bootstrap.", "specified_names", specifiedBountyNames)
+		} else {
+			logger.Info("No bounties found in the YAML file to process.")
+		}
+		return nil
+	}
+
+	var wg sync.WaitGroup
+
+	for i, bountyDef := range bountiesToProcessInLoop {
+		wg.Add(1)
+		go func(bountyIndex int, bd BountyDefinition) {
+			defer wg.Done()
+			// Use a distinct logger for each goroutine or ensure logger is goroutine-safe (slog is)
+			// Adding bounty_name and index to logger context can be helpful.
+			bountyLogger := logger.With("bounty_name", bd.Name, "bounty_index", bountyIndex+1)
+
+			bountyLogger.Info("Processing bounty definition", "requirements", bd.Requirements)
+
+			bountyOwnerWallet := bd.OwnerWallet
+			if bountyOwnerWallet == "" {
+				bountyOwnerWallet = defaultBountyOwnerWallet
+			}
+			bountyFunderWallet := bd.FunderWallet
+			if bountyFunderWallet == "" {
+				bountyFunderWallet = defaultBountyFunderWallet
+			}
+
+			if bountyOwnerWallet == "" {
+				bountyLogger.Error("Bounty owner wallet not specified in YAML or env")
+				return // Skip this bounty
+			}
+			if bountyFunderWallet == "" {
+				bountyLogger.Error("Bounty funder wallet not specified in YAML or env")
+				return // Skip this bounty
+			}
+
+			createReqPayload := map[string]interface{}{
+				"requirements":         []string{bd.Requirements},
+				"bounty_per_post":      bd.PerPostAmount,
+				"total_bounty":         bd.TotalAmount,
+				"bounty_owner_wallet":  bountyOwnerWallet,
+				"bounty_funder_wallet": bountyFunderWallet,
+			}
+
+			payloadBytes, err := json.Marshal(createReqPayload)
+			if err != nil {
+				bountyLogger.Error("Failed to marshal bounty creation request", "error", err)
+				return
+			}
+
+			httpReq, err := http.NewRequest(http.MethodPost, apiEndpoint+"/bounties", bytes.NewBuffer(payloadBytes))
+			if err != nil {
+				bountyLogger.Error("Failed to create HTTP request for bounty creation", "error", err)
+				return
+			}
+			httpReq.Header.Set("Content-Type", "application/json")
+			httpReq.Header.Set("Authorization", "Bearer "+authToken)
+
+			httpClient := &http.Client{Timeout: 30 * time.Second} // Timeout per request
+			res, err := httpClient.Do(httpReq)
+			if err != nil {
+				bountyLogger.Error("Bounty creation HTTP request failed", "error", err)
+				return
+			}
+			defer res.Body.Close()
+
+			respBodyBytes, ioErr := io.ReadAll(res.Body)
+			if ioErr != nil {
+				bountyLogger.Error("Failed to read bounty creation response body", "status_code", res.StatusCode, "error", ioErr)
+				return
+			}
+
+			if res.StatusCode != http.StatusCreated && res.StatusCode != http.StatusOK {
+				bountyLogger.Error("Bounty creation failed", "status_code", res.StatusCode, "response", string(respBodyBytes))
+				return
+			}
+
+			var creationResp api.CreateBountySuccessResponse
+			if err := json.Unmarshal(respBodyBytes, &creationResp); err != nil {
+				bountyLogger.Error("Failed to unmarshal bounty creation response", "response_body", string(respBodyBytes), "error", err)
+				return
+			}
+
+			if creationResp.BountyID == "" {
+				bountyLogger.Error("Could not extract bounty_id from bounty creation response", "response_body", string(respBodyBytes))
+				return
+			}
+			bountyLogger.Info("Bounty created successfully", "bounty_id", creationResp.BountyID)
+
+			// 2. Fund the bounty escrow
+			bountyLogger.Info("Attempting to fund escrow for bounty...", "bounty_id", creationResp.BountyID, "amount", bd.TotalAmount)
+
+			if funderSecretKey == "" {
+				bountyLogger.Error("Funder secret key not provided for escrow funding. Skipping funding.")
+				return
+			}
+			if escrowWalletAddress == "" {
+				bountyLogger.Error("Escrow wallet address not provided for escrow funding. Skipping funding.")
+				return
+			}
+			if rpcEndpoint == "" {
+				bountyLogger.Error("Solana RPC endpoint not provided for escrow funding. Skipping funding.")
+				return
+			}
+			if usdcMintAddress == "" {
+				bountyLogger.Error("USDC Mint address not provided for escrow funding. Skipping funding.")
+				return
+			}
+
+			usdcFundingAmount, err := solanautil.NewUSDCAmount(bd.TotalAmount)
+			if err != nil {
+				bountyLogger.Error("Invalid total_amount for funding", "amount", bd.TotalAmount, "error", err)
+				return
+			}
+			amountLamports := usdcFundingAmount.ToSmallestUnit().Uint64()
+
+			funderPrivKey, err := solanago.PrivateKeyFromBase58(funderSecretKey)
+			if err != nil {
+				bountyLogger.Error("Error parsing funder private key for funding", "error", err)
+				return
+			}
+			escrowPubKey, err := solanago.PublicKeyFromBase58(escrowWalletAddress)
+			if err != nil {
+				bountyLogger.Error("Invalid recipient escrow address for funding", "address", escrowWalletAddress, "error", err)
+				return
+			}
+			usdcMintPubKey, err := solanago.PublicKeyFromBase58(usdcMintAddress)
+			if err != nil {
+				bountyLogger.Error("Invalid USDC mint address for funding", "address", usdcMintAddress, "error", err)
+				return
+			}
+
+			solClient := solanautil.NewRPCClient(rpcEndpoint)
+
+			sig, err := solanautil.SendUSDCWithMemo(
+				context.Background(),
+				solClient,
+				usdcMintPubKey,
+				funderPrivKey,
+				escrowPubKey,
+				amountLamports,
+				creationResp.BountyID,
+			)
+			if err != nil {
+				bountyLogger.Error("Failed to send USDC for escrow funding", "error", err)
+				return
+			}
+			bountyLogger.Info("Escrow funding transaction sent!", "signature", sig.String())
+		}(i, bountyDef)
+		// sleep between bounties to space out the Solana interactions
+		time.Sleep(1 * time.Second)
+	}
+
+	wg.Wait()
 
 	logger.Info("Bounty bootstrap process completed.")
 	return nil
@@ -1327,7 +1356,11 @@ func adminCommands() []*cli.Command {
 							Usage:   "USDC mint public key address for funding",
 							EnvVars: []string{EnvSolanaUSDCMintAddress},
 						},
-						// We can add owner/funder wallet overrides here too, or rely on YAML / env vars
+						&cli.StringSliceFlag{
+							Name:    "name",
+							Aliases: []string{"n"},
+							Usage:   "Specify one or more bounty names from the YAML file to bootstrap (repeatable: --name 'Bounty1' --name 'Bounty2'). If not provided, all bounties are bootstrapped.",
+						},
 					},
 					Action: bootstrapBountiesAction,
 				},
