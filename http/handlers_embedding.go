@@ -54,6 +54,32 @@ func handleStoreBountyEmbedding(logger *slog.Logger, querier dbgen.Querier) http
 	}
 }
 
+// handleDeleteBountyEmbedding handles deleting a specific bounty embedding.
+func handleDeleteBountyEmbedding(logger *slog.Logger, querier dbgen.Querier) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		bountyID := r.PathValue("bounty_id")
+		if bountyID == "" {
+			writeBadRequestError(w, errors.New("bounty_id path parameter is required"))
+			return
+		}
+
+		// The DeleteEmbeddings querier method expects a string like "{id1,id2,id3}"
+		// So we format the single BountyID accordingly.
+		bountyIDToDelete := fmt.Sprintf("{%s}", bountyID)
+
+		if err := querier.DeleteEmbeddings(r.Context(), bountyIDToDelete); err != nil {
+			// We can't easily distinguish between "not found" and other errors here
+			// with the current querier.DeleteEmbeddings signature unless it returns a specific error type.
+			// For now, assume any error is an internal server error.
+			logger.Error("Failed to delete bounty embedding from database via HTTP route", "bounty_id", bountyID, "error", err)
+			writeInternalError(logger, w, fmt.Errorf("failed to delete embedding for bounty_id %s: %w", bountyID, err))
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
 // handleSearchBounties handles searching for bounties using text embeddings.
 func handleSearchBounties(logger *slog.Logger, querier dbgen.Querier, tc client.Client, llmProvider abb.LLMEmbeddingProvider, env string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

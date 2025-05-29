@@ -388,6 +388,13 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		requireStatus(UserStatusSudo),
 	))
 
+	mux.HandleFunc("DELETE /bounties/embeddings/{bounty_id}", stools.AdaptHandler(
+		handleDeleteBountyEmbedding(logger, querier),
+		withLogging(logger),
+		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		requireStatus(UserStatusSudo),
+	))
+
 	mux.HandleFunc("GET /bounties/search", stools.AdaptHandler(
 		handleSearchBounties(logger, querier, tc, llmEmbedProvider, currentEnv),
 		withLogging(logger),

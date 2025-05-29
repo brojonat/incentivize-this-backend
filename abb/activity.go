@@ -16,6 +16,7 @@ import (
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/jmespath/go-jmespath"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/temporal"
 )
 
 // Environment Variable Keys for Configuration
@@ -846,4 +847,56 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 
 	logger.Info("PullContentActivity finished successfully", "platform", input.PlatformType, "contentID", input.ContentID)
 	return contentBytes, nil
+}
+
+// DeleteBountyEmbeddingViaHTTPActivityInput defines input for deleting embedding via HTTP.
+type DeleteBountyEmbeddingViaHTTPActivityInput struct {
+	BountyID string
+}
+
+// DeleteBountyEmbeddingViaHTTPActivity calls the server's HTTP endpoint to delete an embedding.
+func (a *Activities) DeleteBountyEmbeddingViaHTTPActivity(ctx context.Context, input DeleteBountyEmbeddingViaHTTPActivityInput) error {
+	logger := activity.GetLogger(ctx)
+
+	if input.BountyID == "" {
+		logger.Error("DeleteBountyEmbeddingViaHTTPActivity called with empty BountyID")
+		return temporal.NewApplicationError("BountyID cannot be empty for HTTP deletion", "INVALID_ARGUMENT")
+	}
+
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		logger.Error("Failed to get configuration in DeleteBountyEmbeddingViaHTTPActivity", "error", err)
+		return fmt.Errorf("failed to get configuration for HTTP deletion: %w", err)
+	}
+
+	if cfg.ABBServerConfig.APIEndpoint == "" || cfg.ABBServerConfig.AuthToken == "" {
+		logger.Error("APIEndpoint or AuthToken is missing in configuration for HTTP deletion")
+		return temporal.NewApplicationError("Server APIEndpoint or AuthToken not configured", "CONFIG_ERROR")
+	}
+
+	deleteURL := fmt.Sprintf("%s/bounties/embeddings/%s", strings.TrimSuffix(cfg.ABBServerConfig.APIEndpoint, "/"), input.BountyID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, deleteURL, nil)
+	if err != nil {
+		logger.Error("Failed to create HTTP DELETE request for embedding", "url", deleteURL, "error", err)
+		return fmt.Errorf("failed to create HTTP DELETE request for %s: %w", deleteURL, err)
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.ABBServerConfig.AuthToken)
+	req.Header.Set("Accept", "application/json")
+
+	logger.Info("Attempting to delete embedding via HTTP DELETE", "url", deleteURL)
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP DELETE request to %s failed: %w", deleteURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		logger.Error("HTTP DELETE request for embedding returned non-success status", "url", deleteURL, "status_code", resp.StatusCode, "response_body", string(bodyBytes))
+		return fmt.Errorf("failed to delete embedding via HTTP: status %d, body: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
 }

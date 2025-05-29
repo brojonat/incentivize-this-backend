@@ -193,9 +193,29 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 			// Log critical failure to store summary, but don't let this error overshadow the original workflow error.
 			logger.Error("Critical: Failed to execute SummarizeAndStoreBountyActivity", "bounty_id", summaryData.BountyID, "error", err)
 		}
+
+		// --- Attempt to delete the bounty embedding via HTTP --- //
+		deleteEmbeddingActivityOpts := workflow.ActivityOptions{
+			StartToCloseTimeout: 1 * time.Minute, // Adjusted timeout for HTTP call
+			RetryPolicy: &temporal.RetryPolicy{
+				MaximumAttempts: 3, // Standard retries
+			},
+		}
+		// Use disconnectedCtx for cleanup activities that should run even if main workflow context is cancelled.
+		deleteEmbeddingCtx := workflow.WithActivityOptions(disconnectedCtx, deleteEmbeddingActivityOpts)
+		deleteInput := DeleteBountyEmbeddingViaHTTPActivityInput{BountyID: wfInfo.WorkflowExecution.ID}
+
+		logger.Info("Preparing to execute DeleteBountyEmbeddingViaHTTPActivity", "bounty_id", deleteInput.BountyID)
+		err = workflow.ExecuteActivity(deleteEmbeddingCtx, (*Activities).DeleteBountyEmbeddingViaHTTPActivity, deleteInput).Get(deleteEmbeddingCtx, nil)
+		if err != nil {
+			// Log critical failure to delete embedding, but don't let this error overshadow other errors.
+			logger.Error("Critical: Failed to execute DeleteBountyEmbeddingViaHTTPActivity", "bounty_id", deleteInput.BountyID, "error", err)
+		}
+		// --- End Defer for Embedding Deletion ---
+
 	}()
 
-	// --- End Defer for Summary ---
+	// --- End Defer for Summary and Embedding Deletion ---
 
 	err := workflow.SetQueryHandler(ctx, GetPaidBountiesQueryType, func() ([]PayoutDetail, error) {
 		// Create a slice from the map values
