@@ -257,6 +257,13 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	}
 	// --- End Schedule Setup ---
 
+	// --- Setup Temporal Schedule for Pruning Stale Embeddings ---
+	if err := setupPruneStaleEmbeddingsSchedule(ctx, logger, tc, currentEnv); err != nil {
+		// Log error but don't prevent server startup; this is expected to fail if the schedule already exists
+		logger.Info("Failed to set up prune stale embeddings schedule", "error", err)
+	}
+	// --- End Prune Schedule Setup ---
+
 	// Create Rate Limiter for JWT-based assessment endpoint
 	jwtAssessLimiter := NewRateLimiter(1*time.Hour, 10) // 10 requests per hour per JWT
 
@@ -407,6 +414,14 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		requireStatus(UserStatusSudo),
 	))
 
+	// Route for pruning stale embeddings (sudo access required)
+	mux.HandleFunc("POST /embeddings/prune", stools.AdaptHandler(
+		handlePruneStaleEmbeddings(logger, tc, querier),
+		withLogging(logger),
+		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		requireStatus(UserStatusSudo),
+	))
+
 	// Apply CORS globally
 	corsHandler := handlers.CORS(
 		handlers.AllowedHeaders(allowedHeaders),
@@ -511,5 +526,48 @@ func setupPeriodicPublisherSchedule(ctx context.Context, logger *slog.Logger, tc
 	// If err is nil, creation was successful
 	logger.Info("Successfully created periodic publisher schedule", "schedule_id", scheduleID)
 
+	return nil
+}
+
+// setupPruneStaleEmbeddingsSchedule sets up a Temporal schedule for pruning stale embeddings.
+func setupPruneStaleEmbeddingsSchedule(ctx context.Context, logger *slog.Logger, tc client.Client, env string) error {
+	scheduleClient := tc.ScheduleClient()
+
+	// Construct environment-specific schedule ID
+	scheduleID := fmt.Sprintf("prune-stale-embeddings-%s", env)
+
+	taskQueue := os.Getenv(EnvTaskQueue)
+	if taskQueue == "" {
+		return fmt.Errorf("cannot create prune schedule: %s env var not set", EnvTaskQueue)
+	}
+
+	logger.Info("Attempting to create prune stale embeddings schedule", "schedule_id", scheduleID)
+
+	_, err := scheduleClient.Create(ctx, client.ScheduleOptions{
+		ID: scheduleID,
+		Spec: client.ScheduleSpec{
+			Intervals: []client.ScheduleIntervalSpec{{Every: 5 * time.Minute}},
+		},
+		Action: &client.ScheduleWorkflowAction{
+			Workflow:  abb.PruneStaleEmbeddingsWorkflow,
+			ID:        fmt.Sprintf("prune-stale-embeddings-workflow-%s", env), // Unique ID for workflow executions started by this schedule
+			TaskQueue: taskQueue,
+			TypedSearchAttributes: temporal.NewSearchAttributes(
+				abb.EnvironmentKey.ValueSet(env),
+			),
+		},
+	})
+
+	if err != nil {
+		// Check if the error is specifically that the schedule already exists
+		if strings.Contains(err.Error(), "schedule already exists") {
+			logger.Info("Prune stale embeddings schedule already exists, no action taken.", "schedule_id", scheduleID)
+			return nil // Not an error in this context
+		}
+		// For any other error, return it
+		return fmt.Errorf("failed to create prune stale embeddings schedule %s: %w", scheduleID, err)
+	}
+
+	logger.Info("Successfully created prune stale embeddings schedule", "schedule_id", scheduleID)
 	return nil
 }

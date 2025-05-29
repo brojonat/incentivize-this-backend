@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/abb"
@@ -12,6 +13,7 @@ import (
 	"github.com/brojonat/affiliate-bounty-board/internal/stools"
 	"github.com/pgvector/pgvector-go"
 	"go.temporal.io/api/enums/v1"
+	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 )
@@ -196,5 +198,75 @@ func handleSearchBounties(logger *slog.Logger, querier dbgen.Querier, tc client.
 		}
 
 		writeJSONResponse(w, detailedBounties, http.StatusOK)
+	}
+}
+
+// handlePruneStaleEmbeddings handles the logic for pruning stale embeddings.
+// It mirrors the functionality of the pruneStaleEmbeddingsAction CLI command.
+func handlePruneStaleEmbeddings(logger *slog.Logger, tc client.Client, querier dbgen.Querier) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		// 1. Fetch active workflow IDs from Temporal
+		var activeWorkflowIDs []string
+		var nextPageToken []byte
+		listQuery := fmt.Sprintf("WorkflowType = 'BountyAssessmentWorkflow' AND ExecutionStatus = 'Running'")
+
+		for {
+			resp, errList := tc.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
+				Query:         listQuery,
+				NextPageToken: nextPageToken,
+			})
+			if errList != nil {
+				writeInternalError(logger, w, fmt.Errorf("failed to list workflows from Temporal: %w", errList))
+				return
+			}
+			for _, execution := range resp.Executions {
+				activeWorkflowIDs = append(activeWorkflowIDs, execution.Execution.WorkflowId)
+			}
+			nextPageToken = resp.NextPageToken
+			if len(nextPageToken) == 0 {
+				break
+			}
+		}
+
+		var deletedCount int64
+
+		// 2. Decide deletion strategy based on active workflows
+		if len(activeWorkflowIDs) == 0 {
+			allDBBountyIDs, errListDB := querier.ListBountyIDs(ctx)
+			if errListDB != nil {
+				writeInternalError(logger, w, fmt.Errorf("failed to list bounty IDs from embeddings table for deletion: %w", errListDB))
+				return
+			}
+			if len(allDBBountyIDs) == 0 {
+				writeJSONResponse(w, map[string]string{"message": "No embeddings found to prune."}, http.StatusOK)
+				return
+			}
+
+			// Format for ANY($1) - e.g., "{id1,id2}"
+			allDBBountyIDsStr := "{" + strings.Join(allDBBountyIDs, ",") + "}"
+			if errDel := querier.DeleteEmbeddings(ctx, allDBBountyIDsStr); errDel != nil {
+				logger.Error("Failed to delete all embeddings from database.", "error", errDel, "attempted_param_format", allDBBountyIDsStr)
+				writeInternalError(logger, w, fmt.Errorf("failed to delete all embeddings: %w", errDel))
+				return
+			}
+			deletedCount = int64(len(allDBBountyIDs))
+
+		} else {
+			activeWorkflowIDsStr := "{" + strings.Join(activeWorkflowIDs, ",") + "}"
+
+			if errDelNotIn := querier.DeleteEmbeddingsNotIn(ctx, activeWorkflowIDsStr); errDelNotIn != nil {
+				logger.Error("Failed to delete embeddings not in active list.", "error", errDelNotIn, "attempted_param_format", activeWorkflowIDsStr)
+				writeInternalError(logger, w, fmt.Errorf("failed to delete embeddings not in active list: %w", errDelNotIn))
+				return
+			}
+		}
+
+		if len(activeWorkflowIDs) == 0 {
+			writeJSONResponse(w, map[string]interface{}{"message": "Successfully deleted all stale embeddings.", "deleted_count": deletedCount}, http.StatusOK)
+		} else {
+			writeJSONResponse(w, map[string]string{"message": "Successfully pruned stale embeddings not in active workflows."}, http.StatusOK)
+		}
 	}
 }

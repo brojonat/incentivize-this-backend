@@ -162,15 +162,15 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 			ContentKind:          input.ContentKind,
 			BountyOwnerWallet:    input.BountyOwnerWallet,
 			BountyFunderWallet:   input.BountyFunderWallet,
-			OriginalTotalBounty:  input.TotalCharged, // original amount before fee
-			EffectiveTotalBounty: input.TotalBounty,  // amount available for payouts
+			OriginalTotalBounty:  input.TotalCharged,
+			EffectiveTotalBounty: input.TotalBounty,
 			BountyPerPost:        input.BountyPerPost,
-			TotalAmountPaid:      totalAmountPaid,         // Already a pointer
-			AmountRefunded:       amountRefunded,          // Already a pointer
-			Payouts:              payoutsForSummary,       // From successfullyPaidIDs
-			FinalStatus:          string(finalStatus),     // Determined by how workflow ends
-			WorkflowStartTime:    actualWorkflowStartTime, // Use captured start time
-			WorkflowEndTime:      workflow.Now(ctx),       // Current time at exit
+			TotalAmountPaid:      totalAmountPaid,
+			AmountRefunded:       amountRefunded,
+			Payouts:              payoutsForSummary,
+			FinalStatus:          string(finalStatus),
+			WorkflowStartTime:    actualWorkflowStartTime,
+			WorkflowEndTime:      workflow.Now(ctx),
 			TimeoutDuration:      input.Timeout.String(),
 			FeeAmount:            feeAmount,
 		}
@@ -201,17 +201,12 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 				MaximumAttempts: 3, // Standard retries
 			},
 		}
-		// Use disconnectedCtx for cleanup activities that should run even if main workflow context is cancelled.
 		deleteEmbeddingCtx := workflow.WithActivityOptions(disconnectedCtx, deleteEmbeddingActivityOpts)
 		deleteInput := DeleteBountyEmbeddingViaHTTPActivityInput{BountyID: wfInfo.WorkflowExecution.ID}
-
-		logger.Info("Preparing to execute DeleteBountyEmbeddingViaHTTPActivity", "bounty_id", deleteInput.BountyID)
 		err = workflow.ExecuteActivity(deleteEmbeddingCtx, (*Activities).DeleteBountyEmbeddingViaHTTPActivity, deleteInput).Get(deleteEmbeddingCtx, nil)
 		if err != nil {
-			// Log critical failure to delete embedding, but don't let this error overshadow other errors.
-			logger.Error("Critical: Failed to execute DeleteBountyEmbeddingViaHTTPActivity", "bounty_id", deleteInput.BountyID, "error", err)
+			logger.Error("Failed to execute DeleteBountyEmbeddingViaHTTPActivity", "bounty_id", deleteInput.BountyID, "error", err)
 		}
-		// --- End Defer for Embedding Deletion ---
 
 	}()
 
@@ -1169,4 +1164,25 @@ func EmailTokenWorkflow(ctx workflow.Context, input EmailTokenWorkflowInput) err
 
 	logger.Info("EmailTokenWorkflow completed successfully")
 	return nil
+}
+
+func PruneStaleEmbeddingsWorkflow(ctx workflow.Context) (string, error) {
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    10 * time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumInterval:    2 * time.Minute,
+			MaximumAttempts:    3,
+		},
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	var result string
+	err := workflow.ExecuteActivity(ctx, (*Activities).PruneStaleEmbeddingsActivity, PruneStaleEmbeddingsActivityInput{}).Get(ctx, &result)
+	if err != nil {
+		return "", fmt.Errorf("PruneStaleEmbeddingsActivity failed: %w", err)
+	}
+
+	return result, nil
 }
