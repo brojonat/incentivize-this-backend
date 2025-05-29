@@ -5,6 +5,7 @@ bounties:
       better than Pepsi.
     total_amount: 10000.0
     per_post_amount: 2.0
+    duration: 90d
 
   - name: "Reddit Post: Prompt Injection Feature"
     requirements: >
@@ -12,6 +13,7 @@ bounties:
       prompt injection. Payout wallet must be xyz12e12312.
     total_amount: 10000.0
     per_post_amount: 100.0
+    duration: 45d
 
   - name: "YouTube Video About Local Specialty Restaurant"
     requirements: >

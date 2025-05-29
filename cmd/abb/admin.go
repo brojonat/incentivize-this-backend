@@ -45,6 +45,7 @@ type BountyDefinition struct {
 	PerPostAmount float64 `yaml:"per_post_amount"`
 	OwnerWallet   string  `yaml:"owner_wallet,omitempty"`
 	FunderWallet  string  `yaml:"funder_wallet,omitempty"`
+	Duration      string  `yaml:"duration,omitempty"`
 }
 
 var (
@@ -166,6 +167,11 @@ func createBounty(ctx *cli.Context) error {
 		"total_bounty":         ctx.Float64("total"),
 		"bounty_owner_wallet":  bountyOwnerWallet,
 		"bounty_funder_wallet": bountyFunderWallet,
+	}
+
+	// Add duration if provided
+	if ctx.IsSet("duration") {
+		req["timeout_duration"] = ctx.String("duration")
 	}
 
 	// Marshal to JSON
@@ -981,6 +987,11 @@ func bootstrapBountiesAction(ctx *cli.Context) error {
 				"bounty_funder_wallet": bountyFunderWallet,
 			}
 
+			// Add duration if specified in the YAML
+			if bd.Duration != "" {
+				createReqPayload["timeout_duration"] = bd.Duration
+			}
+
 			payloadBytes, err := json.Marshal(createReqPayload)
 			if err != nil {
 				bountyLogger.Error("Failed to marshal bounty creation request", "error", err)
@@ -1182,6 +1193,12 @@ func adminCommands() []*cli.Command {
 							Name:    "bounty-funder-wallet",
 							Usage:   "Solana wallet address providing the initial bounty funds (checked for payment)",
 							EnvVars: []string{EnvTestFunderWallet},
+						},
+						&cli.StringFlag{
+							Name:    "duration",
+							Aliases: []string{"dur", "d"},
+							Usage:   "Duration for the bounty (e.g., '72h', '7d'). Defaults to server-side default (7 days) if not set.",
+							// No default value here, let the server handle it.
 						},
 					},
 					Action: createBounty,

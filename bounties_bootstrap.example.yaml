@@ -12,6 +12,7 @@ bounties:
       - r/beginnerwoodworking
     total_amount: 5.0
     per_post_amount: 0.25
+    duration: 14d
 
   - name: "Reddit Post on Local Business (Suzie Cakes)"
     requirements: >
@@ -24,6 +25,7 @@ bounties:
       - r/CostaMesa
     total_amount: 5.0
     per_post_amount: 1.0
+    duration: 30d
 
   - name: "Reddit Comment on Sustainable Living"
     requirements: >
