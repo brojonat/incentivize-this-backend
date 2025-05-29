@@ -107,3 +107,14 @@ bounties:
       #IndieGaming hashtag. Must be at least 100 characters.
     total_amount: 5.0
     per_post_amount: 0.5
+
+  - name: "Instagram Post (with Video) about Kean Coffee"
+    requirements: >
+      The deliverable is an Instagram **post**.
+      This Instagram post must feature a video about Kean Coffee in Irvine, CA.
+      The video component of the post must be between 15 and 60 seconds long.
+      The post's caption must use the hashtag #NewportBeach or #Tustin and tag the coffee shop @KeanCoffee.
+      The post must receive at least 100 views and 10 likes.
+    total_amount: 10.0
+    per_post_amount: 1.0
+    duration: "21d"

@@ -84,6 +84,7 @@ func RunWorker(ctx context.Context, l *slog.Logger, thp, tns string) error {
 	w.RegisterActivity(activities.SendTokenEmail)
 	w.RegisterActivity(activities.SummarizeAndStoreBountyActivity)
 	w.RegisterActivity(activities.PruneStaleEmbeddingsActivity)
+	w.RegisterActivity(activities.DeleteBountyEmbeddingViaHTTPActivity)
 
 	// Run the single worker
 	l.Info("Starting worker", "TaskQueue", taskQueue)

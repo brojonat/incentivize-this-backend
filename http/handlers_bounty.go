@@ -324,8 +324,15 @@ Example of a response where parameters cannot be determined:
 			return
 		}
 
+		// Log the inferred parameters before validation
+		logger.Info("LLM inferred parameters",
+			"inferred_platform_kind", inferredParams.PlatformKind,
+			"inferred_content_kind", inferredParams.ContentKind,
+			"llm_error_field", inferredParams.Error,
+		)
+
 		if inferredParams.Error != "" || inferredParams.PlatformKind == "" || inferredParams.ContentKind == "" {
-			logger.Warn("LLM could not determine PlatformKind/ContentKind", "llm_error", inferredParams.Error)
+			logger.Warn("LLM could not determine PlatformKind/ContentKind or reported an error", "llm_error", inferredParams.Error, "inferred_platform", inferredParams.PlatformKind, "inferred_content", inferredParams.ContentKind)
 			writeBadRequestError(w, fmt.Errorf("could not determine PlatformKind and ContentKind from requirements: %s", inferredParams.Error))
 			return
 		}
@@ -391,7 +398,7 @@ Example of a response where parameters cannot be determined:
 			}
 		case abb.PlatformInstagram:
 			if normalizedContentKind != abb.ContentKindPost {
-				writeBadRequestError(w, fmt.Errorf("invalid content_kind for Instagram: must be '%s'", abb.ContentKindPost))
+				writeBadRequestError(w, fmt.Errorf("invalid content_kind for Instagram: must be '%s' (not '%s')", abb.ContentKindPost, normalizedContentKind))
 				return
 			}
 		default:
@@ -402,9 +409,26 @@ Example of a response where parameters cannot be determined:
 		// Read and validate overall bounty timeout
 		bountyTimeoutDuration := 7 * 24 * time.Hour
 		if req.TimeoutDuration != "" {
-			duration, err := time.ParseDuration(req.TimeoutDuration)
+			parsedDurationString := req.TimeoutDuration
+			if strings.HasSuffix(strings.ToLower(req.TimeoutDuration), "d") {
+				daysStr := strings.TrimSuffix(strings.ToLower(req.TimeoutDuration), "d")
+				days, err := strconv.Atoi(daysStr)
+				if err != nil {
+					writeBadRequestError(w, fmt.Errorf("invalid day value in timeout_duration '%s': %w", req.TimeoutDuration, err))
+					return
+				}
+				if days <= 0 {
+					writeBadRequestError(w, fmt.Errorf("day value in timeout_duration '%s' must be positive", req.TimeoutDuration))
+					return
+				}
+				hours := days * 24
+				parsedDurationString = fmt.Sprintf("%dh", hours)
+				logger.Info("Converted day-based duration to hours", "original_duration", req.TimeoutDuration, "converted_duration", parsedDurationString)
+			}
+
+			duration, err := time.ParseDuration(parsedDurationString)
 			if err != nil {
-				writeBadRequestError(w, fmt.Errorf("invalid timeout_duration format: %w", err))
+				writeBadRequestError(w, fmt.Errorf("invalid timeout_duration format '%s' (parsed as '%s'): %w", req.TimeoutDuration, parsedDurationString, err))
 				return
 			}
 			bountyTimeoutDuration = duration
