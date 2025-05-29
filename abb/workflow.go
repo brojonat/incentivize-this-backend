@@ -1026,28 +1026,28 @@ func awaitLoopUntilEmptyOrTimeout(
 
 		selector.AddReceive(cancelSignalChan, func(c workflow.ReceiveChannel, more bool) {
 			if !more {
-				logger.Info("Cancel signal channel closed.")
+				logger.Info("Custom cancel signal channel closed.")
 				return
 			}
 			var cancelSignal CancelBountySignal
 			c.Receive(ctx, &cancelSignal)
-			logger.Info("Received cancel signal", "BountyOwnerWallet", cancelSignal.BountyOwnerWallet)
+			logger.Info("Received custom cancel signal", "BountyOwnerWallet", cancelSignal.BountyOwnerWallet)
 			cancelTimer()
 
 			if cancelSignal.BountyOwnerWallet != input.BountyOwnerWallet {
-				logger.Warn("Received cancel signal from incorrect owner", "received_owner", cancelSignal.BountyOwnerWallet, "expected_owner", input.BountyOwnerWallet)
+				logger.Warn("Received custom cancel signal from incorrect owner", "received_owner", cancelSignal.BountyOwnerWallet, "expected_owner", input.BountyOwnerWallet)
 				return
 			}
 
 			// Update status before attempting cancel refund
 			err := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusCancelled)))
 			if err != nil {
-				logger.Error("Failed to update search attribute BountyStatus to Cancelled", "error", err)
+				logger.Error("Failed to update search attribute BountyStatus to Cancelled on custom signal", "error", err)
 			}
 
 			if !remainingBounty.IsZero() {
 				amountToRefund := remainingBounty
-				logger.Info("Attempting to return remaining bounty to owner", "owner_wallet", input.BountyOwnerWallet, "amount", amountToRefund.ToUSDC())
+				logger.Info("Attempting to return remaining bounty to owner due to custom cancel signal", "owner_wallet", input.BountyOwnerWallet, "amount", amountToRefund.ToUSDC())
 				cancelOpts := workflow.ActivityOptions{StartToCloseTimeout: DefaultPayoutTimeout}
 				// --- Create Memo for Cancellation Refund --- //
 				type CancelRefundMemo struct {
@@ -1056,29 +1056,85 @@ func awaitLoopUntilEmptyOrTimeout(
 				memoData := CancelRefundMemo{BountyID: workflowID}
 				memoBytes, mErr := json.Marshal(memoData)
 				if mErr != nil {
-					logger.Error("Failed to marshal cancel refund memo", "error", mErr)
+					logger.Error("Failed to marshal cancel refund memo (custom signal)", "error", mErr)
 					memoBytes = []byte("{}")
 				}
 				memoString := string(memoBytes)
 				// --- End Memo Creation --- //
 				refundErr := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, cancelOpts), (*Activities).TransferUSDC, input.BountyOwnerWallet, amountToRefund.ToUSDC(), memoString).Get(ctx, nil)
 				if refundErr != nil {
-					logger.Error("Failed to return remaining bounty to owner", "owner_wallet", input.BountyOwnerWallet, "amount", amountToRefund.ToUSDC(), "error", refundErr)
+					logger.Error("Failed to return remaining bounty to owner (custom signal)", "owner_wallet", input.BountyOwnerWallet, "amount", amountToRefund.ToUSDC(), "error", refundErr)
+					// finalStatus will be set based on whether refund happened or not for summary
+					*finalStatus = BountyCancelledRefunded // Even if refund fails, it was intended.
 				} else {
-					logger.Info("Successfully returned remaining bounty to owner")
+					logger.Info("Successfully returned remaining bounty to owner (custom signal)")
 					*amountRefunded = *remainingBounty // remainingBounty is *solana.USDCAmount
 					remainingBounty = solana.Zero()
 					// Update remaining value SA
 					err = workflow.UpsertTypedSearchAttributes(ctx, BountyValueRemainingKey.ValueSet(0.0))
 					if err != nil {
-						logger.Error("Failed to update search attribute BountyValueRemaining to 0 on cancellation refund", "error", err)
+						logger.Error("Failed to update search attribute BountyValueRemaining to 0 on custom cancellation refund", "error", err)
 					}
 					*finalStatus = BountyCancelledRefunded
 				}
 			} else {
-				logger.Info("Workflow cancelled by signal.")
+				logger.Info("Workflow cancelled by custom signal, no refund needed as bounty was zero.")
 				*finalStatus = BountyCancelledNoRefund
 			}
+			// Workflow will exit loop after this due to timer cancellation and subsequent select returning ctx.Err()
+		})
+
+		// Listen for generic workflow cancellation from context
+		selector.AddReceive(ctx.Done(), func(c workflow.ReceiveChannel, more bool) {
+			logger.Info("Workflow cancellation requested via context.Done()")
+			cancelTimer() // Stop the main bounty timeout timer
+
+			// Update status to Cancelled
+			err := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusCancelled)))
+			if err != nil {
+				logger.Error("Failed to update search attribute BountyStatus to Cancelled on context cancellation", "error", err)
+			}
+
+			if !remainingBounty.IsZero() {
+				amountToRefund := remainingBounty
+				logger.Info("Attempting to return remaining bounty to owner due to context cancellation", "owner_wallet", input.BountyOwnerWallet, "amount", amountToRefund.ToUSDC())
+				// Use a disconnected context for refund activity if main context is already cancelled
+				disconnectedRefundCtx, _ := workflow.NewDisconnectedContext(ctx)
+				refundActivityOpts := workflow.ActivityOptions{StartToCloseTimeout: DefaultPayoutTimeout}
+				activityCtx := workflow.WithActivityOptions(disconnectedRefundCtx, refundActivityOpts)
+
+				// --- Create Memo for Cancellation Refund --- //
+				type CancelRefundMemo struct {
+					BountyID string `json:"bounty_id"`
+				}
+				memoData := CancelRefundMemo{BountyID: workflowID}
+				memoBytes, mErr := json.Marshal(memoData)
+				if mErr != nil {
+					logger.Error("Failed to marshal cancel refund memo (context cancellation)", "error", mErr)
+					memoBytes = []byte("{}")
+				}
+				memoString := string(memoBytes)
+				// --- End Memo Creation --- //
+
+				refundErr := workflow.ExecuteActivity(activityCtx, (*Activities).TransferUSDC, input.BountyOwnerWallet, amountToRefund.ToUSDC(), memoString).Get(activityCtx, nil)
+				if refundErr != nil {
+					logger.Error("Failed to return remaining bounty to owner (context cancellation)", "owner_wallet", input.BountyOwnerWallet, "amount", amountToRefund.ToUSDC(), "error", refundErr)
+					*finalStatus = BountyCancelledRefunded // Still mark as intended for refund
+				} else {
+					logger.Info("Successfully returned remaining bounty to owner (context cancellation)")
+					*amountRefunded = *remainingBounty
+					remainingBounty = solana.Zero()
+					err = workflow.UpsertTypedSearchAttributes(ctx, BountyValueRemainingKey.ValueSet(0.0))
+					if err != nil {
+						logger.Error("Failed to update search attribute BountyValueRemaining to 0 on context cancellation refund", "error", err)
+					}
+					*finalStatus = BountyCancelledRefunded
+				}
+			} else {
+				logger.Info("Workflow cancelled via context, no refund needed as bounty was zero.")
+				*finalStatus = BountyCancelledNoRefund
+			}
+			// Workflow will exit loop because cancelTimer() was called and ctx.Err() will be non-nil.
 		})
 
 		selector.Select(ctx)
@@ -1092,15 +1148,6 @@ func awaitLoopUntilEmptyOrTimeout(
 			return ctx.Err()
 		}
 	}
-	// If loop exits without error, it means remainingBounty became non-positive.
-	// The status BountyCompletedEmpty should have been set already if it depleted naturally.
-	// If it exited due to timeout or cancellation, those statuses are set in their respective blocks.
-	// If for some reason finalStatus is still not set, default to completed empty.
-	if *finalStatus == "" {
-		logger.Warn("Loop exited cleanly but finalStatus not set, defaulting to COMPLETED_EMPTY")
-		*finalStatus = BountyCompletedEmpty
-	}
-	return nil
 }
 
 // PublishBountiesWorkflow is a workflow that fetches bounties and publishes them.

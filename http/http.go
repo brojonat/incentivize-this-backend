@@ -543,10 +543,16 @@ func setupPruneStaleEmbeddingsSchedule(ctx context.Context, logger *slog.Logger,
 
 	logger.Info("Attempting to create prune stale embeddings schedule", "schedule_id", scheduleID)
 
+	// this will prune stale embeddings every 20 minutes. Now that we've added the proper
+	// workflow cancellation signal handling, this shouldn't be necessary, but if a workflow
+	// is ever terminated, we'll need to prune the embeddings because the cleanup activities
+	// will not be triggered. As a result, I've opted to leave this in place for now but
+	// we can remove it if we're confident that the workflow cancellation signal handling
+	// is sufficient.
 	_, err := scheduleClient.Create(ctx, client.ScheduleOptions{
 		ID: scheduleID,
 		Spec: client.ScheduleSpec{
-			Intervals: []client.ScheduleIntervalSpec{{Every: 5 * time.Minute}},
+			Intervals: []client.ScheduleIntervalSpec{{Every: 20 * time.Minute}},
 		},
 		Action: &client.ScheduleWorkflowAction{
 			Workflow:  abb.PruneStaleEmbeddingsWorkflow,
