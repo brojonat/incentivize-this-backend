@@ -69,6 +69,8 @@ const (
 	EnvDiscordBotToken  = "DISCORD_BOT_TOKEN"
 	EnvDiscordChannelID = "DISCORD_CHANNEL_ID"
 
+	EnvRapidAPIInstagramKey = "RAPIDAPI_INSTAGRAM_KEY"
+
 	DefaultLLMCheckReqPromptBase = `You are an AI assistant evaluating content based on a set of requirements.
 Determine if the provided content satisfies ALL the given requirements.
 Respond with a JSON object: {"satisfies": boolean, "reason": "string explaining why or why not"}.
@@ -106,6 +108,7 @@ const (
 	PlatformTwitch     PlatformKind = "twitch"
 	PlatformHackerNews PlatformKind = "hackernews"
 	PlatformBluesky    PlatformKind = "bluesky"
+	PlatformInstagram  PlatformKind = "instagram"
 
 	ContentKindPost    ContentKind = "post"
 	ContentKindComment ContentKind = "comment"
@@ -152,6 +155,7 @@ type Configuration struct {
 	TwitchDeps             TwitchDependencies     `json:"twitch_deps"`
 	HackerNewsDeps         HackerNewsDependencies `json:"hackernews_deps"`
 	BlueskyDeps            BlueskyDependencies    `json:"bluesky_deps"`
+	InstagramDeps          InstagramDependencies  `json:"instagram_deps"`
 	DiscordConfig          DiscordConfig          `json:"discord_config"`
 	Prompt                 string                 `json:"prompt"`
 	PublishTargetSubreddit string                 `json:"publish_target_subreddit"`
@@ -350,10 +354,9 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 
 	// --- YouTube Dependencies ---
 	youtubeDeps := YouTubeDependencies{
-		APIKey: os.Getenv(EnvYouTubeAPIKey),
-		// ApplicationName can be hardcoded or also from env if needed
-		ApplicationName: os.Getenv(EnvYouTubeAppName), // Use defined constant
-		MaxResults:      10,                           // Default, can be made configurable
+		APIKey:          os.Getenv(EnvYouTubeAPIKey),
+		ApplicationName: os.Getenv(EnvYouTubeAppName),
+		MaxResults:      50,
 	}
 
 	// --- Twitch Dependencies ---
@@ -364,7 +367,12 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 
 	// --- Bluesky Dependencies ---
 	blueskyDeps := BlueskyDependencies{
-		PDS: os.Getenv("BLUESKY_PDS_URL"), // Example: "https://bsky.social"
+		PDS: os.Getenv("BLUESKY_PDS_URL"),
+	}
+
+	// --- Instagram Dependencies ---
+	instagramDeps := InstagramDependencies{
+		RapidAPIKey: os.Getenv(EnvRapidAPIInstagramKey),
 	}
 
 	// --- Discord Config ---
@@ -400,6 +408,7 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		TwitchDeps:             twitchDeps,
 		HackerNewsDeps:         HackerNewsDependencies{},
 		BlueskyDeps:            blueskyDeps,
+		InstagramDeps:          instagramDeps,
 		DiscordConfig:          discordConfig,
 		Prompt:                 llmConfig.BasePrompt,
 		PublishTargetSubreddit: targetSubreddit,
@@ -736,7 +745,12 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 			}
 
 			// Resolve handle to DID
-			resolveHandleURL := fmt.Sprintf("https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=%s", url.QueryEscape(handle))
+			// Use the PDS from dependencies, defaulting to public.api.bsky.app if not set
+			pdsHost := cfg.BlueskyDeps.PDS
+			if pdsHost == "" {
+				pdsHost = "public.api.bsky.app" // Default PDS for public queries
+			}
+			resolveHandleURL := fmt.Sprintf("https://%s/xrpc/com.atproto.identity.resolveHandle?handle=%s", pdsHost, url.QueryEscape(handle))
 			resolveReq, resolveReqErr := http.NewRequestWithContext(ctx, "GET", resolveHandleURL, nil)
 			if resolveReqErr != nil {
 				return nil, fmt.Errorf("failed to create Bluesky DID resolution request: %w", resolveReqErr)
@@ -755,7 +769,7 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 			if resolveResp.StatusCode != http.StatusOK {
 				return nil, fmt.Errorf("failed to resolve Bluesky handle '%s', status %d: %s", handle, resolveResp.StatusCode, string(resolveBody))
 			}
-			var handleResponse BlueskyHandleResponse // Assumes BlueskyHandleResponse struct is defined/accessible
+			var handleResponse BlueskyHandleResponse
 			if jsonErr := json.Unmarshal(resolveBody, &handleResponse); jsonErr != nil {
 				return nil, fmt.Errorf("failed to unmarshal Bluesky DID for handle '%s': %w", handle, jsonErr)
 			}
@@ -768,17 +782,18 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 			return nil, fmt.Errorf("invalid Bluesky ContentID format: expected HTTP URL or AT URI, got '%s'", input.ContentID)
 		}
 
-		// 2. Fetch Post using AT URI (logic from former PullBlueskyContent activity)
-		apiURL := "https://public.api.bsky.app/xrpc/app.bsky.feed.getPosts"
-		params := url.Values{}
-		params.Add("uris", contentIdToUse)
-		fullURL := apiURL + "?" + params.Encode()
+		// 2. Pull content using AT URI
+		pdsHost := cfg.BlueskyDeps.PDS
+		if pdsHost == "" {
+			pdsHost = "public.api.bsky.app" // Default PDS for public queries
+		}
 
-		req, reqErr := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
+		getPostsURL := fmt.Sprintf("https://%s/xrpc/app.bsky.feed.getPosts?uris=%s", pdsHost, url.QueryEscape(contentIdToUse))
+		req, reqErr := http.NewRequestWithContext(ctx, "GET", getPostsURL, nil)
 		if reqErr != nil {
 			return nil, fmt.Errorf("failed to create Bluesky getPosts request: %w", reqErr)
 		}
-		req.Header.Set("Accept", "application/json")
+		// No auth typically needed for public.api.bsky.app getPosts
 
 		resp, httpErr := a.httpClient.Do(req)
 		if httpErr != nil {
@@ -790,15 +805,14 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 		if readErr != nil {
 			return nil, fmt.Errorf("failed to read Bluesky getPosts response body (status %d): %w", resp.StatusCode, readErr)
 		}
-		logger.Debug("Bluesky API Response in PullContentActivity", "status_code", resp.StatusCode, "response", string(body))
 
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("Bluesky getPosts API returned status %d: %s", resp.StatusCode, string(body))
+			return nil, fmt.Errorf("Bluesky API returned status %d for getPosts: %s (URL: %s)", resp.StatusCode, string(body), getPostsURL)
 		}
 
 		var responseData struct {
 			Posts []json.RawMessage `json:"posts"`
-		} // Assumes BlueskyContent related structs are defined/accessible
+		}
 		if jsonErr := json.Unmarshal(body, &responseData); jsonErr != nil {
 			return nil, fmt.Errorf("failed to decode Bluesky getPosts response: %w (body: %s)", jsonErr, string(body))
 		}
@@ -828,6 +842,21 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 			return nil, fmt.Errorf("failed to marshal Bluesky content: %w", err)
 		}
 		// --- End Bluesky Logic ---
+
+	case PlatformInstagram:
+		logger.Debug("Executing Instagram pull logic within PullContentActivity")
+		// Ensure ContentKind is Post for Instagram, as we only support posts (reels) for now
+		if input.ContentKind != ContentKindPost {
+			return nil, fmt.Errorf("unsupported content kind for Instagram: %s. Only '%s' is supported", input.ContentKind, ContentKindPost)
+		}
+		instagramContent, err := a.PullInstagramContentActivity(ctx, cfg.InstagramDeps, input.ContentID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to pull Instagram content: %w", err)
+		}
+		contentBytes, err = json.Marshal(instagramContent)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal Instagram content: %w", err)
+		}
 
 	default:
 		err = fmt.Errorf("unsupported platform type in PullContentActivity: %s", input.PlatformType)
