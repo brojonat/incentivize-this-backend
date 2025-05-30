@@ -744,3 +744,36 @@ func PullContentWorkflow(ctx workflow.Context, input PullContentInput) ([]byte, 
 	err := workflow.ExecuteActivity(ctx, (*Activities).PullContentActivity, input).Get(ctx, &result)
 	return result, err
 }
+
+// --- Test for ScheduledGumroadNotifyWorkflow ---
+func TestScheduledGumroadNotifyWorkflow(t *testing.T) {
+	t.Setenv("ENV", "test") // Ensure test environment for configuration
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestWorkflowEnvironment()
+
+	activities, err := NewActivities()
+	require.NoError(t, err)
+
+	// Register the new activity
+	env.RegisterActivity(activities.CallGumroadNotifyActivity)
+
+	lookback := time.Hour
+	workflowInput := GumroadNotifyWorkflowInput{
+		LookbackDuration: lookback,
+	}
+
+	activityInput := CallGumroadNotifyActivityInput{
+		LookbackDuration: lookback,
+	}
+
+	// Mock the CallGumroadNotifyActivity
+	env.OnActivity(activities.CallGumroadNotifyActivity, mock.Anything, activityInput).Return(nil).Once()
+
+	env.ExecuteWorkflow(GumroadNotifyWorkflow, workflowInput)
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	env.AssertExpectations(t)
+}
+
+// --- End Test for ScheduledGumroadNotifyWorkflow ---

@@ -1266,3 +1266,43 @@ func PruneStaleEmbeddingsWorkflow(ctx workflow.Context) (string, error) {
 
 	return result, nil
 }
+
+// GumroadNotifyWorkflowInput defines the input for the ScheduledGumroadNotifyWorkflow.
+// It specifies how far back the notify job should look.
+type GumroadNotifyWorkflowInput struct {
+	LookbackDuration time.Duration `json:"lookback_duration"`
+}
+
+// GumroadNotifyWorkflow is a simple workflow that calls an activity
+// to trigger Gumroad notifications based on a lookback duration.
+// This workflow is intended to be run on a schedule (e.g., every 5 minutes).
+func GumroadNotifyWorkflow(ctx workflow.Context, input GumroadNotifyWorkflowInput) error {
+	logger := workflow.GetLogger(ctx)
+	logger.Info("GumroadNotifyWorkflow started", "lookbackDuration", input.LookbackDuration)
+
+	activityOptions := workflow.ActivityOptions{
+		StartToCloseTimeout: 2 * time.Minute, // Timeout for the activity call
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    10 * time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumInterval:    time.Minute,
+			MaximumAttempts:    3,
+		},
+	}
+	ctx = workflow.WithActivityOptions(ctx, activityOptions)
+
+	activityInput := CallGumroadNotifyActivityInput{
+		LookbackDuration: input.LookbackDuration,
+	}
+
+	err := workflow.ExecuteActivity(ctx, (*Activities).CallGumroadNotifyActivity, activityInput).Get(ctx, nil)
+	if err != nil {
+		logger.Error("GumroadNotifyWorkflow failed to execute CallGumroadNotifyActivity", "error", err)
+		return fmt.Errorf("GumroadNotifyActivity failed: %w", err)
+	}
+
+	logger.Info("GumroadNotifyWorkflow completed successfully")
+	return nil
+}
+
+// --- End Scheduled Gumroad Notify Workflow ---

@@ -252,17 +252,22 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 
 	// --- Setup Temporal Schedule for Periodic Publisher ---
 	if err := setupPeriodicPublisherSchedule(ctx, logger, tc, currentEnv); err != nil {
-		// Log error but don't prevent server startup; this is expected to fail if the schedule already exists
-		logger.Info("Failed to set up periodic publisher schedule", "error", err)
+		// Log the error but don't necessarily fail server startup if one schedule fails
+		logger.Error("Failed to set up periodic publisher schedule", "error", err)
 	}
 	// --- End Schedule Setup ---
 
 	// --- Setup Temporal Schedule for Pruning Stale Embeddings ---
 	if err := setupPruneStaleEmbeddingsSchedule(ctx, logger, tc, currentEnv); err != nil {
-		// Log error but don't prevent server startup; this is expected to fail if the schedule already exists
-		logger.Info("Failed to set up prune stale embeddings schedule", "error", err)
+		logger.Error("Failed to set up prune stale embeddings schedule", "error", err)
 	}
 	// --- End Prune Schedule Setup ---
+
+	// --- Setup Temporal Schedule for Gumroad Notify ---
+	if err := setupGumroadNotifySchedule(ctx, logger, tc, currentEnv); err != nil {
+		logger.Error("Failed to set up Gumroad notify schedule", "error", err)
+	}
+	// --- End Gumroad Notify Setup ---
 
 	// Create Rate Limiter for JWT-based assessment endpoint
 	jwtAssessLimiter := NewRateLimiter(1*time.Hour, 10) // 10 requests per hour per JWT
@@ -591,5 +596,55 @@ func setupPruneStaleEmbeddingsSchedule(ctx context.Context, logger *slog.Logger,
 	}
 
 	logger.Info("Successfully created prune stale embeddings schedule", "schedule_id", scheduleID)
+	return nil
+}
+
+// setupGumroadNotifySchedule sets up a Temporal schedule for Gumroad notify
+func setupGumroadNotifySchedule(ctx context.Context, logger *slog.Logger, tc client.Client, env string) error {
+	scheduleID := fmt.Sprintf("gumroad-notify-schedule-%s", env)
+	taskQueue := os.Getenv(EnvTaskQueue)
+	if taskQueue == "" {
+		return fmt.Errorf("TASK_QUEUE environment variable not set, cannot set up schedule %s", scheduleID)
+	}
+
+	scheduleInput := abb.GumroadNotifyWorkflowInput{
+		LookbackDuration: time.Hour, // Look back 1 hour
+	}
+
+	scheduleOptions := client.ScheduleOptions{
+		ID: scheduleID, // The ID for the schedule itself
+		Spec: client.ScheduleSpec{
+			CronExpressions: []string{"*/5 * * * *"}, // Every 5 minutes
+		},
+		Action: &client.ScheduleWorkflowAction{
+			Workflow:  abb.GumroadNotifyWorkflow,
+			Args:      []interface{}{scheduleInput},
+			TaskQueue: taskQueue,
+			// Optionally, provide a base ID for workflow executions started by this schedule
+			ID: fmt.Sprintf("gumroad-notify-workflow-%s", env),
+		},
+		Paused: false,
+		// Other fields like OverlapPolicy, Jitter, etc., can be added if available and needed
+		// For example, if your SDK version supports it:
+		// OverlapPolicy: client.ScheduleOverlapPolicySkip,
+	}
+
+	logger.Info("Attempting to create Gumroad Notify schedule", "scheduleID", scheduleID, "cron", scheduleOptions.Spec.CronExpressions)
+
+	// Use the same pattern as setupPeriodicPublisherSchedule and setupPruneStaleEmbeddingsSchedule
+	_, err := tc.ScheduleClient().Create(ctx, scheduleOptions)
+
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
+			logger.Info("Gumroad Notify schedule already exists, no action taken.", "scheduleID", scheduleID)
+			// If update logic is needed and supported by your SDK version, it would go here.
+			// For now, returning nil to avoid failing server startup.
+			return nil
+		}
+		logger.Error("Failed to create Gumroad Notify schedule", "scheduleID", scheduleID, "error", err)
+		return fmt.Errorf("failed to create Gumroad Notify schedule %s: %w", scheduleID, err)
+	}
+
+	logger.Info("Successfully created Gumroad Notify schedule", "scheduleID", scheduleID)
 	return nil
 }

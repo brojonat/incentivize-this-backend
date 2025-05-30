@@ -935,8 +935,6 @@ func (a *Activities) DeleteBountyEmbeddingViaHTTPActivity(ctx context.Context, i
 	return nil
 }
 
-// --- Start Gumroad Activities ---
-
 // MarkGumroadSaleNotifiedActivityInput defines the input for the activity
 // that marks a Gumroad sale as notified via an HTTP call to the ABB server.
 type MarkGumroadSaleNotifiedActivityInput struct {
@@ -1010,13 +1008,74 @@ func (a *Activities) MarkGumroadSaleNotifiedActivity(ctx context.Context, input 
 	return nil
 }
 
-// --- End Gumroad Activities ---
+// CallGumroadNotifyActivityInput defines the input for the CallGumroadNotifyActivity.
+// Currently, only lookback duration is needed, but it's structured for future flexibility.
+type CallGumroadNotifyActivityInput struct {
+	LookbackDuration time.Duration `json:"lookback_duration"`
+}
 
-// SendTokenEmail sends an email containing a token to the specified address.
-// ... existing code ...
-// NOTE: Ensure this new activity is placed before the SendTokenEmail activity or in a logical section.
-// For this example, I'm placing it before SendTokenEmail assuming a new section for Gumroad activities.
+// CallGumroadNotifyActivity makes an HTTP POST request to the /gumroad/notify endpoint.
+// This is intended to be called by a scheduled workflow to periodically trigger notifications
+// for Gumroad sales within the specified lookback window.
+func (a *Activities) CallGumroadNotifyActivity(ctx context.Context, input CallGumroadNotifyActivityInput) error {
+	logger := activity.GetLogger(ctx)
+	logger.Info("CallGumroadNotifyActivity started", "lookbackDuration", input.LookbackDuration)
 
-// ... existing code ...
-// func (a *Activities) SummarizeAndStoreBountyActivity(ctx context.Context, input SummarizeAndStoreBountyActivityInput) error {
-// ... existing code ...
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		logger.Error("Failed to get configuration for CallGumroadNotifyActivity", "error", err)
+		return fmt.Errorf("failed to get configuration: %w", err)
+	}
+
+	apiEndpoint := cfg.ABBServerConfig.APIEndpoint
+	authToken := cfg.ABBServerConfig.AuthToken // Using standard auth token
+
+	if apiEndpoint == "" {
+		logger.Error("ABB_API_ENDPOINT not configured for CallGumroadNotifyActivity")
+		return fmt.Errorf("abb API endpoint not configured")
+	}
+	if authToken == "" {
+		logger.Error("ABB_AUTH_TOKEN not configured for CallGumroadNotifyActivity")
+		return fmt.Errorf("abb auth token not configured")
+	}
+
+	targetURL := fmt.Sprintf("%s/gumroad/notify", strings.TrimRight(apiEndpoint, "/"))
+
+	requestBody := map[string]interface{}{
+		"lookback_duration_seconds": int(input.LookbackDuration.Seconds()),
+	}
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		logger.Error("Failed to marshal request body for CallGumroadNotifyActivity", "error", err)
+		return fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		logger.Error("Failed to create HTTP request for CallGumroadNotifyActivity", "error", err)
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+authToken) // Use Bearer token authentication
+
+	client := a.httpClient
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second} // Increased timeout for potentially longer operation
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		logger.Error("Failed to execute HTTP request for CallGumroadNotifyActivity", "error", err, "url", targetURL)
+		return fmt.Errorf("failed to execute request to %s: %w", targetURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted { // Accept 202 for async operations
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		logger.Error("CallGumroadNotifyActivity HTTP request failed", "statusCode", resp.StatusCode, "url", targetURL, "responseBody", string(bodyBytes))
+		return fmt.Errorf("http request to %s failed with status %d: %s", targetURL, resp.StatusCode, string(bodyBytes))
+	}
+
+	logger.Info("CallGumroadNotifyActivity completed successfully", "statusCode", resp.StatusCode, "url", targetURL)
+	return nil
+}
