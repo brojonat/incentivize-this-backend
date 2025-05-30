@@ -6,6 +6,8 @@ package dbgen
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
@@ -13,10 +15,13 @@ type Querier interface {
 	DeleteEmbeddings(ctx context.Context, bountyIds string) error
 	DeleteEmbeddingsNotIn(ctx context.Context, bountyIds string) error
 	GetBountySummary(ctx context.Context, bountyID string) ([]byte, error)
+	GetUnnotifiedGumroadSales(ctx context.Context, minSaleTimestamp pgtype.Timestamptz) ([]GumroadSale, error)
 	InsertEmbedding(ctx context.Context, arg InsertEmbeddingParams) error
+	InsertGumroadSale(ctx context.Context, arg InsertGumroadSaleParams) (GumroadSale, error)
 	ListBountyIDs(ctx context.Context) ([]string, error)
 	SearchEmbeddings(ctx context.Context, arg SearchEmbeddingsParams) ([]BountyEmbedding, error)
 	UpdateBountySummary(ctx context.Context, arg UpdateBountySummaryParams) error
+	UpdateGumroadSaleNotification(ctx context.Context, arg UpdateGumroadSaleNotificationParams) error
 	UpsertBountySummary(ctx context.Context, arg UpsertBountySummaryParams) error
 }
 

@@ -5,6 +5,7 @@
 package dbgen
 
 import (
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pgvector/pgvector-go"
 )
 
@@ -16,4 +17,41 @@ type BountyEmbedding struct {
 type BountySummary struct {
 	BountyID string `json:"bounty_id"`
 	Summary  []byte `json:"summary"`
+}
+
+type GumroadSale struct {
+	ID                      string             `json:"id"`
+	ProductID               string             `json:"product_id"`
+	ProductName             pgtype.Text        `json:"product_name"`
+	Permalink               pgtype.Text        `json:"permalink"`
+	ProductPermalink        pgtype.Text        `json:"product_permalink"`
+	Email                   string             `json:"email"`
+	Price                   pgtype.Int8        `json:"price"`
+	GumroadFee              pgtype.Int8        `json:"gumroad_fee"`
+	Currency                pgtype.Text        `json:"currency"`
+	Quantity                pgtype.Int4        `json:"quantity"`
+	DiscoverFeeCharged      pgtype.Bool        `json:"discover_fee_charged"`
+	CanContact              pgtype.Bool        `json:"can_contact"`
+	Referrer                pgtype.Text        `json:"referrer"`
+	OrderNumber             pgtype.Int8        `json:"order_number"`
+	SaleID                  pgtype.Text        `json:"sale_id"`
+	SaleTimestamp           pgtype.Timestamptz `json:"sale_timestamp"`
+	PurchaserID             pgtype.Text        `json:"purchaser_id"`
+	SubscriptionID          pgtype.Text        `json:"subscription_id"`
+	LicenseKey              pgtype.Text        `json:"license_key"`
+	IsMultiseatLicense      pgtype.Bool        `json:"is_multiseat_license"`
+	IpCountry               pgtype.Text        `json:"ip_country"`
+	Recurrence              pgtype.Text        `json:"recurrence"`
+	IsGiftReceiverPurchase  pgtype.Bool        `json:"is_gift_receiver_purchase"`
+	Refunded                pgtype.Bool        `json:"refunded"`
+	Disputed                pgtype.Bool        `json:"disputed"`
+	DisputeWon              pgtype.Bool        `json:"dispute_won"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+	Chargebacked            pgtype.Bool        `json:"chargebacked"`
+	SubscriptionEndedAt     pgtype.Timestamptz `json:"subscription_ended_at"`
+	SubscriptionCancelledAt pgtype.Timestamptz `json:"subscription_cancelled_at"`
+	SubscriptionFailedAt    pgtype.Timestamptz `json:"subscription_failed_at"`
+	RawData                 []byte             `json:"raw_data"`
+	ItNotified              pgtype.Bool        `json:"it_notified"`
+	ItApiKey                pgtype.Text        `json:"it_api_key"`
 }

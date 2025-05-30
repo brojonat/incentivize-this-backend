@@ -1,16 +1,3 @@
--- schema.sql for sqlc generation, DO NOT use with atlas; use golang-migrate instead.
-CREATE EXTENSION IF NOT EXISTS vector;
-
-CREATE TABLE bounty_embeddings (
-    bounty_id VARCHAR(255) PRIMARY KEY,
-    embedding vector(1536)
-);
-
-CREATE TABLE bounty_summaries (
-    bounty_id VARCHAR(255) PRIMARY KEY,
-    summary JSONB NOT NULL
-);
-
 CREATE TABLE gumroad_sales (
     id VARCHAR(255) PRIMARY KEY,
     product_id VARCHAR(255) NOT NULL,
@@ -49,3 +36,10 @@ CREATE TABLE gumroad_sales (
     it_notified BOOLEAN DEFAULT FALSE,
     it_api_key TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_gumroad_sales_product_id ON gumroad_sales (product_id);
+CREATE INDEX IF NOT EXISTS idx_gumroad_sales_email ON gumroad_sales (email);
+CREATE INDEX IF NOT EXISTS idx_gumroad_sales_created_at ON gumroad_sales (created_at);
+CREATE INDEX IF NOT EXISTS idx_gumroad_sales_sale_timestamp ON gumroad_sales (sale_timestamp);
+CREATE INDEX IF NOT EXISTS idx_gumroad_sales_subscription_id ON gumroad_sales (subscription_id);
+CREATE INDEX IF NOT EXISTS idx_gumroad_sales_license_key ON gumroad_sales (license_key);

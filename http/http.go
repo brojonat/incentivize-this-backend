@@ -422,6 +422,22 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		requireStatus(UserStatusSudo),
 	))
 
+	// Gumroad notification route (sudo access required)
+	mux.HandleFunc("POST /gumroad/notify", stools.AdaptHandler(
+		handleNotifyGumroadSales(logger, querier, tc),
+		withLogging(logger),
+		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		requireStatus(UserStatusSudo),
+	))
+
+	// Route for Temporal workflow to mark a Gumroad sale as notified
+	mux.HandleFunc("POST /gumroad/notified", stools.AdaptHandler(
+		handleMarkGumroadSaleNotified(logger, querier),
+		withLogging(logger),
+		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		requireStatus(UserStatusSudo),
+	))
+
 	// Apply CORS globally
 	corsHandler := handlers.CORS(
 		handlers.AllowedHeaders(allowedHeaders),

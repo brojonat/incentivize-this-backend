@@ -4,6 +4,7 @@ sql:
     queries:
       - "db/sqlc/embeddings.sql"
       - "db/sqlc/bounty_summary.sql"
+      - "db/sqlc/gumroad.sql"
     schema: "db/sqlc/schema.sql"   # Path to database schema
     gen:
       go:

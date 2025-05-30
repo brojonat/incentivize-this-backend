@@ -254,25 +254,33 @@ stop-dev-session: ## Stop the tmux development session and kill related processe
 	@/usr/local/bin/tmux kill-session -t $(TMUX_SESSION) || true # Ignore error if session doesn't exist
 
 # Variables (customize as needed)
-ABB_CMD = abb
+ABB_CMD = ./bin/abb
 PER_POST_AMOUNT = 0.01
 TOTAL_AMOUNT = 0.10
 FUND_AMOUNT = $(TOTAL_AMOUNT) # Amount to fund via fund-escrow, assuming it matches total bounty for this script
+# Ensure these are set in your environment (e.g., from .env.server.debug or .env.worker.debug)
+# Or replace with actual values if not using environment variables for these targets.
+ABB_AUTH_TOKEN ?= "your_auth_token_here" # Must be a valid token
+BOUNTY_OWNER_WALLET ?= "$(SOLANA_TEST_OWNER_WALLET)" # Must be a valid Base58 public key
+BOUNTY_FUNDER_WALLET ?= "$(SOLANA_TEST_FUNDER_WALLET)" # Must be a valid Base58 public key
 
-create-reddit-post-bounty:
-	@echo "--- Creating and Funding Reddit Bounty ---"
+create-reddit-post-bounty: build-cli ## Create a test Reddit Post bounty
+	$(call setup_env, .env.server.debug)
+	@echo "--- Creating a test Reddit Post Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This bounty is for a Reddit post. The post must have a score of at least 100" \
-		   " and be in the programmerhumor, devops, or programming subreddits" \
-		   " and it must be implying that LLMs/AI is not particularly useful." \
-		   " It should evoke a sense of dissatisfaction with the current state of AI" \
-		   " and downplay it's effectiveness." \
-		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
+		-r "This bounty is for a Reddit post. The post must have a score of at least 100\
+		   and be in the programmerhumor, devops, or programming subreddits\
+		   and it must be implying that LLMs/AI is not particularly useful.\
+		   It should evoke a sense of dissatisfaction with the current state of AI\
+		   and downplay it\'s effectiveness." \
+		--per-post "$(PER_POST_AMOUNT)" \
+		--total "$(TOTAL_AMOUNT)"`; \
 	echo "Create Output: $$OUTPUT"; \
-	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Bounty started: "; "")'`; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
-	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
-		echo "Error: Could not extract Workflow ID from create command output." >&2; \
+	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ] || ! echo "$$WORKFLOW_ID" | grep -q '^bounty-'; then \
+		echo "Error: Could not extract a valid Workflow/Bounty ID (must start with 'bounty-') from create command output." >&2; \
+		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
 	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
@@ -283,19 +291,22 @@ create-reddit-post-bounty:
 		echo "!!! fund-escrow command FAILED for $$WORKFLOW_ID (exit code $$?) !!!" >&2; \
 		exit 1; \
 	fi
-	@echo "--- Reddit Bounty Funded (according to Makefile logic) ---"
+	@echo "--- Test Reddit Post Bounty created and funding attempted ---"
 
-create-reddit-comment-bounty:
-	@echo "--- Creating and Funding Reddit Bounty ---"
+create-reddit-comment-bounty: build-cli ## Create a test Reddit Comment bounty
+	$(call setup_env, .env.server.debug)
+	@echo "--- Creating a test Reddit Comment Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This bounty is for a Reddit comment. The comment must have a score of at least 100" \
-		   " and be in a post talking about hikes in Orange County." \
-		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
+		-r "This bounty is for a Reddit comment. The comment must have a score of at least 100\
+		   and be in a post talking about hikes in Orange County." \
+		--per-post "$(PER_POST_AMOUNT)" \
+		--total "$(TOTAL_AMOUNT)"`; \
 	echo "Create Output: $$OUTPUT"; \
-	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Bounty started: "; "")'`; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
-	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
-		echo "Error: Could not extract Workflow ID from create command output." >&2; \
+	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ] || ! echo "$$WORKFLOW_ID" | grep -q '^bounty-'; then \
+		echo "Error: Could not extract a valid Workflow/Bounty ID (must start with 'bounty-') from create command output." >&2; \
+		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
 	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
@@ -306,104 +317,174 @@ create-reddit-comment-bounty:
 		echo "!!! fund-escrow command FAILED for $$WORKFLOW_ID (exit code $$?) !!!" >&2; \
 		exit 1; \
 	fi
-	@echo "--- Reddit Bounty Funded (according to Makefile logic) ---"
+	@echo "--- Test Reddit Comment Bounty created and funding attempted ---"
 
-create-youtube-bounty:
-	@echo "--- Creating and Funding YouTube Bounty ---"
+create-youtube-bounty: build-cli ## Create a test YouTube bounty
+	$(call setup_env, .env.server.debug)
+	@echo "--- Creating a test YouTube Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This bounty is for a YouTube video. The video must have at least 1000 views" \
-		   " and be about cookware. It must not make the cookware look dangerous." \
-		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
+		-r "This bounty is for a YouTube video. The video must have at least 1000 views\
+		   and be about cookware. It must not make the cookware look dangerous." \
+		--per-post "$(PER_POST_AMOUNT)" \
+		--total "$(TOTAL_AMOUNT)"`; \
 	echo "Create Output: $$OUTPUT"; \
-	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Bounty started: "; "")'`; \
-	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
-	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
-		echo "Error: Could not extract Workflow ID from create command output." >&2; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
+	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
+	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ] || ! echo "$$WORKFLOW_ID" | grep -q '^bounty-'; then \
+		echo "Error: Could not extract a valid Workflow/Bounty ID (must start with 'bounty-') from create command output." >&2; \
+		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	$(ABB_CMD) admin util fund-escrow \
-		--workflow-id $$WORKFLOW_ID \
-		--amount $(FUND_AMOUNT)
-	@echo "--- YouTube Bounty Funded ---"
+	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
+		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
+	else \
+		echo "!!! fund-escrow command FAILED for $$WORKFLOW_ID (exit code $$?) !!!" >&2; \
+		exit 1; \
+	fi
+	@echo "--- Test YouTube Bounty created and funding attempted ---"
 
-create-twitch-bounty:
-	@echo "--- Creating and Funding Twitch Bounty ---"
+create-twitch-bounty: build-cli ## Create a test Twitch bounty
+	$(call setup_env, .env.server.debug)
+	@echo "--- Creating a test Twitch Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This bounty is for a Twitch clip. The content must be about Dota2 and" \
-		" have at least 100 views. The thumbnail must include an image of a real person."
-		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
+		-r "This bounty is for a Twitch clip. The content must be about Dota2 and\
+		 have at least 100 views. The thumbnail must include an image of a real person." \
+		--per-post "$(PER_POST_AMOUNT)" \
+		--total "$(TOTAL_AMOUNT)"`; \
 	echo "Create Output: $$OUTPUT"; \
-	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Bounty started: "; "")'`; \
-	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
-	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
-		echo "Error: Could not extract Workflow ID from create command output." >&2; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
+	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
+	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ] || ! echo "$$WORKFLOW_ID" | grep -q '^bounty-'; then \
+		echo "Error: Could not extract a valid Workflow/Bounty ID (must start with 'bounty-') from create command output." >&2; \
+		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	$(ABB_CMD) admin util fund-escrow \
-		--workflow-id $$WORKFLOW_ID \
-		--amount $(FUND_AMOUNT)
-	@echo "--- Twitch Bounty Funded ---"
+	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
+		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
+	else \
+		echo "!!! fund-escrow command FAILED for $$WORKFLOW_ID (exit code $$?) !!!" >&2; \
+		exit 1; \
+	fi
+	@echo "--- Test Twitch Bounty created and funding attempted ---"
 
-create-bluesky-bounty:
-	@echo "--- Creating and Funding Bluesky Bounty ---"
+create-bluesky-bounty: build-cli ## Create a test Bluesky bounty
+	$(call setup_env, .env.server.debug)
+	@echo "--- Creating a test Bluesky Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This bounty is for a Bluesky post. The post should mention technology and" \
-		" be about the latest trends in AI." \
-		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
+		-r "This bounty is for a Bluesky post. The post should mention technology and\
+		 be about the latest trends in AI." \
+		--per-post "$(PER_POST_AMOUNT)" \
+		--total "$(TOTAL_AMOUNT)"`; \
 	echo "Create Output: $$OUTPUT"; \
-	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Bounty started: "; "")'`; \
-	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
-	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
-		echo "Error: Could not extract Workflow ID from create command output." >&2; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
+	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
+	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ] || ! echo "$$WORKFLOW_ID" | grep -q '^bounty-'; then \
+		echo "Error: Could not extract a valid Workflow/Bounty ID (must start with 'bounty-') from create command output." >&2; \
+		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	$(ABB_CMD) admin util fund-escrow \
-		--workflow-id $$WORKFLOW_ID \
-		--amount $(FUND_AMOUNT)
-	@echo "--- Bluesky Bounty Funded ---"
+	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
+		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
+	else \
+		echo "!!! fund-escrow command FAILED for $$WORKFLOW_ID (exit code $$?) !!!" >&2; \
+		exit 1; \
+	fi
+	@echo "--- Test Bluesky Bounty created and funding attempted ---"
 
-create-hackernews-comment-bounty:
-	@echo "--- Creating and Funding Hacker News Bounty ---"
+create-hackernews-comment-bounty: build-cli ## Create a test Hacker News Comment bounty
+	$(call setup_env, .env.server.debug)
+	@echo "--- Creating a test Hacker News Comment Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This bounty is for a Hacker News comment. The content must be at " \
-		" least 50 characters long. It should be on a Show HN post that discusses IncentivizeThis." \
-		" The comment must portray IncentivizeThis in a positive light, " \
-		" otherwise it should not be approved for the bounty." \
-		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
+		-r "This bounty is for a Hacker News comment. The content must be at \
+		 least 50 characters long. It should be on a Show HN post that discusses IncentivizeThis.\
+		 The comment must portray IncentivizeThis in a positive light, \
+		 otherwise it should not be approved for the bounty." \
+		--per-post "$(PER_POST_AMOUNT)" \
+		--total "$(TOTAL_AMOUNT)"`; \
 	echo "Create Output: $$OUTPUT"; \
-	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Bounty started: "; "")'`; \
-	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
-	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
-		echo "Error: Could not extract Workflow ID from create command output." >&2; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
+	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
+	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ] || ! echo "$$WORKFLOW_ID" | grep -q '^bounty-'; then \
+		echo "Error: Could not extract a valid Workflow/Bounty ID (must start with 'bounty-') from create command output." >&2; \
+		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	$(ABB_CMD) admin util fund-escrow \
-		--workflow-id $$WORKFLOW_ID \
-		--amount $(FUND_AMOUNT)
-	@echo "--- Hacker News Bounty Funded ---"
+	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
+		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
+	else \
+		echo "!!! fund-escrow command FAILED for $$WORKFLOW_ID (exit code $$?) !!!" >&2; \
+		exit 1; \
+	fi
+	@echo "--- Test Hacker News Comment Bounty created and funding attempted ---"
 
-create-hackernews-post-bounty:
-	@echo "--- Creating and Funding Hacker News Bounty ---"
+create-hackernews-post-bounty: build-cli ## Create a simple test Hacker News post bounty
+	$(call setup_env, .env.server.debug)
+	@echo "--- Creating a test Hacker News Post Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This bounty is for a Hacker News post. This must be a 'Show HN' post. The content must be at " \
-		" least 250 characters long. It should discuss IncentivizeThis and promote it as " \
-		" a way to get paid. It should mention that it facilitates the production of " \
-		" content that people actually want to see and/or it should mention that it's a " \
-		" way for advertising companies to get more people to see their ads without " \
-		" knowing it's an ad. The post must show IncentivizeThis in a positive light, " \
-		" otherwise it should not be approved for the bounty." \
-		--per-post $(PER_POST_AMOUNT) --total $(TOTAL_AMOUNT)`; \
+		-r "This is a multi-line requirement string.\
+This is the second line of the requirement.\
+And this is the third line." \
+		--per-post $(PER_POST_AMOUNT) \
+		--total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
-	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.message | sub("Bounty started: "; "")'`; \
-	echo "Extracted Workflow ID: $$WORKFLOW_ID"; \
-	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ]; then \
-		echo "Error: Could not extract Workflow ID from create command output." >&2; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
+	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
+	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ] || ! echo "$$WORKFLOW_ID" | grep -q '^bounty-'; then \
+		echo "Error: Could not extract a valid Workflow/Bounty ID (must start with 'bounty-') from create command output." >&2; \
+		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	$(ABB_CMD) admin util fund-escrow \
-		--workflow-id $$WORKFLOW_ID \
-		--amount $(FUND_AMOUNT)
-	@echo "--- Hacker News Bounty Funded ---"
+	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
+		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
+	else \
+		echo "!!! fund-escrow command FAILED for $$WORKFLOW_ID (exit code $$?) !!!" >&2; \
+		exit 1; \
+	fi
+	@echo "--- Test Hacker News Post Bounty created and funding attempted ---"
+
+create-instagram-post-bounty: build-cli ## Create a test Instagram Post bounty for Kean Coffee
+	$(call setup_env, .env.server.debug)
+	@echo "--- Creating a test Instagram Post Bounty (Kean Coffee) ---"
+	@OUTPUT=`$(ABB_CMD) admin bounty create \
+		-r "The deliverable is an Instagram **post**.\
+		This Instagram post must feature a video about Kean Coffee in Irvine, CA.\
+		The video component of the post must be between 15 and 60 seconds long.\
+		The post\'s caption must use the hashtag #NewportBeach or #Tustin and tag the coffee shop @KeanCoffee.\
+		The post must receive at least 100 views and 10 likes." \
+		--per-post "$(PER_POST_AMOUNT)" \
+		--total "$(TOTAL_AMOUNT)"`; \
+	echo "Create Output: $$OUTPUT"; \
+	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
+	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
+	if [ -z "$$WORKFLOW_ID" ] || [ "$$WORKFLOW_ID" = "null" ] || ! echo "$$WORKFLOW_ID" | grep -q '^bounty-'; then \
+		echo "Error: Could not extract a valid Workflow/Bounty ID (must start with 'bounty-') from create command output." >&2; \
+		echo "Output was: $$OUTPUT" >&2; \
+		exit 1; \
+	fi; \
+	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
+		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
+	else \
+		echo "!!! fund-escrow command FAILED for $$WORKFLOW_ID (exit code $$?) !!!" >&2; \
+		exit 1; \
+	fi
+	@echo "--- Test Instagram Post Bounty created and funding attempted ---"
+
+test-bounty-help: build-cli ## Test if the bounty create help command works
+	@echo "--- Testing bounty create --help ---"
+	$(ABB_CMD) admin bounty create --help
+	@echo "--- Help test complete ---"
 
 .PHONY: help create-and-fund-bounties create-reddit-bounty create-youtube-bounty create-twitch-bounty create-bluesky-bounty create-hackernews-bounty
 

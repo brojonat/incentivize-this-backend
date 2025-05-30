@@ -1,6 +1,7 @@
 package abb
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -101,6 +102,7 @@ type ContentKind string
 
 // PlatformKind defines the social media platform
 type PlatformKind string
+type PaymentPlatformKind string
 
 const (
 	PlatformReddit     PlatformKind = "reddit"
@@ -115,6 +117,9 @@ const (
 	ContentKindVideo   ContentKind = "video"
 	ContentKindClip    ContentKind = "clip"
 	ContentKindStory   ContentKind = "story"
+
+	PlatformGumroad PaymentPlatformKind = "gumroad"
+	PlatformBMC     PaymentPlatformKind = "bmc"
 )
 
 // SolanaConfig holds the necessary configuration for Solana interactions.
@@ -929,3 +934,89 @@ func (a *Activities) DeleteBountyEmbeddingViaHTTPActivity(ctx context.Context, i
 
 	return nil
 }
+
+// --- Start Gumroad Activities ---
+
+// MarkGumroadSaleNotifiedActivityInput defines the input for the activity
+// that marks a Gumroad sale as notified via an HTTP call to the ABB server.
+type MarkGumroadSaleNotifiedActivityInput struct {
+	SaleID string `json:"sale_id"`
+	APIKey string `json:"api_key"` // This is the token generated and emailed to the user
+}
+
+// MarkGumroadSaleNotifiedActivity makes an internal HTTP call to the ABB server
+// to mark a Gumroad sale as notified and record the API key sent to the user.
+func (a *Activities) MarkGumroadSaleNotifiedActivity(ctx context.Context, input MarkGumroadSaleNotifiedActivityInput) error {
+	logger := activity.GetLogger(ctx)
+	logger.Info("MarkGumroadSaleNotifiedActivity started", "SaleID", input.SaleID)
+
+	cfg, err := getConfiguration(ctx) // Get full config to access AbbServerConfig
+	if err != nil {
+		logger.Error("Failed to get configuration for MarkGumroadSaleNotifiedActivity", "error", err)
+		return fmt.Errorf("failed to get configuration: %w", err)
+	}
+
+	apiEndpoint := cfg.ABBServerConfig.APIEndpoint
+	authToken := cfg.ABBServerConfig.AuthToken // Use the standard auth token
+
+	if apiEndpoint == "" {
+		logger.Error("ABB_API_ENDPOINT not configured for MarkGumroadSaleNotifiedActivity")
+		return fmt.Errorf("abb API endpoint not configured")
+	}
+	if authToken == "" {
+		logger.Error("ABB_AUTH_TOKEN not configured for MarkGumroadSaleNotifiedActivity")
+		return fmt.Errorf("abb auth token not configured") // Changed error message to reflect ABB_AUTH_TOKEN
+	}
+
+	targetURL := fmt.Sprintf("%s/gumroad/notified", strings.TrimRight(apiEndpoint, "/"))
+
+	requestBody := map[string]string{
+		"sale_id": input.SaleID,
+		"api_key": input.APIKey,
+	}
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		logger.Error("Failed to marshal request body for MarkGumroadSaleNotifiedActivity", "error", err)
+		return fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		logger.Error("Failed to create HTTP request for MarkGumroadSaleNotifiedActivity", "error", err)
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+authToken) // Use Bearer token authentication
+
+	client := a.httpClient
+	if client == nil { // Fallback if not initialized, though NewActivities does it
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		logger.Error("Failed to execute HTTP request for MarkGumroadSaleNotifiedActivity", "error", err, "url", targetURL)
+		return fmt.Errorf("failed to execute request to %s: %w", targetURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		logger.Error("MarkGumroadSaleNotifiedActivity HTTP request failed", "statusCode", resp.StatusCode, "url", targetURL, "responseBody", string(bodyBytes))
+		return fmt.Errorf("http request to %s failed with status %d: %s", targetURL, resp.StatusCode, string(bodyBytes))
+	}
+
+	logger.Info("MarkGumroadSaleNotifiedActivity completed successfully", "SaleID", input.SaleID)
+	return nil
+}
+
+// --- End Gumroad Activities ---
+
+// SendTokenEmail sends an email containing a token to the specified address.
+// ... existing code ...
+// NOTE: Ensure this new activity is placed before the SendTokenEmail activity or in a logical section.
+// For this example, I'm placing it before SendTokenEmail assuming a new section for Gumroad activities.
+
+// ... existing code ...
+// func (a *Activities) SummarizeAndStoreBountyActivity(ctx context.Context, input SummarizeAndStoreBountyActivityInput) error {
+// ... existing code ...

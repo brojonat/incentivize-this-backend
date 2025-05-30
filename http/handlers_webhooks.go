@@ -219,16 +219,20 @@ func handleBMCWebhook(logger *slog.Logger, tc client.Client) http.HandlerFunc {
 					"transaction_id", donationData.TransactionID)
 
 				// Example: Trigger a workflow, grant access, etc.
-				token, err := createUserToken(donationData.SupporterEmail, time.Now().Add(time.Duration(donationData.CoffeeCount)*7*24*time.Hour))
+				// New token lifetime for BMC donations
+				bmcTokenLifetime := 90 * 24 * time.Hour
+				token, err := createUserToken(donationData.SupporterEmail, time.Now().Add(bmcTokenLifetime))
 				if err != nil {
-					logger.Error("Failed to create user token", "error", err)
+					logger.Error("Failed to create user token for BMC donation", "error", err, "email", donationData.SupporterEmail)
 					writeInternalError(logger, w, fmt.Errorf("failed to create user token"))
 					return
 				}
 				// Start EmailTokenWorkflow
 				wfInput := abb.EmailTokenWorkflowInput{
-					Email: donationData.SupporterEmail,
-					Token: token,
+					SaleID:         donationData.TransactionID,
+					Email:          donationData.SupporterEmail,
+					Token:          token,
+					SourcePlatform: abb.PlatformBMC,
 				}
 				wfOptions := client.StartWorkflowOptions{
 					ID:        fmt.Sprintf("email-token-%s-%d", donationData.TransactionID, event.Attempt),

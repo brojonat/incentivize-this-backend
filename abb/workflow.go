@@ -1183,14 +1183,18 @@ func PublishBountiesWorkflow(ctx workflow.Context) error {
 
 // EmailTokenWorkflowInput defines the input for the email sending workflow.
 type EmailTokenWorkflowInput struct {
-	Email string
-	Token string
+	SaleID         string              `json:"sale_id"`
+	Email          string              `json:"email"`
+	Token          string              `json:"token"`
+	SourcePlatform PaymentPlatformKind `json:"source_platform,omitempty"`
 }
 
 // EmailTokenWorkflow sends an email containing a token to the specified address.
+// It also now calls an activity to mark the corresponding Gumroad sale as notified,
+// but this isn't necessary for BMC because that's webhook-based.
 func EmailTokenWorkflow(ctx workflow.Context, input EmailTokenWorkflowInput) error {
 	logger := workflow.GetLogger(ctx)
-	logger.Info("EmailTokenWorkflow started", "email", input.Email)
+	logger.Info("EmailTokenWorkflow started", "email", input.Email, "saleID", input.SaleID)
 
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute,
@@ -1201,15 +1205,44 @@ func EmailTokenWorkflow(ctx workflow.Context, input EmailTokenWorkflowInput) err
 			MaximumAttempts:    3,
 		},
 	}
-	ctx = workflow.WithActivityOptions(ctx, ao)
+	activityCtx := workflow.WithActivityOptions(ctx, ao)
 
-	err := workflow.ExecuteActivity(ctx, (*Activities).SendTokenEmail, input.Email, input.Token).Get(ctx, nil)
+	err := workflow.ExecuteActivity(activityCtx, (*Activities).SendTokenEmail, input.Email, input.Token).Get(activityCtx, nil)
 	if err != nil {
-		logger.Error("SendEmailActivity failed", "error", err)
-		return fmt.Errorf("failed to send token email: %w", err)
+		logger.Error("SendEmailActivity failed", "error", err, "email", input.Email, "saleID", input.SaleID)
+		return fmt.Errorf("failed to send token email for sale %s: %w", input.SaleID, err)
+	}
+	logger.Info("Successfully sent token email", "email", input.Email, "saleID", input.SaleID)
+
+	// After successfully sending the email, mark the sale as notified if it's from Gumroad.
+	if input.SourcePlatform == PlatformGumroad { // Check the source platform
+		markNotifiedInput := MarkGumroadSaleNotifiedActivityInput{
+			SaleID: input.SaleID,
+			APIKey: input.Token,
+		}
+
+		markNotifiedActivityOpts := workflow.ActivityOptions{
+			StartToCloseTimeout: 1 * time.Minute,
+			RetryPolicy: &temporal.RetryPolicy{
+				InitialInterval:    5 * time.Second,
+				BackoffCoefficient: 2.0,
+				MaximumInterval:    time.Minute,
+				MaximumAttempts:    3,
+			},
+		}
+		markNotifiedCtx := workflow.WithActivityOptions(ctx, markNotifiedActivityOpts)
+
+		err = workflow.ExecuteActivity(markNotifiedCtx, (*Activities).MarkGumroadSaleNotifiedActivity, markNotifiedInput).Get(markNotifiedCtx, nil)
+		if err != nil {
+			logger.Error("MarkGumroadSaleNotifiedActivity failed after sending email for Gumroad sale", "error", err, "saleID", input.SaleID)
+		} else {
+			logger.Info("Successfully marked Gumroad sale as notified", "saleID", input.SaleID)
+		}
+	} else {
+		logger.Info("Skipping MarkGumroadSaleNotifiedActivity for non-Gumroad source", "sourcePlatform", input.SourcePlatform, "saleID", input.SaleID)
 	}
 
-	logger.Info("EmailTokenWorkflow completed successfully")
+	logger.Info("EmailTokenWorkflow completed successfully", "email", input.Email, "saleID", input.SaleID)
 	return nil
 }
 
