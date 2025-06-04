@@ -1079,3 +1079,73 @@ func (a *Activities) CallGumroadNotifyActivity(ctx context.Context, input CallGu
 	logger.Info("CallGumroadNotifyActivity completed successfully", "statusCode", resp.StatusCode, "url", targetURL)
 	return nil
 }
+
+// PruneStaleEmbeddingsActivityInput defines the input for the PruneStaleEmbeddingsActivity.
+// Currently, it's empty as the endpoint `/embeddings/prune` is called without parameters.
+type PruneStaleEmbeddingsActivityInput struct{}
+
+// PruneStaleEmbeddingsActivity calls the server's HTTP endpoint to prune stale embeddings.
+// It returns a string message from the server upon success.
+func (a *Activities) PruneStaleEmbeddingsActivity(ctx context.Context, input PruneStaleEmbeddingsActivityInput) (string, error) {
+	logger := activity.GetLogger(ctx)
+	logger.Info("PruneStaleEmbeddingsActivity started")
+
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		logger.Error("Failed to get configuration in PruneStaleEmbeddingsActivity", "error", err)
+		return "", fmt.Errorf("failed to get configuration for pruning: %w", err)
+	}
+
+	if cfg.ABBServerConfig.APIEndpoint == "" {
+		logger.Error("APIEndpoint is missing in configuration for pruning")
+		return "", temporal.NewApplicationError("Server APIEndpoint not configured", "CONFIG_ERROR")
+	}
+	// Note: This activity uses the general ABB_AUTH_TOKEN if the endpoint is protected by it.
+	// If it needs a different kind of auth or no auth, that needs to be handled here or on the server.
+	if cfg.ABBServerConfig.AuthToken == "" {
+		logger.Warn("AuthToken is missing in configuration for pruning, proceeding without it if endpoint is public or uses other auth.")
+		// Depending on server requirements, this might be an error.
+		// For now, we allow it and let the server decide.
+	}
+
+	pruneURL := strings.TrimSuffix(cfg.ABBServerConfig.APIEndpoint, "/") + "/embeddings/prune"
+
+	// Using POST as "pruning" is an action. If it were parameterless GET, it would be http.MethodGet.
+	// The request body is nil as PruneStaleEmbeddingsActivityInput is empty.
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, pruneURL, nil)
+	if err != nil {
+		logger.Error("Failed to create HTTP POST request for pruning embeddings", "url", pruneURL, "error", err)
+		return "", fmt.Errorf("failed to create HTTP POST request for %s: %w", pruneURL, err)
+	}
+
+	if cfg.ABBServerConfig.AuthToken != "" {
+		req.Header.Set("Authorization", "Bearer "+cfg.ABBServerConfig.AuthToken)
+	}
+	req.Header.Set("Accept", "application/json")       // Expecting a JSON response or at least text
+	req.Header.Set("Content-Type", "application/json") // Even with empty body, good practice for POST
+
+	logger.Info("Attempting to prune stale embeddings via HTTP POST", "url", pruneURL)
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("HTTP POST request to %s failed: %w", pruneURL, err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		logger.Error("Failed to read response body from prune endpoint", "url", pruneURL, "status_code", resp.StatusCode, "error", readErr)
+		return "", fmt.Errorf("failed to read response body from %s (status %s): %w", pruneURL, resp.Status, readErr)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		logger.Error("HTTP POST request for pruning embeddings returned non-success status", "url", pruneURL, "status_code", resp.StatusCode, "response_body", string(bodyBytes))
+		return "", fmt.Errorf("prune endpoint %s returned status %d: %s", pruneURL, resp.StatusCode, string(bodyBytes))
+	}
+
+	// The workflow expects a string result. Assuming the server returns a plain text or JSON string message.
+	// If it's JSON, we might want to parse it and extract a specific field. For now, return the body as string.
+	responseMessage := string(bodyBytes)
+	logger.Info("Successfully pruned stale embeddings", "url", pruneURL, "response_message", responseMessage)
+	return responseMessage, nil
+}
