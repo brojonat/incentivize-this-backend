@@ -74,6 +74,7 @@ func RunWorker(ctx context.Context, l *slog.Logger, thp, tns string) error {
 	// Register all activities
 	w.RegisterActivity(activities.GenerateAndStoreBountyEmbeddingActivity)
 	w.RegisterActivity(activities.PullContentActivity)
+	w.RegisterActivity(activities.PullIncentivizeThisContentActivity)
 	w.RegisterActivity(activities.CheckContentRequirements)
 	w.RegisterActivity(activities.ValidatePayoutWallet)
 	w.RegisterActivity(activities.VerifyPayment)

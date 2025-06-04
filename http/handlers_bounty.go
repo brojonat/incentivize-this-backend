@@ -252,12 +252,14 @@ func handleCreateBounty(
 			abb.PlatformHackerNews,
 			abb.PlatformBluesky,
 			abb.PlatformInstagram,
+			abb.PlatformIncentivizeThis,
 		}
 		validContentKinds := []abb.ContentKind{
 			abb.ContentKindPost,
 			abb.ContentKindComment,
 			abb.ContentKindVideo,
 			abb.ContentKindClip,
+			abb.ContentKindBounty,
 		}
 
 		// Convert valid kinds to string slices for the prompt
@@ -401,8 +403,13 @@ Example of a response where parameters cannot be determined:
 				writeBadRequestError(w, fmt.Errorf("invalid content_kind for Instagram: must be '%s' (not '%s')", abb.ContentKindPost, normalizedContentKind))
 				return
 			}
+		case abb.PlatformIncentivizeThis:
+			if normalizedContentKind != abb.ContentKindBounty {
+				writeBadRequestError(w, fmt.Errorf("invalid content_kind for IncentivizeThis: must be '%s'", abb.ContentKindPost))
+				return
+			}
 		default:
-			writeBadRequestError(w, fmt.Errorf("invalid platform_kind: must be one of %s, %s, %s, %s, %s, or %s", abb.PlatformReddit, abb.PlatformYouTube, abb.PlatformTwitch, abb.PlatformHackerNews, abb.PlatformBluesky, abb.PlatformInstagram))
+			writeBadRequestError(w, fmt.Errorf("invalid platform_kind: must be one of %s, %s, %s, %s, %s, %s, or %s", abb.PlatformReddit, abb.PlatformYouTube, abb.PlatformTwitch, abb.PlatformHackerNews, abb.PlatformBluesky, abb.PlatformInstagram, abb.PlatformIncentivizeThis))
 			return
 		}
 

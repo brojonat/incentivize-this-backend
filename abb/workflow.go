@@ -847,6 +847,11 @@ func awaitLoopUntilEmptyOrTimeout(
 				case PlatformBluesky:
 					// Placeholder for potential future Bluesky image analysis if embeds are parsed
 					logger.Debug("No explicit thumbnail analysis implemented for Bluesky yet", "ContentID", signal.ContentID)
+				case PlatformInstagram:
+					// Placeholder for Instagram image analysis if needed
+					logger.Debug("No explicit thumbnail analysis implemented for Instagram yet", "ContentID", signal.ContentID)
+				case PlatformIncentivizeThis:
+					logger.Debug("No thumbnail analysis needed for IncentivizeThis platform", "ContentID", signal.ContentID)
 				default:
 					logger.Warn("Thumbnail analysis not implemented for platform or platform unhandled in switch", "platform", signal.Platform, "ContentID", signal.ContentID)
 				}

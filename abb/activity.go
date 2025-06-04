@@ -105,18 +105,20 @@ type PlatformKind string
 type PaymentPlatformKind string
 
 const (
-	PlatformReddit     PlatformKind = "reddit"
-	PlatformYouTube    PlatformKind = "youtube"
-	PlatformTwitch     PlatformKind = "twitch"
-	PlatformHackerNews PlatformKind = "hackernews"
-	PlatformBluesky    PlatformKind = "bluesky"
-	PlatformInstagram  PlatformKind = "instagram"
+	PlatformReddit          PlatformKind = "reddit"
+	PlatformYouTube         PlatformKind = "youtube"
+	PlatformTwitch          PlatformKind = "twitch"
+	PlatformHackerNews      PlatformKind = "hackernews"
+	PlatformBluesky         PlatformKind = "bluesky"
+	PlatformInstagram       PlatformKind = "instagram"
+	PlatformIncentivizeThis PlatformKind = "incentivizethis"
 
 	ContentKindPost    ContentKind = "post"
 	ContentKindComment ContentKind = "comment"
 	ContentKindVideo   ContentKind = "video"
 	ContentKindClip    ContentKind = "clip"
 	ContentKindStory   ContentKind = "story"
+	ContentKindBounty  ContentKind = "bounty"
 
 	PlatformGumroad PaymentPlatformKind = "gumroad"
 	PlatformBMC     PaymentPlatformKind = "bmc"
@@ -150,22 +152,23 @@ type AbbServerConfig struct {
 // Configuration holds all necessary configuration for workflows and activities.
 // It is intended to be populated inside activities to avoid non-deterministic behavior.
 type Configuration struct {
-	ABBServerConfig        AbbServerConfig        `json:"abb_server_config"`
-	SolanaConfig           SolanaConfig           `json:"solana_config"`
-	LLMConfig              LLMConfig              `json:"llm_config"`
-	ImageLLMConfig         ImageLLMConfig         `json:"image_llm_config"`
-	EmbeddingConfig        EmbeddingConfig        `json:"embedding_config"`
-	RedditDeps             RedditDependencies     `json:"reddit_deps"`
-	YouTubeDeps            YouTubeDependencies    `json:"youtube_deps"`
-	TwitchDeps             TwitchDependencies     `json:"twitch_deps"`
-	HackerNewsDeps         HackerNewsDependencies `json:"hackernews_deps"`
-	BlueskyDeps            BlueskyDependencies    `json:"bluesky_deps"`
-	InstagramDeps          InstagramDependencies  `json:"instagram_deps"`
-	DiscordConfig          DiscordConfig          `json:"discord_config"`
-	Prompt                 string                 `json:"prompt"`
-	PublishTargetSubreddit string                 `json:"publish_target_subreddit"`
-	Environment            string                 `json:"environment"`
-	RedditFlairID          string                 `json:"reddit_flair_id"`
+	ABBServerConfig        AbbServerConfig             `json:"abb_server_config"`
+	SolanaConfig           SolanaConfig                `json:"solana_config"`
+	LLMConfig              LLMConfig                   `json:"llm_config"`
+	ImageLLMConfig         ImageLLMConfig              `json:"image_llm_config"`
+	EmbeddingConfig        EmbeddingConfig             `json:"embedding_config"`
+	RedditDeps             RedditDependencies          `json:"reddit_deps"`
+	YouTubeDeps            YouTubeDependencies         `json:"youtube_deps"`
+	TwitchDeps             TwitchDependencies          `json:"twitch_deps"`
+	HackerNewsDeps         HackerNewsDependencies      `json:"hackernews_deps"`
+	BlueskyDeps            BlueskyDependencies         `json:"bluesky_deps"`
+	InstagramDeps          InstagramDependencies       `json:"instagram_deps"`
+	IncentivizeThisDeps    IncentivizeThisDependencies `json:"incentivizethis_deps"`
+	DiscordConfig          DiscordConfig               `json:"discord_config"`
+	Prompt                 string                      `json:"prompt"`
+	PublishTargetSubreddit string                      `json:"publish_target_subreddit"`
+	Environment            string                      `json:"environment"`
+	RedditFlairID          string                      `json:"reddit_flair_id"`
 }
 
 // Activities holds all activity implementations and their dependencies
@@ -380,6 +383,13 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		RapidAPIKey: os.Getenv(EnvRapidAPIInstagramKey),
 	}
 
+	// --- IncentivizeThis Dependencies ---
+	incentivizeThisDeps := IncentivizeThisDependencies{
+		APIEndpoint:   os.Getenv(EnvABBAPIEndpoint),   // Use the common ABB API endpoint
+		AuthToken:     os.Getenv(EnvABBAuthToken),     // Use the common ABB Auth Token (optional for this activity)
+		PublicBaseURL: os.Getenv(EnvABBPublicBaseURL), // Use the common ABB Public Base URL
+	}
+
 	// --- Discord Config ---
 	discordConfig := DiscordConfig{
 		BotToken:  os.Getenv(EnvDiscordBotToken),
@@ -414,6 +424,7 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		HackerNewsDeps:         HackerNewsDependencies{},
 		BlueskyDeps:            blueskyDeps,
 		InstagramDeps:          instagramDeps,
+		IncentivizeThisDeps:    incentivizeThisDeps,
 		DiscordConfig:          discordConfig,
 		Prompt:                 llmConfig.BasePrompt,
 		PublishTargetSubreddit: targetSubreddit,
@@ -861,6 +872,21 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 		contentBytes, err = json.Marshal(instagramContent)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal Instagram content: %w", err)
+		}
+
+	case PlatformIncentivizeThis:
+		logger.Debug("Executing IncentivizeThis pull logic within PullContentActivity")
+		// Ensure ContentKind is Post for IncentivizeThis, as it's a general promotional message
+		if input.ContentKind != ContentKindPost {
+			return nil, fmt.Errorf("unsupported content kind for IncentivizeThis: %s. Only '%s' is supported", input.ContentKind, ContentKindPost)
+		}
+		incentivizeThisContent, err := a.PullIncentivizeThisContentActivity(ctx, cfg.IncentivizeThisDeps, input.ContentID) // Call the new activity
+		if err != nil {
+			return nil, fmt.Errorf("failed to pull IncentivizeThis content: %w", err)
+		}
+		contentBytes, err = json.Marshal(incentivizeThisContent)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal IncentivizeThis content: %w", err)
 		}
 
 	default:
