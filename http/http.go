@@ -443,6 +443,18 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		requireStatus(UserStatusSudo),
 	))
 
+	mux.HandleFunc("POST /contact-us", stools.AdaptHandler(
+		handleContactUs(logger, querier),
+		withLogging(logger),
+	))
+
+	mux.HandleFunc("GET /contact-us", stools.AdaptHandler(
+		handleGetContactUs(logger, querier),
+		withLogging(logger),
+		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		requireStatus(UserStatusSudo),
+	))
+
 	// Apply CORS globally
 	corsHandler := handlers.CORS(
 		handlers.AllowedHeaders(allowedHeaders),

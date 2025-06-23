@@ -11,10 +11,13 @@ import (
 )
 
 type Querier interface {
+	CreateContactUsSubmission(ctx context.Context, arg CreateContactUsSubmissionParams) (ContactUsSubmission, error)
 	DeleteEmbedding(ctx context.Context, bountyID string) error
 	DeleteEmbeddings(ctx context.Context, bountyIds string) error
 	DeleteEmbeddingsNotIn(ctx context.Context, bountyIds string) error
+	GetAllContactUsSubmissions(ctx context.Context, arg GetAllContactUsSubmissionsParams) ([]ContactUsSubmission, error)
 	GetBountySummary(ctx context.Context, bountyID string) ([]byte, error)
+	GetContactUsSubmission(ctx context.Context, id int32) (ContactUsSubmission, error)
 	GetUnnotifiedGumroadSales(ctx context.Context, minSaleTimestamp pgtype.Timestamptz) ([]GumroadSale, error)
 	InsertEmbedding(ctx context.Context, arg InsertEmbeddingParams) error
 	InsertGumroadSale(ctx context.Context, arg InsertGumroadSaleParams) (GumroadSale, error)

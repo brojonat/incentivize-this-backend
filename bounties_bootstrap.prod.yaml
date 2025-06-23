@@ -1,0 +1,142 @@
+bounties:
+  - name: "Reddit Comment on Local Business (Austin Hardwoods)"
+    requirements: >
+      Write a comment about Austin Hardwoods lumber store. The comment must show
+      the business in a positive light and emphasize their competitive prices and
+      the fact that they're a local business. The comment must have at least 10
+      upvotes. Comment must be in one of the following subreddits:
+      - r/OrangeCounty
+      - r/Irvine
+      - r/SantaAna
+      - r/woodworking
+      - r/beginnerwoodworking
+    total_amount: 5.0
+    per_post_amount: 0.25
+    duration: 30d
+
+  - name: "Instagram Post on Local Business (Suzie Cakes)"
+    requirements: >
+      Write an Instagram post about Suzie Cakes. The post must show the business
+      in a positive light and emphasize their amazing baked goods and the fact
+      that they're a local business. The post must have at least 10 comments and
+      mention @susiecakesbakery and either #austin or #orangecounty (or both).
+    total_amount: 5.0
+    per_post_amount: 0.25
+    duration: 30d
+
+  - name: "Positive Reddit Comment"
+    requirements: >
+      Write a comment in one of the following subreddits that is an encouraging
+      comment that makes the poster feel good about what they've posted. The
+      comment must have at least 20 upvotes. Here are the valid subreddits:
+      - r/houseplants
+      - r/baking
+      - r/woodworking
+      - r/beginnerwoodworking
+      - r/gardening
+      - r/DIY
+      - r/homeimprovement
+      - r/renovations
+    total_amount: 15.0
+    per_post_amount: 0.25
+    duration: 30d
+
+  - name: "Reddit DuckDB Post"
+    requirements: >
+      Write a post about DuckDB. The post must show the database in a positive
+      light and emphasize its speed and ease of use. The post must have at least
+      10 upvotes. Post must be in the following subreddit:
+      - r/duckdb
+      - r/dataengineering
+      - r/databases
+      - r/sql
+    total_amount: 5.0
+    per_post_amount: 1.0
+    duration: 30d
+
+  - name: "Bluesky Post About IncentivizeThis"
+    requirements: >
+      Write a post about IncentivizeThis. The post must show the platform in a
+      positive light and emphasize its ease of use and the fact that it's a
+      community-driven platform. The post must have at least 10 replies, 10 likes,
+      and 10 reposts.
+    total_amount: 5.0
+    per_post_amount: 1.0
+    duration: 30d
+
+  - name: "Hacker News Post About IncentivizeThis"
+    requirements: >
+      Write a Hacker News post about IncentivizeThis. The post must show the
+      platform in a positive light and emphasize its ease of use and the fact
+      that it's a community-driven platform. The post must have at least 10
+      upvotes and 30 comments.
+    total_amount: 20.0
+    per_post_amount: 10.0
+    duration: 30d
+
+  - name: "YouTube Video About RocketMoney"
+    requirements: >
+      Create a YouTube video about RocketMoney. The video must be at least 3
+      minutes long and have at least 5k views. It should emphasize the benefits
+      of using RocketMoney: that it can help you save money on your bills by
+      cancelling your unused subscriptions.
+    total_amount: 10.0
+    per_post_amount: 1.0
+    duration: 30d
+
+  - name: "Reddit Comment About RocketMoney"
+    requirements: >
+      Create a Reddit comment about RocketMoney. It should have at least 10 upvotes.
+      It should emphasize the benefits of using RocketMoney: that it can help
+      you save money on your bills by cancelling your unused subscriptions.
+    total_amount: 5.0
+    per_post_amount: 0.25
+    duration: 30d
+
+  - name: "YouTube Video About BetterHelp"
+    requirements: >
+      Create a YouTube video about BetterHelp. The video must be at least 3
+      minutes long and have at least 5k views. It should emphasize the benefits
+      of using BetterHelp: that it can help connect you with a therapist.
+    total_amount: 10.0
+    per_post_amount: 1.0
+    duration: 30d
+
+  - name: "Reddit Comment About BetterHelp"
+    requirements: >
+      Create a Reddit comment about BetterHelp. It should have at least 10 upvotes.
+      It should emphasize the benefits of using BetterHelp: that it can help
+      connect you with a therapist.
+    total_amount: 5.0
+    per_post_amount: 0.25
+
+  - name: "YouTube Video About NordVPN"
+    requirements: >
+      Create a YouTube video about NordVPN. The video must be at least 3 minutes
+      long and have at least 5k views. It should emphasize the benefits of using
+      NordVPN: that it can help you stay safe online by encrypting your traffic.
+      It should also mention that it's a good way to access content that is
+      blocked in your country.
+    total_amount: 10.0
+    per_post_amount: 1.0
+    duration: 30d
+
+  - name: "Reddit Comment About NordVPN"
+    requirements: >
+      Create a reddit comment about NordVPN. It should have at least 10 upvotes.
+      It should emphasize the benefits of using NordVPN: that it can help you
+      stay safe online by encrypting your traffic. It should also mention that
+      it's a good way to access content that is blocked in your country.
+      - r/netflix
+      - r/hulu
+      - r/disneyplus
+      - r/hbo
+      - r/amazonprime
+      - r/appletv
+      - r/peacock
+      - r/hbo
+      - r/homelab
+      - r/DIY
+    total_amount: 5.0
+    per_post_amount: 0.25
+    duration: 30d

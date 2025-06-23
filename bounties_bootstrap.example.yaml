@@ -1,8 +1,8 @@
 bounties:
   - name: "Reddit Comment on Local Business (Austin Hardwoods)"
     requirements: >
-      Write a comment about Austin Hardwoods lumber store. The comment must show
-      the business in a positive light and emphasize their competitive prices and
+      Write a comment about Austin's Hardwoods. The comment must show the
+      business in a positive light and emphasize their competitive prices and
       the fact that they're a local business. The comment must have at least 10
       upvotes. Comment must be in one of the following subreddits:
       - r/OrangeCounty
@@ -117,4 +117,14 @@ bounties:
       The post must receive at least 100 views and 10 likes.
     total_amount: 10.0
     per_post_amount: 1.0
+    duration: "21d"
+
+  - name: "IncentivizeThis Bounty"
+    requirements: >
+      The deliverable is an IncentivizeThis **bounty**.
+      This IncentivizeThis bounty have a total amount of at least 50 USDC
+      and a per post amount of 1.0 USDC. The bounty must be active for at least
+      21 days.
+    total_amount: 20.0
+    per_post_amount: 4.0
     duration: "21d"

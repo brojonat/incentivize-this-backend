@@ -19,6 +19,14 @@ type BountySummary struct {
 	Summary  []byte `json:"summary"`
 }
 
+type ContactUsSubmission struct {
+	ID        int32              `json:"id"`
+	Name      pgtype.Text        `json:"name"`
+	Email     pgtype.Text        `json:"email"`
+	Message   pgtype.Text        `json:"message"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type GumroadSale struct {
 	ID                      string             `json:"id"`
 	ProductID               string             `json:"product_id"`

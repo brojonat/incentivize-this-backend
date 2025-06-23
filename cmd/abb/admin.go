@@ -54,6 +54,7 @@ var (
 	EnvAuthToken        = "ABB_AUTH_TOKEN"
 	EnvTestOwnerWallet  = "SOLANA_TEST_OWNER_WALLET"
 	EnvTestFunderWallet = "SOLANA_TEST_FUNDER_WALLET"
+	EnvAbbDatabaseURL   = "ABB_DATABASE_URL"
 
 	// New Solana related env vars for CLI utils
 	EnvSolanaRPCEndpoint     = "SOLANA_RPC_ENDPOINT"
@@ -594,7 +595,6 @@ func getCLIDBPool(ctx context.Context, dbURL string, logger *slog.Logger, maxRet
 			// Ping the database to ensure connectivity
 			pingErr := pool.Ping(ctx)
 			if pingErr == nil {
-				logger.Info("Successfully connected to database", "url", dbURL)
 				return pool, nil
 			}
 			// If ping fails, set err and close the potentially created pool before retrying
@@ -634,7 +634,7 @@ func pruneStaleEmbeddingsAction(c *cli.Context) error {
 		return fmt.Errorf("failed to connect to Temporal at %s (namespace %s): %w", temporalAddress, temporalNamespace, errDial)
 	}
 	defer tc.Close()
-	logger.Info("Successfully connected to Temporal", "address", temporalAddress, "namespace", temporalNamespace)
+	logger.Debug("Successfully connected to Temporal", "address", temporalAddress, "namespace", temporalNamespace)
 
 	// 2. Connect to Database
 	dbPool, errDb := getCLIDBPool(ctx, dbURL, logger, 3, 5*time.Second) // 3 retries, 5s interval
@@ -1107,6 +1107,57 @@ func bootstrapBountiesAction(ctx *cli.Context) error {
 	return nil
 }
 
+func getContactSubmissionsAction(c *cli.Context) error {
+	ctx, cancel := context.WithTimeout(c.Context, 30*time.Second)
+	defer cancel()
+
+	limit := c.Int("limit")
+	startID := c.Int("start-id")
+
+	dbURL := c.String("db-url")
+	if dbURL == "" {
+		return fmt.Errorf("must provide --db-url flag or set %s env var", EnvAbbDatabaseURL)
+	}
+
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
+
+	dbPool, err := getCLIDBPool(ctx, dbURL, logger, 3, 2*time.Second)
+	if err != nil {
+		return fmt.Errorf("failed to get db pool: %w", err)
+	}
+	defer dbPool.Close()
+
+	querier := dbgen.New(dbPool)
+
+	params := dbgen.GetAllContactUsSubmissionsParams{
+		Limit: int32(limit),
+		ID:    int32(startID),
+	}
+
+	submissions, err := querier.GetAllContactUsSubmissions(ctx, params)
+	if err != nil {
+		return fmt.Errorf("failed to get contact us submissions: %w", err)
+	}
+
+	if len(submissions) == 0 {
+		// Print an empty array for valid JSON output when there are no results
+		fmt.Println("[]")
+		return nil
+	}
+
+	// Marshal the whole slice of submissions into a single JSON array
+	jsonOutput, err := json.MarshalIndent(submissions, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal submissions to JSON: %w", err)
+	}
+
+	fmt.Println(string(jsonOutput))
+
+	return nil
+}
+
 func adminCommands() []*cli.Command {
 	return []*cli.Command{
 		{
@@ -1529,6 +1580,28 @@ func adminCommands() []*cli.Command {
 					Name:   "get-balances",
 					Usage:  "Retrieves and prints the SOL and USDC balances for configured wallets (reads from env vars like SOLANA_TEST_FUNDER_WALLET, etc.)",
 					Action: getWalletBalancesAction,
+				},
+				{
+					Name:  "view-contact-submissions",
+					Usage: "View submissions from the contact us form",
+					Flags: []cli.Flag{
+						&cli.IntFlag{
+							Name:  "limit",
+							Value: 50,
+							Usage: "Number of submissions to return",
+						},
+						&cli.IntFlag{
+							Name:  "start-id",
+							Value: 0,
+							Usage: "The ID to start fetching submissions from (inclusive)",
+						},
+						&cli.StringFlag{
+							Name:    "db-url",
+							Usage:   "Database connection URL",
+							EnvVars: []string{EnvAbbDatabaseURL},
+						},
+					},
+					Action: getContactSubmissionsAction,
 				},
 			},
 		},

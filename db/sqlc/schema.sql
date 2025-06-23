@@ -49,3 +49,11 @@ CREATE TABLE gumroad_sales (
     it_notified BOOLEAN DEFAULT FALSE,
     it_api_key TEXT
 );
+
+CREATE TABLE contact_us_submissions (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    email TEXT,
+    message TEXT,
+    created_at TIMESTAMPTZ NOT NULL
+);
