@@ -264,15 +264,70 @@ ABB_AUTH_TOKEN ?= "your_auth_token_here" # Must be a valid token
 BOUNTY_OWNER_WALLET ?= "$(SOLANA_TEST_OWNER_WALLET)" # Must be a valid Base58 public key
 BOUNTY_FUNDER_WALLET ?= "$(SOLANA_TEST_FUNDER_WALLET)" # Must be a valid Base58 public key
 
+# Define requirement strings for bounties
+define REDDIT_POST_REQ
+This bounty is for a Reddit post. The post must have a score of at least 100 \
+and be in the programmerhumor, devops, or programming subreddits \
+and it must be implying that LLMs/AI is not particularly useful. \
+It should evoke a sense of dissatisfaction with the current state of AI \
+and downplay it's effectiveness.
+endef
+export REDDIT_POST_REQ
+
+define REDDIT_COMMENT_REQ
+This bounty is for a Reddit comment. The comment must have a score of at least 100 \
+and be in a post talking about hikes in Orange County.
+endef
+export REDDIT_COMMENT_REQ
+
+define YOUTUBE_REQ
+This bounty is for a YouTube video. The video must have at least 1000 views \
+and be about cookware. It must not make the cookware look dangerous. \
+Video creator must have at least 10k subscribers and the video must have at least 20k views.
+endef
+export YOUTUBE_REQ
+
+define TWITCH_REQ
+This bounty is for a Twitch clip. The content must be about Dota2 and \
+have at least 100 views. The thumbnail must include an image of a real person.
+endef
+export TWITCH_REQ
+
+define BLUESKY_REQ
+This bounty is for a Bluesky post. The post should mention technology and \
+be about the latest trends in AI.
+endef
+export BLUESKY_REQ
+
+define HACKERNEWS_COMMENT_REQ
+This bounty is for a Hacker News comment. The content must be at \
+least 50 characters long. It should be on a Show HN post that discusses IncentivizeThis. \
+The comment must portray IncentivizeThis in a positive light, \
+otherwise it should not be approved for the bounty.
+endef
+export HACKERNEWS_COMMENT_REQ
+
+define HACKERNEWS_POST_REQ
+This is a multi-line requirement string. \
+This is the second line of the requirement. \
+And this is the third line.
+endef
+export HACKERNEWS_POST_REQ
+
+define INSTAGRAM_POST_REQ
+The deliverable is an Instagram **post**. \
+This Instagram post must feature a video about Kean Coffee in Irvine, CA. \
+The video component of the post must be between 15 and 60 seconds long. \
+The post's caption must use the hashtag #NewportBeach or #Tustin and tag the coffee shop @KeanCoffee. \
+The post must receive at least 100 views and 10 likes.
+endef
+export INSTAGRAM_POST_REQ
+
 create-reddit-post-bounty: build-cli ## Create a test Reddit Post bounty
 	$(call setup_env, .env.server.debug)
 	@echo "--- Creating a test Reddit Post Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This bounty is for a Reddit post. The post must have a score of at least 100\
-		   and be in the programmerhumor, devops, or programming subreddits\
-		   and it must be implying that LLMs/AI is not particularly useful.\
-		   It should evoke a sense of dissatisfaction with the current state of AI\
-		   and downplay it\'s effectiveness." \
+		-r "$(REDDIT_POST_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)"`; \
 	echo "Create Output: $$OUTPUT"; \
@@ -297,8 +352,7 @@ create-reddit-comment-bounty: build-cli ## Create a test Reddit Comment bounty
 	$(call setup_env, .env.server.debug)
 	@echo "--- Creating a test Reddit Comment Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This bounty is for a Reddit comment. The comment must have a score of at least 100\
-		   and be in a post talking about hikes in Orange County." \
+		-r "$(REDDIT_COMMENT_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)"`; \
 	echo "Create Output: $$OUTPUT"; \
@@ -323,8 +377,7 @@ create-youtube-bounty: build-cli ## Create a test YouTube bounty
 	$(call setup_env, .env.server.debug)
 	@echo "--- Creating a test YouTube Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This bounty is for a YouTube video. The video must have at least 1000 views\
-		   and be about cookware. It must not make the cookware look dangerous." \
+		-r "$(YOUTUBE_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)"`; \
 	echo "Create Output: $$OUTPUT"; \
@@ -349,8 +402,7 @@ create-twitch-bounty: build-cli ## Create a test Twitch bounty
 	$(call setup_env, .env.server.debug)
 	@echo "--- Creating a test Twitch Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This bounty is for a Twitch clip. The content must be about Dota2 and\
-		 have at least 100 views. The thumbnail must include an image of a real person." \
+		-r "$(TWITCH_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)"`; \
 	echo "Create Output: $$OUTPUT"; \
@@ -375,8 +427,7 @@ create-bluesky-bounty: build-cli ## Create a test Bluesky bounty
 	$(call setup_env, .env.server.debug)
 	@echo "--- Creating a test Bluesky Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This bounty is for a Bluesky post. The post should mention technology and\
-		 be about the latest trends in AI." \
+		-r "$(BLUESKY_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)"`; \
 	echo "Create Output: $$OUTPUT"; \
@@ -401,10 +452,7 @@ create-hackernews-comment-bounty: build-cli ## Create a test Hacker News Comment
 	$(call setup_env, .env.server.debug)
 	@echo "--- Creating a test Hacker News Comment Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This bounty is for a Hacker News comment. The content must be at \
-		 least 50 characters long. It should be on a Show HN post that discusses IncentivizeThis.\
-		 The comment must portray IncentivizeThis in a positive light, \
-		 otherwise it should not be approved for the bounty." \
+		-r "$(HACKERNEWS_COMMENT_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)"`; \
 	echo "Create Output: $$OUTPUT"; \
@@ -429,9 +477,7 @@ create-hackernews-post-bounty: build-cli ## Create a simple test Hacker News pos
 	$(call setup_env, .env.server.debug)
 	@echo "--- Creating a test Hacker News Post Bounty ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "This is a multi-line requirement string.\
-This is the second line of the requirement.\
-And this is the third line." \
+		-r "$(HACKERNEWS_POST_REQ)" \
 		--per-post $(PER_POST_AMOUNT) \
 		--total $(TOTAL_AMOUNT)`; \
 	echo "Create Output: $$OUTPUT"; \
@@ -456,11 +502,7 @@ create-instagram-post-bounty: build-cli ## Create a test Instagram Post bounty f
 	$(call setup_env, .env.server.debug)
 	@echo "--- Creating a test Instagram Post Bounty (Kean Coffee) ---"
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
-		-r "The deliverable is an Instagram **post**.\
-		This Instagram post must feature a video about Kean Coffee in Irvine, CA.\
-		The video component of the post must be between 15 and 60 seconds long.\
-		The post\'s caption must use the hashtag #NewportBeach or #Tustin and tag the coffee shop @KeanCoffee.\
-		The post must receive at least 100 views and 10 likes." \
+		-r "$(INSTAGRAM_POST_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)"`; \
 	echo "Create Output: $$OUTPUT"; \
@@ -481,11 +523,6 @@ create-instagram-post-bounty: build-cli ## Create a test Instagram Post bounty f
 	fi
 	@echo "--- Test Instagram Post Bounty created and funding attempted ---"
 
-test-bounty-help: build-cli ## Test if the bounty create help command works
-	@echo "--- Testing bounty create --help ---"
-	$(ABB_CMD) admin bounty create --help
-	@echo "--- Help test complete ---"
-
 .PHONY: help create-and-fund-bounties create-reddit-bounty create-youtube-bounty create-twitch-bounty create-bluesky-bounty create-hackernews-bounty
 
 help:
@@ -493,11 +530,12 @@ help:
 	@awk -F ':.*?## ' '/^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST) | sort
 
 CONCURRENT_BOUNTY_TARGETS := \
-    create-reddit-bounty \
+    create-reddit-post-bounty \
     create-youtube-bounty \
     create-twitch-bounty \
     create-bluesky-bounty \
-    create-hackernews-bounty
+    create-hackernews-comment-bounty \
+    create-instagram-post-bounty
 
 # Target to create and fund one bounty for each platform concurrently
 create-and-fund-bounties: ## Create and fund example bounties for all platforms (concurrently)
@@ -513,6 +551,37 @@ create-and-fund-bounties: ## Create and fund example bounties for all platforms 
 		wait $$pid || echo "A bounty creation job (PID: $$pid) may have failed."; \
 	done; \
 	echo "All platform bounty creation and funding processes complete."
+
+create-from-yaml: build-cli ## Create and fund all bounties from a given YAML file (e.g., make create-from-yaml YAML_FILE=bounties_bootstrap.prod.yaml)
+	$(call setup_env, .env.server.debug)
+	@if [ -z "$(YAML_FILE)" ]; then \
+		echo "Error: YAML_FILE is not set. Usage: make create-from-yaml YAML_FILE=<path_to_yaml>"; \
+		exit 1; \
+	fi
+	@echo "--- Creating bounties from $(YAML_FILE) ---"
+	@CREATE_OUTPUT=`$(ABB_CMD) admin bounty create --file "$(YAML_FILE)"`; \
+	echo "Create Output: $$CREATE_OUTPUT"; \
+	BOUNTY_DATA=`echo "$$CREATE_OUTPUT" | jq -c '.body[] | {workflow_id: .bounty_id, fund_amount: .total_bounty}'`; \
+	if [ -z "$$BOUNTY_DATA" ]; then \
+		echo "Error: Could not parse bounty data from create command output." >&2; \
+		exit 1; \
+	fi; \
+	@echo "--- Starting concurrent funding for created bounties ---"; \
+	pids=""; \
+	echo "$$BOUNTY_DATA" | while IFS= read -r bounty; do \
+		WORKFLOW_ID=`echo "$$bounty" | jq -r '.workflow_id'`; \
+		FUND_AMOUNT=`echo "$$bounty" | jq -r '.fund_amount'`; \
+		if [ -n "$$WORKFLOW_ID" ] && [ -n "$$FUND_AMOUNT" ] && [ "$$WORKFLOW_ID" != "null" ]; then \
+			echo "Funding bounty $$WORKFLOW_ID with $$FUND_AMOUNT..."; \
+			($(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $$FUND_AMOUNT) & \
+			pids="$$pids $$!"; \
+		fi; \
+	done; \
+	@echo "Waiting for all funding jobs (PIDs:$$pids) to complete..."; \
+	for pid in $$pids; do \
+		wait $$pid || echo "A funding job (PID: $$pid) may have failed."; \
+	done; \
+	@echo "--- All bounties from $(YAML_FILE) created and funding attempted ---"
 
 migrate:
 	$(call setup_env, .env.server.prod)
