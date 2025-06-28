@@ -59,11 +59,28 @@ Requirements:
 Content (JSON):
 %s
 
-You must respond ONLY with a valid JSON object containing two keys: "satisfies" (a boolean indicating if the content meets the requirements) and "reason" (a string explaining your decision). Example: {"satisfies": true, "reason": "Content meets all criteria."}`, cfg.Prompt, requirementsStr, contentStr)
+Analyze the content against the requirements and determine if it satisfies them.`, cfg.Prompt, requirementsStr, contentStr)
 
 	// Log estimated token count
 	estimatedTokens := len(prompt) / 4
 	logger.Info("Sending prompt to LLM", "estimated_tokens", estimatedTokens, "prompt_length_chars", len(prompt))
+
+	// Define the JSON schema for the expected output
+	schema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"satisfies": map[string]interface{}{
+				"type":        "boolean",
+				"description": "A boolean indicating if the content meets the requirements.",
+			},
+			"reason": map[string]interface{}{
+				"type":        "string",
+				"description": "A string explaining your decision.",
+			},
+		},
+		"required": []string{"satisfies", "reason"},
+		"strict":   true,
+	}
 
 	// Create LLM provider instance from config fetched within the activity
 	llmProvider, err := NewLLMProvider(cfg.LLMConfig) // Use cfg.LLMConfig
@@ -73,7 +90,7 @@ You must respond ONLY with a valid JSON object containing two keys: "satisfies" 
 	}
 
 	// Call the LLM service
-	resp, err := llmProvider.Complete(ctx, prompt)
+	resp, err := llmProvider.Complete(ctx, prompt, schema)
 	if err != nil {
 		logger.Error("Failed to get LLM response", "error", err)
 		return CheckContentRequirementsResult{}, fmt.Errorf("failed to check content requirements: %w", err)
@@ -84,20 +101,6 @@ You must respond ONLY with a valid JSON object containing two keys: "satisfies" 
 		"response", resp,
 		"response_length", len(resp),
 		"response_bytes", []byte(resp))
-
-	// Try to clean the response if needed
-	resp = strings.TrimSpace(resp)
-	if strings.HasPrefix(resp, "```json") {
-		resp = strings.TrimPrefix(resp, "```json")
-	}
-	if strings.HasSuffix(resp, "```") {
-		resp = strings.TrimSuffix(resp, "```")
-	}
-	resp = strings.TrimSpace(resp)
-
-	logger.Debug("Cleaned LLM response",
-		"response", resp,
-		"response_length", len(resp))
 
 	// Parse the LLM response
 	var result CheckContentRequirementsResult
@@ -160,16 +163,27 @@ Based *only* on the requirements pertaining to payout wallet restrictions (ignor
 - If the requirements specify disallowed wallet(s) and the Candidate Payout Wallet is one of them, it does NOT satisfy.
 - If the requirements mention a general rule for payout wallets (e.g., "must be a Solana address on devnet") and the candidate wallet adheres to it, it satisfies.
 - If no specific wallet restrictions are mentioned, or if the restrictions are too vague to make a definitive judgment about *this specific wallet address*, assume it satisfies.
-
-You MUST respond ONLY with a valid JSON object containing two keys: "satisfies" (a boolean) and "reason" (a string explaining your decision based *only* on wallet restrictions).
-Example (Wallet Allowed): {"satisfies": true, "reason": "Payout wallet matches the allowed wallet XYZ specified in requirements."}
-Example (Wallet Disallowed): {"satisfies": false, "reason": "Payout wallet ABC is explicitly disallowed by requirement 'Payouts only to XYZ'."}
-Example (No Restriction): {"satisfies": true, "reason": "No specific payout wallet restrictions found in the requirements."}
 `, promptBase, requirementsStr, payoutWallet)
 
 	// Log estimated token count
 	estimatedTokens := len(prompt) / 4 // Simple approximation
 	logger.Info("Sending wallet validation prompt to LLM", "estimated_tokens", estimatedTokens, "prompt_length_chars", len(prompt))
+
+	schema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"satisfies": map[string]interface{}{
+				"type":        "boolean",
+				"description": "True if the wallet is allowed by the requirements, false otherwise.",
+			},
+			"reason": map[string]interface{}{
+				"type":        "string",
+				"description": "Explanation for the decision based *only* on wallet restrictions.",
+			},
+		},
+		"required": []string{"satisfies", "reason"},
+		"strict":   true,
+	}
 
 	llmProvider, err := NewLLMProvider(cfg.LLMConfig)
 	if err != nil {
@@ -177,20 +191,11 @@ Example (No Restriction): {"satisfies": true, "reason": "No specific payout wall
 		return ValidateWalletResult{Satisfies: false, Reason: "LLM provider error"}, fmt.Errorf("failed to create LLM provider: %w", err)
 	}
 
-	resp, err := llmProvider.Complete(ctx, prompt)
+	resp, err := llmProvider.Complete(ctx, prompt, schema)
 	if err != nil {
 		logger.Error("Failed to get LLM response for wallet validation", "error", err)
 		return ValidateWalletResult{Satisfies: false, Reason: "LLM communication error"}, fmt.Errorf("failed to validate wallet: %w", err)
 	}
-
-	resp = strings.TrimSpace(resp)
-	if strings.HasPrefix(resp, "```json") {
-		resp = strings.TrimPrefix(resp, "```json")
-	}
-	if strings.HasSuffix(resp, "```") {
-		resp = strings.TrimSuffix(resp, "```")
-	}
-	resp = strings.TrimSpace(resp)
 
 	logger.Debug("Cleaned LLM response for wallet validation", "response", resp)
 
@@ -328,24 +333,33 @@ Requirements:
 
 	logger.Info("Sending prompt to LLM for ShouldPerformImageAnalysisActivity", "estimated_tokens", len(prompt)/4)
 
+	schema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"should_analyze": map[string]interface{}{
+				"type":        "boolean",
+				"description": "True if the requirements mention visual aspects of an image/thumbnail.",
+			},
+			"reason": map[string]interface{}{
+				"type":        "string",
+				"description": "Explanation for the decision.",
+			},
+		},
+		"required": []string{"should_analyze", "reason"},
+		"strict":   true,
+	}
+
 	llmProvider, err := NewLLMProvider(cfg.LLMConfig) // Use the general text LLM for this decision
 	if err != nil {
 		logger.Error("Failed to create LLM provider for ShouldPerformImageAnalysisActivity", "error", err)
 		return ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "LLM provider error"}, fmt.Errorf("failed to create LLM provider: %w", err)
 	}
 
-	resp, err := llmProvider.Complete(ctx, prompt)
+	resp, err := llmProvider.Complete(ctx, prompt, schema)
 	if err != nil {
 		logger.Error("Failed to get LLM response for ShouldPerformImageAnalysisActivity", "error", err)
 		return ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "LLM communication error"}, fmt.Errorf("failed to get LLM response: %w", err)
 	}
-
-	resp = strings.TrimSpace(resp)
-	if strings.HasPrefix(resp, "```json") {
-		resp = strings.TrimPrefix(resp, "```json")
-		resp = strings.TrimSuffix(resp, "```") // Also trim suffix
-	}
-	resp = strings.TrimSpace(resp)
 
 	var result ShouldPerformImageAnalysisResult
 	if err := json.Unmarshal([]byte(resp), &result); err != nil {

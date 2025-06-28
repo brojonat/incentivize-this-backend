@@ -288,35 +288,43 @@ func handleCreateBounty(
 			validContentKindsStr[i] = string(ck)
 		}
 
+		// Define the JSON schema for the expected output
+		schema := map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"PlatformKind": map[string]interface{}{
+					"type":        "string",
+					"description": "The platform that the content is hosted on.",
+					"enum":        validPlatformKindsStr,
+				},
+				"ContentKind": map[string]interface{}{
+					"type": "string",
+					"description": `The kind of content that the bounty is for. This is platform dependent. The valid options are:
+- Reddit: post, comment
+- YouTube: video, comment
+- Twitch: video, clip
+- Hacker News: post, comment
+- Bluesky: post
+- Instagram: post
+- IncentivizeThis: bounty`,
+					"enum": validContentKindsStr,
+				},
+				"Error": map[string]interface{}{
+					"type":        "string",
+					"description": "An error message if platform and content kind cannot be determined.",
+				},
+			},
+			"required": []string{"PlatformKind", "ContentKind"},
+		}
+
 		promptFormat := `Given the bounty requirement: "%s".
-Determine the PlatformKind and ContentKind.
-Valid PlatformKinds are: [%s].
-Valid ContentKinds are: [%s].
-
-You MUST respond ONLY with a valid JSON object with two string keys: "PlatformKind" and "ContentKind".
-- "PlatformKind" must be one of the valid PlatformKinds, or an empty string if not determinable.
-- "ContentKind" must be one of the valid ContentKinds, or an empty string if not determinable.
-If you are unable to confidently determine both PlatformKind and ContentKind from the requirement, or if the requirement is ambiguous, you should return empty strings for both fields or a descriptive error message in a key named "Error".
-
-Example of a valid JSON response:
-{
-  "PlatformKind": "reddit",
-  "ContentKind": "post",
-  "Error": ""
-}
-
-Example of a response where parameters cannot be determined:
-{
-  "PlatformKind": "",
-  "ContentKind": "",
-  "Error": "The requirement is too vague to determine platform and content kind."
-}
-`
-		prompt := fmt.Sprintf(promptFormat, requirementsStr, strings.Join(validPlatformKindsStr, ", "), strings.Join(validContentKindsStr, ", "))
+Determine the most appropriate PlatformKind and ContentKind.
+- If the requirement is ambiguous or you cannot confidently determine the parameters, provide a descriptive error message.`
+		prompt := fmt.Sprintf(promptFormat, requirementsStr)
 
 		logger.Debug("Sending prompt to LLM for Platform/Content Kind inference", "prompt", prompt)
 
-		llmJSONResponse, err := llmProvider.Complete(r.Context(), prompt)
+		llmJSONResponse, err := llmProvider.Complete(r.Context(), prompt, schema)
 		if err != nil {
 			logger.Error("LLM completion failed for content param inference", "error", err)
 			writeInternalError(logger, w, fmt.Errorf("failed to process requirements via LLM: %w", err))
@@ -326,18 +334,8 @@ Example of a response where parameters cannot be determined:
 		logger.Debug("Received LLM response for Platform/Content Kind inference", "llm_response", llmJSONResponse)
 
 		var inferredParams inferredContentParamsRequest
-		// Clean the response - LLMs sometimes add ```json ``` wrappers
-		cleanedLLMResponse := strings.TrimSpace(llmJSONResponse)
-		if strings.HasPrefix(cleanedLLMResponse, "```json") {
-			cleanedLLMResponse = strings.TrimPrefix(cleanedLLMResponse, "```json")
-		}
-		if strings.HasSuffix(cleanedLLMResponse, "```") {
-			cleanedLLMResponse = strings.TrimSuffix(cleanedLLMResponse, "```")
-		}
-		cleanedLLMResponse = strings.TrimSpace(cleanedLLMResponse)
-
-		if err := json.Unmarshal([]byte(cleanedLLMResponse), &inferredParams); err != nil {
-			logger.Error("Failed to unmarshal LLM response for content param inference", "raw_response", llmJSONResponse, "cleaned_response", cleanedLLMResponse, "error", err)
+		if err := json.Unmarshal([]byte(llmJSONResponse), &inferredParams); err != nil {
+			logger.Error("Failed to unmarshal LLM response for content param inference", "raw_response", llmJSONResponse, "error", err)
 			writeBadRequestError(w, fmt.Errorf("LLM provided an invalid response format. Raw response: %s", llmJSONResponse))
 			return
 		}
@@ -395,8 +393,8 @@ Example of a response where parameters cannot be determined:
 				return
 			}
 		case abb.PlatformYouTube:
-			if normalizedContentKind != abb.ContentKindVideo {
-				writeBadRequestError(w, fmt.Errorf("invalid content_kind for YouTube: must be '%s'", abb.ContentKindVideo))
+			if normalizedContentKind != abb.ContentKindVideo && normalizedContentKind != abb.ContentKindComment {
+				writeBadRequestError(w, fmt.Errorf("invalid content_kind for YouTube: must be '%s' or '%s'", abb.ContentKindVideo, abb.ContentKindComment))
 				return
 			}
 		case abb.PlatformTwitch:
@@ -1043,18 +1041,10 @@ func handleListPaidBounties(
 			ticker := time.NewTicker(cacheDuration)
 			defer ticker.Stop()
 
-			for {
-				// Using r.Context().Done() here is not ideal as this goroutine
-				// is not tied to a single request. A global application stop channel
-				// would be a better way to handle graceful shutdown.
-				// For now, the loop will run as long as the application.
-				select {
-				case <-ticker.C:
-					refreshCacheContent()
-					// case <-r.Context().Done(): // Example of how one might try to stop it (with caveats)
-					// 	l.Info("Background cache refresh stopping.")
-					//  return
-				}
+			// Refresh the cache every cacheDuration. This is a little janky because
+			// there's no way to stop the ticker, but it's fine for now.
+			for range time.Tick(cacheDuration) {
+				refreshCacheContent()
 			}
 		}()
 		l.Info("Background cache refresh goroutine started.")

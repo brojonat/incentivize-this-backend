@@ -13,7 +13,9 @@ import (
 
 // LLMProvider represents a generic LLM service provider for text completion
 type LLMProvider interface {
-	Complete(ctx context.Context, prompt string) (string, error)
+	// Complete sends a prompt to the LLM and returns the completion.
+	// If schema is not nil, it will be used to request a structured JSON response.
+	Complete(ctx context.Context, prompt string, schema map[string]interface{}) (string, error)
 }
 
 // LLMConfig holds configuration for text LLM providers
@@ -99,31 +101,45 @@ type OpenAIProvider struct {
 	cfg LLMConfig
 }
 
-func (p *OpenAIProvider) Complete(ctx context.Context, prompt string) (string, error) {
+// Complete sends a prompt to the OpenAI API and returns the completion.
+// If a schema is provided, it requests a structured JSON response matching the schema.
+func (p *OpenAIProvider) Complete(ctx context.Context, prompt string, schema map[string]interface{}) (string, error) {
+	// Define a struct for the response format that can handle json_schema
+	type responseFormat struct {
+		Type       string      `json:"type"`
+		JSONSchema interface{} `json:"json_schema,omitempty"`
+	}
+
 	// Create request body
 	reqBody := struct {
-		Model    string `json:"model"`
-		Messages []struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		} `json:"messages"`
-		MaxTokens      int               `json:"max_tokens"`
-		Temperature    float64           `json:"temperature"`
-		ResponseFormat map[string]string `json:"response_format,omitempty"`
+		Model          string          `json:"model"`
+		Messages       []interface{}   `json:"messages"`
+		MaxTokens      int             `json:"max_tokens"`
+		Temperature    float64         `json:"temperature"`
+		ResponseFormat *responseFormat `json:"response_format,omitempty"`
 	}{
 		Model: p.cfg.Model,
-		Messages: []struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		}{
-			{
-				Role:    "user",
-				Content: prompt,
+		Messages: []interface{}{
+			map[string]string{
+				"role":    "user",
+				"content": prompt,
 			},
 		},
-		MaxTokens:      p.cfg.MaxTokens,
-		Temperature:    p.cfg.Temperature,
-		ResponseFormat: map[string]string{"type": "json_object"},
+		MaxTokens:   p.cfg.MaxTokens,
+		Temperature: p.cfg.Temperature,
+	}
+
+	// Set the response format based on whether a schema is provided
+	if schema != nil {
+		reqBody.ResponseFormat = &responseFormat{
+			Type:       "json_schema",
+			JSONSchema: schema,
+		}
+	} else {
+		// Default to json_object if no schema is given
+		reqBody.ResponseFormat = &responseFormat{
+			Type: "json_object",
+		}
 	}
 
 	// Marshal request body
@@ -358,9 +374,11 @@ type AnthropicProvider struct {
 	cfg LLMConfig
 }
 
-func (p *AnthropicProvider) Complete(ctx context.Context, prompt string) (string, error) {
-	// Implementation will go here
-	return "", nil
+func (p *AnthropicProvider) Complete(ctx context.Context, prompt string, schema map[string]interface{}) (string, error) {
+	// Anthropic doesn't support JSON schema response format in the same way.
+	// We'll have to rely on prompt engineering for now.
+	// This implementation will ignore the schema.
+	return p.Complete(ctx, prompt, nil)
 }
 
 // OllamaProvider implements LLMProvider for Ollama
@@ -368,7 +386,9 @@ type OllamaProvider struct {
 	cfg LLMConfig
 }
 
-func (p *OllamaProvider) Complete(ctx context.Context, prompt string) (string, error) {
-	// Implementation will go here
-	return "", nil
+func (p *OllamaProvider) Complete(ctx context.Context, prompt string, schema map[string]interface{}) (string, error) {
+	// Ollama's support for JSON schema varies by model.
+	// We'll rely on prompt engineering and the json format parameter.
+	// This implementation will ignore the schema.
+	return p.Complete(ctx, prompt, nil)
 }
