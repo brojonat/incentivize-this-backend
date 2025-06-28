@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"go.temporal.io/sdk/activity"
@@ -15,7 +14,6 @@ import (
 // IncentivizeThisDependencies holds the dependencies for IncentivizeThis-related activities.
 type IncentivizeThisDependencies struct {
 	APIEndpoint   string `json:"api_endpoint"`    // e.g., http://localhost:8080/api/v1
-	AuthToken     string `json:"auth_token"`      // Optional, for authenticated internal endpoints
 	PublicBaseURL string `json:"public_base_url"` // e.g., https://yourapp.com (may not be used directly by this activity anymore)
 }
 
@@ -28,30 +26,25 @@ func (deps IncentivizeThisDependencies) Type() PlatformKind {
 func (deps IncentivizeThisDependencies) MarshalJSON() ([]byte, error) {
 	type Aux struct {
 		APIEndpoint   string `json:"api_endpoint"`
-		AuthToken     string `json:"auth_token"`
 		PublicBaseURL string `json:"public_base_url"`
 	}
-	aux := Aux{
+	return json.Marshal(Aux{
 		APIEndpoint:   deps.APIEndpoint,
-		AuthToken:     deps.AuthToken,
 		PublicBaseURL: deps.PublicBaseURL,
-	}
-	return json.Marshal(aux)
+	})
 }
 
 // UnmarshalJSON implements json.Unmarshaler for IncentivizeThisDependencies
 func (deps *IncentivizeThisDependencies) UnmarshalJSON(data []byte) error {
 	type Aux struct {
 		APIEndpoint   string `json:"api_endpoint"`
-		AuthToken     string `json:"auth_token"`
 		PublicBaseURL string `json:"public_base_url"`
 	}
 	var aux Aux
 	if err := json.Unmarshal(data, &aux); err != nil {
-		return fmt.Errorf("failed to unmarshal IncentivizeThisDependencies: %w", err)
+		return err
 	}
 	deps.APIEndpoint = aux.APIEndpoint
-	deps.AuthToken = aux.AuthToken
 	deps.PublicBaseURL = aux.PublicBaseURL
 	return nil
 }
@@ -92,27 +85,33 @@ type FetchedBountyData struct {
 // to assess if the target bounty meets the criteria of the current (meta) bounty.
 func (a *Activities) PullIncentivizeThisContentActivity(ctx context.Context, deps IncentivizeThisDependencies, bountyID string) (*TargetBountyDetails, error) {
 	logger := activity.GetLogger(ctx)
-	logger.Info("PullIncentivizeThisContentActivity started", "targetBountyID", bountyID)
-
-	if deps.APIEndpoint == "" {
-		return nil, fmt.Errorf("APIEndpoint is not configured for IncentivizeThisDependencies")
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get configuration in PullIncentivizeThisContentActivity: %w", err)
 	}
-	// PublicBaseURL might not be strictly needed by this activity anymore if not constructing a display link here.
+	endpointURL := deps.APIEndpoint
+	if endpointURL == "" {
+		logger.Warn("APIEndpoint for IncentivizeThisDependencies is not set, falling back to global config")
+		endpointURL = cfg.ABBServerConfig.APIEndpoint
+	}
+
 	if bountyID == "" {
-		return nil, fmt.Errorf("bountyID for target bounty cannot be empty")
+		return nil, fmt.Errorf("bountyID is required for IncentivizeThis content pull")
 	}
 
-	endpointURL := fmt.Sprintf("%s/bounties/%s", strings.TrimSuffix(deps.APIEndpoint, "/"), bountyID)
+	logger.Info("PullIncentivizeThisContentActivity started", "targetBountyID", bountyID)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", endpointURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request to %s: %w", endpointURL, err)
 	}
 
-	req.Header.Set("Accept", "application/json")
-	if deps.AuthToken != "" { // AuthToken is optional, GET /bounties/{id} might be public
-		req.Header.Set("Authorization", "Bearer "+deps.AuthToken)
+	// This activity now uses getABBAuthToken to fetch a token before making a request
+	abbToken, err := a.getABBAuthToken(ctx, logger, cfg, a.httpClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ABB auth token for IncentivizeThis content: %w", err)
 	}
+	req.Header.Set("Authorization", "Bearer "+abbToken)
 
 	logger.Info("Fetching target bounty details for IncentivizeThis platform", "url", endpointURL)
 

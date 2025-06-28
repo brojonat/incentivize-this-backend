@@ -73,7 +73,6 @@ redditBountyInput := abb.BountyAssessmentWorkflowInput{
     SolanaWallet:            "owner_wallet_address",
     USDCAccount:             "owner_usdc_account",
     ServerURL:               "https://api.example.com",
-    AuthToken:               "auth_token",
     PlatformType:            abb.PlatformReddit,
     PlatformDependencies:    redditDeps,
     Timeout:                 24 * time.Hour,
@@ -95,7 +94,6 @@ hnInput := abb.BountyAssessmentWorkflowInput{
 	SolanaWallet:            "owner_hn_wallet_address",
 	USDCAccount:             "owner_hn_usdc_account",
 	ServerURL:               "https://api.example.com",
-	AuthToken:               "auth_token",
 	PlatformType:            abb.PlatformHackerNews,
 	PlatformDependencies:    abb.HackerNewsDependencies{}, // Use empty struct
 	Timeout:                 7 * 24 * time.Hour,
@@ -117,7 +115,6 @@ blueskyInput := abb.BountyAssessmentWorkflowInput{
 	SolanaWallet:            "owner_bluesky_wallet",
 	USDCAccount:             "owner_bluesky_usdc",
 	ServerURL:               "https://api.example.com",
-	AuthToken:               "auth_token",
 	PlatformType:            abb.PlatformBluesky,
 	PlatformDependencies:    abb.BlueskyDependencies{}, // Empty struct for now
 	Timeout:                 14 * 24 * time.Hour,
@@ -306,7 +303,6 @@ The following environment variables are needed to run the activities:
 **Server/Auth:**
 
 - `ABB_API_ENDPOINT`: URL of the Affiliate Bounty Board server API (replaces `SERVER_ENDPOINT` and `ABB_SERVER_URL`).
-- `ABB_AUTH_TOKEN`: Authentication token for server communication (if required by activities, replaces `AUTH_TOKEN`).
 - `ABB_SECRET_KEY`: Secret key used by the periodic bounty publisher for authentication with the ABB server.
 - `ABB_PUBLIC_BASE_URL`: Publicly accessible base URL for the server (replaces `PUBLIC_BASE_URL`).
 - `ENV`: The deployment environment (e.g., "dev", "prod"). Used for search attributes and schedule IDs.

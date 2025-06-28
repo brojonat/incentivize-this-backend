@@ -48,65 +48,68 @@ type BountyDefinition struct {
 	Duration      string  `yaml:"duration,omitempty"`
 }
 
-var (
-	EnvServerSecretKey  = "ABB_SECRET_KEY"
-	EnvServerEndpoint   = "ABB_API_ENDPOINT"
-	EnvAuthToken        = "ABB_AUTH_TOKEN"
-	EnvTestOwnerWallet  = "SOLANA_TEST_OWNER_WALLET"
-	EnvTestFunderWallet = "SOLANA_TEST_FUNDER_WALLET"
-	EnvAbbDatabaseURL   = "ABB_DATABASE_URL"
-
-	// New Solana related env vars for CLI utils
-	EnvSolanaRPCEndpoint     = "SOLANA_RPC_ENDPOINT"
-	EnvSolanaUSDCMintAddress = "SOLANA_USDC_MINT_ADDRESS"
-	EnvSolanaEscrowWallet    = "SOLANA_ESCROW_WALLET"
-	EnvTestFunderPrivateKey  = "SOLANA_TEST_FUNDER_PRIVATE_KEY"
-	// Additional wallet env vars for the balances command
+// Environment variables used by the CLI
+const (
+	EnvSolanaRPCEndpoint      = "SOLANA_RPC_ENDPOINT"
+	EnvSolanaWsEndpoint       = "SOLANA_WS_ENDPOINT"
+	EnvSolanaEscrowWallet     = "SOLANA_ESCROW_WALLET"
+	EnvSolanaEscrowPrivateKey = "SOLANA_ESCROW_PRIVATE_KEY"
+	EnvSolanaUSDCMintAddress  = "SOLANA_USDC_MINT_ADDRESS"
+	EnvServerEndpoint         = "SERVER_ENDPOINT"
+	EnvAuthToken              = "ABB_AUTH_TOKEN"
+	EnvUsername               = "ABB_USERNAME"
+	EnvPassword               = "ABB_PASSWORD"
+	EnvContactUsURL           = "CONTACT_US_URL"
+	EnvDotEnvPath             = "DOTENV_PATH"
+	EnvServerSecretKey        = "ABB_SECRET_KEY"
+	EnvAbbDatabaseURL         = "ABB_DATABASE_URL"
+	EnvSolanaTreasuryWallet   = "SOLANA_TREASURY_WALLET"
+	EnvTestFunderWallet        = "TEST_FUNDER_WALLET"
+	EnvTestOwnerWallet         = "TEST_OWNER_WALLET"
 	EnvSolanaTestCreatorWallet = "SOLANA_TEST_CREATOR_WALLET"
-	EnvSolanaTreasuryWallet    = "SOLANA_TREASURY_WALLET"
-	EnvSolanaEscrowPrivateKey  = "SOLANA_ESCROW_PRIVATE_KEY"
+	EnvTestFunderPrivateKey    = "TEST_FUNDER_PRIVATE_KEY"
 )
 
 func getAuthToken(ctx *cli.Context) error {
+	serverAddr := ctx.String("server-addr")
+	if serverAddr == "" {
+		return fmt.Errorf("server address not provided")
+	}
+
 	// Prepare form data
 	formData := url.Values{}
-	formData.Set("username", ctx.String("email"))
-	formData.Set("password", ctx.String("secret-key"))
+	formData.Set("username", ctx.String("username"))
+	formData.Set("password", ctx.String("password"))
 
 	r, err := http.NewRequest(
 		http.MethodPost,
-		ctx.String("endpoint")+"/token",
+		serverAddr+"/token",
 		bytes.NewBufferString(formData.Encode()), // Use encoded form data
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create token request: %w", err)
 	}
-	// Set Content-Type header for form data
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	res, err := http.DefaultClient.Do(r)
+	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
-		return fmt.Errorf("could not do server request: %w", err)
+		return fmt.Errorf("failed to get token: %w", err)
 	}
-	defer res.Body.Close()
+	defer resp.Body.Close()
 
-	// Read the body once
-	body, err := io.ReadAll(res.Body)
+	// Read the body to be used for multiple purposes (decoding, error display)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("could not read response body: %w", err)
+		return fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	var tokenResp struct {
-		AccessToken string `json:"access_token"`
-		TokenType   string `json:"token_type"`
-		Error       string `json:"error,omitempty"` // Keep error for consistency if API sends it this way
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to get token, status code: %d, body: %s", resp.StatusCode, string(body))
 	}
+
+	var tokenResp api.TokenResponse
 	if err := json.Unmarshal(body, &tokenResp); err != nil {
-		return fmt.Errorf("could not decode token response: %w. Body: %s", err, string(body))
-	}
-
-	if tokenResp.Error != "" {
-		return fmt.Errorf("server error getting token: %s", tokenResp.Error)
+		return fmt.Errorf("failed to decode token response: %w, body: %s", err, string(body))
 	}
 
 	if tokenResp.AccessToken == "" {
@@ -114,8 +117,7 @@ func getAuthToken(ctx *cli.Context) error {
 	}
 
 	// Handle env file update if specified
-	envFile := ctx.String("env-file")
-	if envFile != "" {
+	if envFile := ctx.String("env-file"); envFile != "" {
 		content, err := os.ReadFile(envFile)
 		if err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("failed to read .env file: %w", err)
@@ -140,8 +142,9 @@ func getAuthToken(ctx *cli.Context) error {
 		fmt.Printf("Bearer token written to %s\n", envFile)
 	}
 
-	res.Body = io.NopCloser(bytes.NewReader(body))
-	return printServerResponse(res)
+	// For printing the successful response, re-create the response body reader
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	return printServerResponse(resp)
 }
 
 func createBounty(ctx *cli.Context) error {

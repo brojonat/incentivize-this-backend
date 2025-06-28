@@ -25,7 +25,6 @@ const (
 	EnvABBServerEnv     = "ENV"
 	EnvABBAPIEndpoint   = "ABB_API_ENDPOINT"
 	EnvABBSecretKey     = "ABB_SECRET_KEY"
-	EnvABBAuthToken     = "ABB_AUTH_TOKEN"
 	EnvABBPublicBaseURL = "ABB_PUBLIC_BASE_URL"
 	EnvABBDatabaseURL   = "ABB_DATABASE_URL"
 
@@ -143,7 +142,6 @@ type DiscordConfig struct {
 type AbbServerConfig struct {
 	APIEndpoint       string `json:"api_endpoint"`
 	SecretKey         string `json:"secret_key"`
-	AuthToken         string `json:"auth_token"`
 	PublicBaseURL     string `json:"public_base_url"`
 	LLMEmbeddingModel string `json:"llm_embedding_model"`
 	DatabaseURL       string `json:"database_url"`
@@ -386,7 +384,6 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 	// --- IncentivizeThis Dependencies ---
 	incentivizeThisDeps := IncentivizeThisDependencies{
 		APIEndpoint:   os.Getenv(EnvABBAPIEndpoint),   // Use the common ABB API endpoint
-		AuthToken:     os.Getenv(EnvABBAuthToken),     // Use the common ABB Auth Token (optional for this activity)
 		PublicBaseURL: os.Getenv(EnvABBPublicBaseURL), // Use the common ABB Public Base URL
 	}
 
@@ -400,7 +397,6 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 	abbServerConfig := AbbServerConfig{
 		APIEndpoint:       os.Getenv(EnvABBAPIEndpoint),
 		SecretKey:         os.Getenv(EnvABBSecretKey),
-		AuthToken:         os.Getenv(EnvABBAuthToken),
 		PublicBaseURL:     os.Getenv(EnvABBPublicBaseURL),
 		LLMEmbeddingModel: os.Getenv(EnvLLMEmbeddingModel),
 		DatabaseURL:       os.Getenv(EnvABBDatabaseURL),
@@ -929,9 +925,15 @@ func (a *Activities) DeleteBountyEmbeddingViaHTTPActivity(ctx context.Context, i
 		return fmt.Errorf("failed to get configuration for HTTP deletion: %w", err)
 	}
 
-	if cfg.ABBServerConfig.APIEndpoint == "" || cfg.ABBServerConfig.AuthToken == "" {
-		logger.Error("APIEndpoint or AuthToken is missing in configuration for HTTP deletion")
-		return temporal.NewApplicationError("Server APIEndpoint or AuthToken not configured", "CONFIG_ERROR")
+	if cfg.ABBServerConfig.APIEndpoint == "" {
+		logger.Error("APIEndpoint is missing in configuration for HTTP deletion")
+		return temporal.NewApplicationError("Server APIEndpoint not configured", "CONFIG_ERROR")
+	}
+
+	authToken, err := a.getABBAuthToken(ctx, logger, cfg, a.httpClient)
+	if err != nil {
+		logger.Error("Failed to get ABB auth token for embedding deletion", "error", err)
+		return fmt.Errorf("failed to get ABB auth token: %w", err)
 	}
 
 	deleteURL := fmt.Sprintf("%s/bounties/embeddings/%s", strings.TrimSuffix(cfg.ABBServerConfig.APIEndpoint, "/"), input.BountyID)
@@ -941,7 +943,7 @@ func (a *Activities) DeleteBountyEmbeddingViaHTTPActivity(ctx context.Context, i
 		logger.Error("Failed to create HTTP DELETE request for embedding", "url", deleteURL, "error", err)
 		return fmt.Errorf("failed to create HTTP DELETE request for %s: %w", deleteURL, err)
 	}
-	req.Header.Set("Authorization", "Bearer "+cfg.ABBServerConfig.AuthToken)
+	req.Header.Set("Authorization", "Bearer "+authToken)
 	req.Header.Set("Accept", "application/json")
 
 	logger.Info("Attempting to delete embedding via HTTP DELETE", "url", deleteURL)
@@ -981,15 +983,15 @@ func (a *Activities) MarkGumroadSaleNotifiedActivity(ctx context.Context, input 
 	}
 
 	apiEndpoint := cfg.ABBServerConfig.APIEndpoint
-	authToken := cfg.ABBServerConfig.AuthToken // Use the standard auth token
-
 	if apiEndpoint == "" {
 		logger.Error("ABB_API_ENDPOINT not configured for MarkGumroadSaleNotifiedActivity")
 		return fmt.Errorf("abb API endpoint not configured")
 	}
-	if authToken == "" {
-		logger.Error("ABB_AUTH_TOKEN not configured for MarkGumroadSaleNotifiedActivity")
-		return fmt.Errorf("abb auth token not configured") // Changed error message to reflect ABB_AUTH_TOKEN
+
+	authToken, err := a.getABBAuthToken(ctx, logger, cfg, a.httpClient)
+	if err != nil {
+		logger.Error("Failed to get ABB auth token for MarkGumroadSaleNotifiedActivity", "error", err)
+		return fmt.Errorf("failed to get ABB auth token: %w", err)
 	}
 
 	targetURL := fmt.Sprintf("%s/gumroad/notified", strings.TrimRight(apiEndpoint, "/"))
@@ -1054,39 +1056,35 @@ func (a *Activities) CallGumroadNotifyActivity(ctx context.Context, input CallGu
 	}
 
 	apiEndpoint := cfg.ABBServerConfig.APIEndpoint
-	authToken := cfg.ABBServerConfig.AuthToken // Using standard auth token
-
 	if apiEndpoint == "" {
 		logger.Error("ABB_API_ENDPOINT not configured for CallGumroadNotifyActivity")
 		return fmt.Errorf("abb API endpoint not configured")
 	}
-	if authToken == "" {
-		logger.Error("ABB_AUTH_TOKEN not configured for CallGumroadNotifyActivity")
-		return fmt.Errorf("abb auth token not configured")
-	}
 
-	targetURL := fmt.Sprintf("%s/gumroad/notify", strings.TrimRight(apiEndpoint, "/"))
-
-	requestBody := map[string]interface{}{
-		"lookback_duration_seconds": int(input.LookbackDuration.Seconds()),
-	}
-	jsonBody, err := json.Marshal(requestBody)
+	authToken, err := a.getABBAuthToken(ctx, logger, cfg, a.httpClient)
 	if err != nil {
-		logger.Error("Failed to marshal request body for CallGumroadNotifyActivity", "error", err)
-		return fmt.Errorf("failed to marshal request body: %w", err)
+		logger.Error("Failed to get ABB auth token for CallGumroadNotifyActivity", "error", err)
+		return fmt.Errorf("failed to get abb auth token: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewBuffer(jsonBody))
+	targetURL, err := url.Parse(strings.TrimRight(apiEndpoint, "/") + "/gumroad/notify")
+	if err != nil {
+		return fmt.Errorf("failed to parse gumroad notify URL: %w", err)
+	}
+	q := targetURL.Query()
+	q.Set("hours_ago", fmt.Sprintf("%.0f", input.LookbackDuration.Hours()))
+	targetURL.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", targetURL.String(), nil)
 	if err != nil {
 		logger.Error("Failed to create HTTP request for CallGumroadNotifyActivity", "error", err)
 		return fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+authToken) // Use Bearer token authentication
+	req.Header.Set("Authorization", "Bearer "+authToken)
 
 	client := a.httpClient
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second} // Increased timeout for potentially longer operation
+		client = &http.Client{Timeout: 30 * time.Second}
 	}
 
 	resp, err := client.Do(req)
@@ -1096,7 +1094,7 @@ func (a *Activities) CallGumroadNotifyActivity(ctx context.Context, input CallGu
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted { // Accept 202 for async operations
+	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		logger.Error("CallGumroadNotifyActivity HTTP request failed", "statusCode", resp.StatusCode, "url", targetURL, "responseBody", string(bodyBytes))
 		return fmt.Errorf("http request to %s failed with status %d: %s", targetURL, resp.StatusCode, string(bodyBytes))
@@ -1126,12 +1124,11 @@ func (a *Activities) PruneStaleEmbeddingsActivity(ctx context.Context, input Pru
 		logger.Error("APIEndpoint is missing in configuration for pruning")
 		return "", temporal.NewApplicationError("Server APIEndpoint not configured", "CONFIG_ERROR")
 	}
-	// Note: This activity uses the general ABB_AUTH_TOKEN if the endpoint is protected by it.
-	// If it needs a different kind of auth or no auth, that needs to be handled here or on the server.
-	if cfg.ABBServerConfig.AuthToken == "" {
-		logger.Warn("AuthToken is missing in configuration for pruning, proceeding without it if endpoint is public or uses other auth.")
-		// Depending on server requirements, this might be an error.
-		// For now, we allow it and let the server decide.
+
+	authToken, err := a.getABBAuthToken(ctx, logger, cfg, a.httpClient)
+	if err != nil {
+		logger.Error("Failed to get ABB auth token for pruning", "error", err)
+		return "", fmt.Errorf("failed to get ABB auth token: %w", err)
 	}
 
 	pruneURL := strings.TrimSuffix(cfg.ABBServerConfig.APIEndpoint, "/") + "/embeddings/prune"
@@ -1144,9 +1141,7 @@ func (a *Activities) PruneStaleEmbeddingsActivity(ctx context.Context, input Pru
 		return "", fmt.Errorf("failed to create HTTP POST request for %s: %w", pruneURL, err)
 	}
 
-	if cfg.ABBServerConfig.AuthToken != "" {
-		req.Header.Set("Authorization", "Bearer "+cfg.ABBServerConfig.AuthToken)
-	}
+	req.Header.Set("Authorization", "Bearer "+authToken)
 	req.Header.Set("Accept", "application/json")       // Expecting a JSON response or at least text
 	req.Header.Set("Content-Type", "application/json") // Even with empty body, good practice for POST
 
