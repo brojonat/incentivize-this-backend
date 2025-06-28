@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/brojonat/affiliate-bounty-board/abb"
 	"github.com/brojonat/affiliate-bounty-board/http/api"
 	"github.com/golang-jwt/jwt"
 )
@@ -26,6 +27,7 @@ func createSudoToken(email string) (string, error) {
 		},
 		Email:  email,
 		Status: UserStatusSudo,
+		Tier:   int(abb.BountyTierSudo),
 	}
 	return generateAccessToken(claims)
 }
@@ -37,6 +39,7 @@ func createUserToken(email string, expiresAt time.Time) (string, error) {
 		},
 		Email:  email,
 		Status: UserStatusPremium,
+		Tier:   int(abb.BountyTierPremium),
 	}
 	return generateAccessToken(claims)
 }

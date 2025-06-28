@@ -54,7 +54,8 @@ type CreateBountyRequest struct {
 	TotalBounty        float64  `json:"total_bounty"`
 	BountyOwnerWallet  string   `json:"bounty_owner_wallet"`
 	BountyFunderWallet string   `json:"bounty_funder_wallet"`
-	TimeoutDuration    string   `json:"timeout_duration"` // Bounty active duration (e.g., "72h", "7d")
+	TimeoutDuration    string   `json:"timeout_duration"`
+	Tier               string   `json:"tier,omitempty"`
 }
 
 // BountyListItem represents a single bounty in the list response
@@ -67,6 +68,7 @@ type BountyListItem struct {
 	BountyOwnerWallet    string           `json:"bounty_owner_wallet"`
 	PlatformType         abb.PlatformKind `json:"platform_kind"`
 	ContentKind          abb.ContentKind  `json:"content_kind"`
+	Tier                 abb.BountyTier   `json:"tier"`
 	CreatedAt            time.Time        `json:"created_at"`
 	EndTime              time.Time        `json:"end_time,omitempty"`
 	RemainingBountyValue float64          `json:"remaining_bounty_value"`
@@ -234,6 +236,20 @@ func handleCreateBounty(
 			writeBadRequestError(w, fmt.Errorf("bounty_funder_wallet is required"))
 			return
 		}
+
+		// --- Tier Processing ---
+		var bountyTier abb.BountyTier
+		if req.Tier != "" {
+			tier, valid := abb.FromString(req.Tier)
+			if !valid {
+				writeBadRequestError(w, fmt.Errorf("invalid tier specified: '%s'", req.Tier))
+				return
+			}
+			bountyTier = tier
+		} else {
+			bountyTier = abb.DefaultBountyTier
+		}
+		// --- End Tier Processing ---
 
 		// --- Requirements Length Check ---
 		if len(requirementsStr) > abb.MaxRequirementsCharsForLLMCheck {
@@ -497,6 +513,7 @@ Example of a response where parameters cannot be determined:
 			BountyFunderWallet: req.BountyFunderWallet,
 			Platform:           normalizedPlatform,
 			ContentKind:        normalizedContentKind,
+			Tier:               bountyTier,
 			Timeout:            bountyTimeoutDuration,
 			PaymentTimeout:     10 * time.Minute,
 			TreasuryWallet:     os.Getenv(EnvSolanaTreasuryWallet),
@@ -514,6 +531,7 @@ Example of a response where parameters cannot be determined:
 			abb.BountyFunderWalletKey.ValueSet(input.BountyFunderWallet),
 			abb.BountyPlatformKey.ValueSet(string(input.Platform)),
 			abb.BountyContentKindKey.ValueSet(string(input.ContentKind)),
+			abb.BountyTierKey.ValueSet(int64(input.Tier)),
 			abb.BountyTotalAmountKey.ValueSet(input.TotalBounty.ToUSDC()),
 			abb.BountyPerPostAmountKey.ValueSet(input.BountyPerPost.ToUSDC()),
 			abb.BountyCreationTimeKey.ValueSet(now),
@@ -550,9 +568,16 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 		listCtx, listCancel := context.WithTimeout(context.Background(), 30*time.Second) // Timeout for the whole list operation
 		defer listCancel()
 
+		// --- Tier-based Filtering ---
+		userTier, ok := r.Context().Value(ctxKeyTier).(int)
+		if !ok {
+			// If tier is not in context (e.g., unauthenticated user), default to the highest tier (most public)
+			userTier = int(abb.BountyTierAltruist)
+		}
+
 		// Combine WorkflowType, ExecutionStatus, and Environment for the query
-		query := fmt.Sprintf(`WorkflowType = '%s' AND ExecutionStatus = 'Running' AND %s = '%s'`,
-			"BountyAssessmentWorkflow", abb.EnvironmentKey.GetName(), env)
+		query := fmt.Sprintf(`WorkflowType = '%s' AND ExecutionStatus = 'Running' AND %s = '%s' AND %s >= %d`,
+			"BountyAssessmentWorkflow", abb.EnvironmentKey.GetName(), env, abb.BountyTierKey.GetName(), userTier)
 		executions, err := tc.ListWorkflow(listCtx, &workflowservice.ListWorkflowExecutionsRequest{
 			Query: query,
 		})
@@ -615,6 +640,7 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 			// Extract EndTime from Search Attributes (from the ListWorkflow response)
 			var endTime time.Time
 			var status string
+			var tier int64 // Use int64 to match the search attribute type
 
 			if execution.SearchAttributes != nil {
 				if saPayload, ok := execution.SearchAttributes.GetIndexedFields()[abb.BountyTimeoutTimeKey.GetName()]; ok {
@@ -642,10 +668,23 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 					l.Warn("BountyStatus search attribute not found for list item", "workflow_id", execution.Execution.WorkflowId)
 					status = execution.Status.String() // Fallback to Temporal status
 				}
+
+				// Get BountyTier from Search Attributes
+				if tierPayload, ok := execution.SearchAttributes.GetIndexedFields()[abb.BountyTierKey.GetName()]; ok {
+					err = converter.GetDefaultDataConverter().FromPayload(tierPayload, &tier)
+					if err != nil {
+						l.Warn("Failed to decode BountyTier search attribute for list item", "workflow_id", execution.Execution.WorkflowId, "error", err)
+						tier = int64(abb.DefaultBountyTier) // Fallback to default
+					}
+				} else {
+					l.Warn("BountyTier search attribute not found for list item", "workflow_id", execution.Execution.WorkflowId)
+					tier = int64(abb.DefaultBountyTier) // Fallback to default
+				}
 			} else {
 				l.Warn("SearchAttributes missing in ListWorkflow response item", "workflow_id", execution.Execution.WorkflowId)
 				endTime = time.Time{}
 				status = execution.Status.String()
+				tier = int64(abb.DefaultBountyTier)
 			}
 
 			var remainingBountyValue float64
@@ -671,6 +710,7 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 				BountyOwnerWallet:    input.BountyOwnerWallet,
 				PlatformType:         input.Platform,
 				ContentKind:          input.ContentKind,
+				Tier:                 abb.BountyTier(tier),
 				CreatedAt:            execution.StartTime.AsTime(),
 				EndTime:              endTime,
 			})
@@ -1169,6 +1209,7 @@ func handleGetBountyByID(l *slog.Logger, tc client.Client) http.HandlerFunc {
 		// Extract EndTime from Search Attributes
 		var endTime time.Time
 		var status string // Variable to store the bounty status
+		var tier int64
 
 		if descResp.WorkflowExecutionInfo != nil && descResp.WorkflowExecutionInfo.SearchAttributes != nil {
 			if saPayload, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyTimeoutTimeKey.GetName()]; ok {
@@ -1201,10 +1242,23 @@ func handleGetBountyByID(l *slog.Logger, tc client.Client) http.HandlerFunc {
 				l.Warn("BountyStatus search attribute not found", "workflow_id", workflowID)
 				status = descResp.WorkflowExecutionInfo.Status.String() // Fallback to Temporal status
 			}
+
+			// Get BountyTier from Search Attributes
+			if tierPayload, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyTierKey.GetName()]; ok {
+				err = converter.GetDefaultDataConverter().FromPayload(tierPayload, &tier)
+				if err != nil {
+					l.Warn("Failed to decode BountyTier search attribute", "workflow_id", workflowID, "error", err)
+					tier = int64(abb.DefaultBountyTier) // Fallback to default
+				}
+			} else {
+				l.Warn("BountyTier search attribute not found", "workflow_id", workflowID)
+				tier = int64(abb.DefaultBountyTier)
+			}
 		} else {
 			l.Warn("SearchAttributes missing in DescribeWorkflowExecution response", "workflow_id", workflowID)
 			endTime = time.Time{}                                   // Set zero value if missing
 			status = descResp.WorkflowExecutionInfo.Status.String() // Fallback to Temporal status if all search attributes are missing
+			tier = int64(abb.DefaultBountyTier)
 		}
 
 		var remainingBountyValue float64
@@ -1235,6 +1289,7 @@ func handleGetBountyByID(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			BountyOwnerWallet:    input.BountyOwnerWallet,
 			PlatformType:         input.Platform,
 			ContentKind:          input.ContentKind,
+			Tier:                 abb.BountyTier(tier),
 			CreatedAt:            descResp.WorkflowExecutionInfo.StartTime.AsTime(),
 			EndTime:              endTime,
 		}

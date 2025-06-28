@@ -25,6 +25,7 @@ type contextKey int
 
 var ctxKeyJWT contextKey = 1
 var ctxKeyEmail contextKey = 2
+var ctxKeyTier contextKey = 3
 
 // RateLimiter implements a simple in-memory rate limiter
 type RateLimiter struct {
@@ -196,6 +197,7 @@ func bearerAuthorizerCtxSetToken(gsk func() string) func(http.ResponseWriter, *h
 			return false
 		}
 		ctx := context.WithValue(r.Context(), ctxKeyJWT, token.Claims)
+		ctx = context.WithValue(ctx, ctxKeyTier, claims.Tier)
 		*r = *r.WithContext(ctx)
 		return true
 	}
@@ -254,10 +256,12 @@ func atLeastOneAuth(authorizers ...func(http.ResponseWriter, *http.Request) bool
 	}
 }
 
+// authJWTClaims represents the JWT claims for authentication
 type authJWTClaims struct {
 	jwt.StandardClaims
 	Email  string `json:"email"`
 	Status int    `json:"status"`
+	Tier   int    `json:"tier"`
 }
 
 type DefaultJSONResponse struct {

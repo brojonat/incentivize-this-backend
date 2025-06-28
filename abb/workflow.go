@@ -37,6 +37,7 @@ var (
 	BountyTimeoutTimeKey    = temporal.NewSearchAttributeKeyTime("BountyTimeoutTime")
 	BountyStatusKey         = temporal.NewSearchAttributeKeyString("BountyStatus")
 	BountyValueRemainingKey = temporal.NewSearchAttributeKeyFloat64("BountyValueRemaining")
+	BountyTierKey           = temporal.NewSearchAttributeKeyInt64("BountyTier")
 )
 
 // BountyCompletionStatus defines the various ways a bounty workflow can conclude.
@@ -105,10 +106,11 @@ type BountyAssessmentWorkflowInput struct {
 	TotalCharged       *solana.USDCAmount `json:"total_charged"`
 	BountyOwnerWallet  string             `json:"bounty_owner_wallet"`
 	BountyFunderWallet string             `json:"bounty_funder_wallet"`
-	Platform           PlatformKind       // The platform type (Reddit, YouTube, etc.)
-	ContentKind        ContentKind        // The content kind (post, comment, video, etc.)
-	PaymentTimeout     time.Duration      // How long to wait for funding/payment verification
-	Timeout            time.Duration      // How long the bounty should remain active
+	Platform           PlatformKind       `json:"platform"`
+	ContentKind        ContentKind        `json:"content_kind"`
+	Tier               BountyTier         `json:"tier"`
+	PaymentTimeout     time.Duration      `json:"payment_timeout"`
+	Timeout            time.Duration      `json:"timeout"`
 	TreasuryWallet     string             `json:"treasury_wallet"`
 	EscrowWallet       string             `json:"escrow_wallet"`
 }
@@ -160,6 +162,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 			Requirements:         input.Requirements,
 			Platform:             input.Platform,
 			ContentKind:          input.ContentKind,
+			Tier:                 input.Tier,
 			BountyOwnerWallet:    input.BountyOwnerWallet,
 			BountyFunderWallet:   input.BountyFunderWallet,
 			OriginalTotalBounty:  input.TotalCharged,
@@ -399,6 +402,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 		BountyTotalAmountKey.ValueSet(input.TotalBounty.ToUSDC()),
 		BountyPerPostAmountKey.ValueSet(input.BountyPerPost.ToUSDC()),
 		BountyValueRemainingKey.ValueSet(input.TotalBounty.ToUSDC()),
+		BountyTierKey.ValueSet(int64(input.Tier)),
 	); err != nil {
 		logger.Error("Failed to upsert initial bounty value search attributes", "error", err)
 		// Decide if this should be fatal or just a warning

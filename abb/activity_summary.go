@@ -20,6 +20,7 @@ type BountySummaryData struct {
 	Requirements         []string           `json:"requirements"`
 	Platform             PlatformKind       `json:"platform"`
 	ContentKind          ContentKind        `json:"content_kind"`
+	Tier                 BountyTier         `json:"tier"`
 	BountyOwnerWallet    string             `json:"bounty_owner_wallet"`
 	BountyFunderWallet   string             `json:"bounty_funder_wallet"`
 	OriginalTotalBounty  *solana.USDCAmount `json:"original_total_bounty"`  // This is TotalCharged from workflow input
