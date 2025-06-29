@@ -50,24 +50,24 @@ type BountyDefinition struct {
 
 // Environment variables used by the CLI
 const (
-	EnvSolanaRPCEndpoint      = "SOLANA_RPC_ENDPOINT"
-	EnvSolanaWsEndpoint       = "SOLANA_WS_ENDPOINT"
-	EnvSolanaEscrowWallet     = "SOLANA_ESCROW_WALLET"
-	EnvSolanaEscrowPrivateKey = "SOLANA_ESCROW_PRIVATE_KEY"
-	EnvSolanaUSDCMintAddress  = "SOLANA_USDC_MINT_ADDRESS"
-	EnvServerEndpoint         = "SERVER_ENDPOINT"
-	EnvAuthToken              = "ABB_AUTH_TOKEN"
-	EnvUsername               = "ABB_USERNAME"
-	EnvPassword               = "ABB_PASSWORD"
-	EnvContactUsURL           = "CONTACT_US_URL"
-	EnvDotEnvPath             = "DOTENV_PATH"
-	EnvServerSecretKey        = "ABB_SECRET_KEY"
-	EnvAbbDatabaseURL         = "ABB_DATABASE_URL"
-	EnvSolanaTreasuryWallet   = "SOLANA_TREASURY_WALLET"
-	EnvTestFunderWallet        = "TEST_FUNDER_WALLET"
-	EnvTestOwnerWallet         = "TEST_OWNER_WALLET"
-	EnvSolanaTestCreatorWallet = "SOLANA_TEST_CREATOR_WALLET"
-	EnvTestFunderPrivateKey    = "TEST_FUNDER_PRIVATE_KEY"
+	EnvServerEndpoint             = "SERVER_ENDPOINT"
+	EnvAuthToken                  = "ABB_AUTH_TOKEN"
+	EnvUsername                   = "ABB_USERNAME"
+	EnvPassword                   = "ABB_PASSWORD"
+	EnvContactUsURL               = "CONTACT_US_URL"
+	EnvDotEnvPath                 = "DOTENV_PATH"
+	EnvServerSecretKey            = "ABB_SECRET_KEY"
+	EnvAbbDatabaseURL             = "ABB_DATABASE_URL"
+	EnvSolanaRPCEndpoint          = "SOLANA_RPC_ENDPOINT"
+	EnvSolanaWsEndpoint           = "SOLANA_WS_ENDPOINT"
+	EnvSolanaEscrowWallet         = "SOLANA_ESCROW_WALLET"
+	EnvSolanaEscrowPrivateKey     = "SOLANA_ESCROW_PRIVATE_KEY"
+	EnvSolanaUSDCMintAddress      = "SOLANA_USDC_MINT_ADDRESS"
+	EnvSolanaTreasuryWallet       = "SOLANA_TREASURY_WALLET"
+	EnvSolanaTestFunderWallet     = "SOLANA_TEST_FUNDER_WALLET"
+	EnvSolanaTestOwnerWallet      = "SOLANA_TEST_OWNER_WALLET"
+	EnvSolanaTestCreatorWallet    = "SOLANA_TEST_CREATOR_WALLET"
+	EnvSolanaTestFunderPrivateKey = "SOLANA_TEST_FUNDER_PRIVATE_KEY"
 )
 
 func getAuthToken(ctx *cli.Context) error {
@@ -497,8 +497,8 @@ func getWalletBalancesAction(c *cli.Context) error {
 	ctx := context.Background()
 
 	wallets := []walletInfo{
-		{Name: "Test Funder", EnvVar: EnvTestFunderWallet},
-		{Name: "Test Owner", EnvVar: EnvTestOwnerWallet},
+		{Name: "Test Funder", EnvVar: EnvSolanaTestFunderWallet},
+		{Name: "Test Owner", EnvVar: EnvSolanaTestOwnerWallet},
 		{Name: "Test Creator", EnvVar: EnvSolanaTestCreatorWallet},
 		{Name: "Escrow", EnvVar: EnvSolanaEscrowWallet},
 		{Name: "Treasury", EnvVar: EnvSolanaTreasuryWallet},
@@ -912,8 +912,8 @@ func bootstrapBountiesAction(ctx *cli.Context) error {
 
 	logger.Info("Successfully parsed YAML file", "bounties_to_process", len(bootstrapConfig.Bounties))
 
-	defaultBountyOwnerWallet := os.Getenv(EnvTestOwnerWallet)
-	defaultBountyFunderWallet := os.Getenv(EnvTestFunderWallet)
+	defaultBountyOwnerWallet := os.Getenv(EnvSolanaTestOwnerWallet)
+	defaultBountyFunderWallet := os.Getenv(EnvSolanaTestFunderWallet)
 
 	specifiedBountyNames := ctx.StringSlice("name")
 	bountiesToProcessInLoop := bootstrapConfig.Bounties
@@ -1241,12 +1241,12 @@ func adminCommands() []*cli.Command {
 							Name:     "bounty-owner-wallet",
 							Required: true,
 							Usage:    "Wallet address of the bounty owner",
-							EnvVars:  []string{EnvTestOwnerWallet},
+							EnvVars:  []string{EnvSolanaTestOwnerWallet},
 						},
 						&cli.StringFlag{
 							Name:    "bounty-funder-wallet",
 							Usage:   "Solana wallet address providing the initial bounty funds (checked for payment)",
-							EnvVars: []string{EnvTestFunderWallet},
+							EnvVars: []string{EnvSolanaTestFunderWallet},
 						},
 						&cli.StringFlag{
 							Name:    "duration",
@@ -1409,7 +1409,7 @@ func adminCommands() []*cli.Command {
 						&cli.StringFlag{
 							Name:    "funder-secret-key", // For funding part
 							Usage:   "Base58 encoded private key string of the funder for escrow funding",
-							EnvVars: []string{EnvTestFunderPrivateKey},
+							EnvVars: []string{EnvSolanaTestFunderPrivateKey},
 							// Not strictly required here if all bounties in YAML specify it, but good to have as default
 						},
 						&cli.StringFlag{
@@ -1469,7 +1469,7 @@ func adminCommands() []*cli.Command {
 						&cli.StringFlag{
 							Name:     "from-secret",
 							Usage:    "Base58 encoded private key string of the funder",
-							EnvVars:  []string{EnvTestFunderPrivateKey},
+							EnvVars:  []string{EnvSolanaTestFunderPrivateKey},
 							Required: true,
 						},
 						&cli.StringFlag{

@@ -290,16 +290,19 @@ func handleCreateBounty(
 
 		// Define the JSON schema for the expected output
 		schema := map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"PlatformKind": map[string]interface{}{
-					"type":        "string",
-					"description": "The platform that the content is hosted on.",
-					"enum":        validPlatformKindsStr,
-				},
-				"ContentKind": map[string]interface{}{
-					"type": "string",
-					"description": `The kind of content that the bounty is for. This is platform dependent. The valid options are:
+			"name":   "infer_content_parameters",
+			"strict": true,
+			"schema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"PlatformKind": map[string]interface{}{
+						"type":        "string",
+						"description": "The platform that the bounty is for.",
+						"enum":        validPlatformKindsStr,
+					},
+					"ContentKind": map[string]interface{}{
+						"type": "string",
+						"description": `The kind of content that the bounty is for. This is platform dependent. The valid options are:
 - Reddit: post, comment
 - YouTube: video, comment
 - Twitch: video, clip
@@ -307,14 +310,16 @@ func handleCreateBounty(
 - Bluesky: post
 - Instagram: post
 - IncentivizeThis: bounty`,
-					"enum": validContentKindsStr,
+						"enum": validContentKindsStr,
+					},
+					"Error": map[string]interface{}{
+						"type":        "string",
+						"description": "An error message if platform and content kind cannot be determined.",
+					},
 				},
-				"Error": map[string]interface{}{
-					"type":        "string",
-					"description": "An error message if platform and content kind cannot be determined.",
-				},
+				"required":             []string{"PlatformKind", "ContentKind", "Error"},
+				"additionalProperties": false,
 			},
-			"required": []string{"PlatformKind", "ContentKind"},
 		}
 
 		promptFormat := `Given the bounty requirement: "%s".
@@ -340,16 +345,8 @@ Determine the most appropriate PlatformKind and ContentKind.
 			return
 		}
 
-		// Log the inferred parameters before validation
-		logger.Info("LLM inferred parameters",
-			"inferred_platform_kind", inferredParams.PlatformKind,
-			"inferred_content_kind", inferredParams.ContentKind,
-			"llm_error_field", inferredParams.Error,
-		)
-
-		if inferredParams.Error != "" || inferredParams.PlatformKind == "" || inferredParams.ContentKind == "" {
-			logger.Warn("LLM could not determine PlatformKind/ContentKind or reported an error", "llm_error", inferredParams.Error, "inferred_platform", inferredParams.PlatformKind, "inferred_content", inferredParams.ContentKind)
-			writeBadRequestError(w, fmt.Errorf("could not determine PlatformKind and ContentKind from requirements: %s", inferredParams.Error))
+		if inferredParams.Error != "" {
+			writeBadRequestError(w, fmt.Errorf("failed to infer content parameters from requirements: %s", inferredParams.Error))
 			return
 		}
 

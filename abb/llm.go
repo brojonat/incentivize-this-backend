@@ -129,16 +129,11 @@ func (p *OpenAIProvider) Complete(ctx context.Context, prompt string, schema map
 		Temperature: p.cfg.Temperature,
 	}
 
-	// Set the response format based on whether a schema is provided
+	// Set the response format only if a schema is provided
 	if schema != nil {
 		reqBody.ResponseFormat = &responseFormat{
 			Type:       "json_schema",
 			JSONSchema: schema,
-		}
-	} else {
-		// Default to json_object if no schema is given
-		reqBody.ResponseFormat = &responseFormat{
-			Type: "json_object",
 		}
 	}
 
@@ -148,8 +143,14 @@ func (p *OpenAIProvider) Complete(ctx context.Context, prompt string, schema map
 		return "", fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
+	// Determine the URL to use
+	url := "https://api.openai.com/v1/chat/completions"
+	if p.cfg.BaseURL != "" {
+		url = p.cfg.BaseURL
+	}
+
 	// Create request
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -201,24 +202,49 @@ func (p *OpenAIImageProvider) AnalyzeImage(ctx context.Context, imageData []byte
 	base64Image := base64.StdEncoding.EncodeToString(imageData)
 	imageUrl := fmt.Sprintf("data:image/jpeg;base64,%s", base64Image) // Assuming JPEG, adjust if needed or detect mime type
 
-	// Construct the structured prompt asking for JSON output
-	structuredPrompt := fmt.Sprintf(`%s
-
-You must analyze the image based ONLY on the requirements related to visual content. Ignore requirements about text, links, or other non-visual aspects.
-Respond ONLY with a valid JSON object containing two keys: "satisfies" (a boolean indicating if the image meets the relevant requirements) and "reason" (a string explaining your decision). Example: {"satisfies": true, "reason": "Image meets all visual criteria."}
-If there are no specific visual requirements mentioned, respond with {"satisfies": true, "reason": "No specific visual requirements specified."}`, prompt)
+	// Define the JSON schema for the expected output
+	schema := map[string]interface{}{
+		"name":        "image_analysis",
+		"description": "Analysis of an image based on provided requirements.",
+		"strict":      true,
+		"schema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"satisfies": map[string]interface{}{
+					"type":        "boolean",
+					"description": "Whether the image satisfies the visual requirements.",
+				},
+				"reason": map[string]interface{}{
+					"type":        "string",
+					"description": "The reason why the image does or does not satisfy the requirements.",
+				},
+			},
+			"required":             []string{"satisfies", "reason"},
+			"additionalProperties": false,
+		},
+	}
 
 	// Create request body for GPT-4 Vision API
-	// Reference: https://platform.openai.com/docs/guides/vision
 	reqBody := struct {
-		Model    string `json:"model"`
+		Model          string `json:"model"`
+		ResponseFormat struct {
+			Type       string      `json:"type"`
+			JSONSchema interface{} `json:"json_schema"`
+		} `json:"response_format"`
 		Messages []struct {
 			Role    string        `json:"role"`
 			Content []interface{} `json:"content"` // Content is an array for vision
 		} `json:"messages"`
-		MaxTokens int `json:"max_tokens"` // Max tokens for the *text* response
+		MaxTokens int `json:"max_tokens"`
 	}{
 		Model: p.cfg.Model,
+		ResponseFormat: struct {
+			Type       string      `json:"type"`
+			JSONSchema interface{} `json:"json_schema"`
+		}{
+			Type:       "json_schema",
+			JSONSchema: schema,
+		},
 		Messages: []struct {
 			Role    string        `json:"role"`
 			Content []interface{} `json:"content"`
@@ -226,12 +252,12 @@ If there are no specific visual requirements mentioned, respond with {"satisfies
 			{
 				Role: "user",
 				Content: []interface{}{
-					map[string]string{"type": "text", "text": structuredPrompt},
+					map[string]string{"type": "text", "text": prompt},
 					map[string]interface{}{"type": "image_url", "image_url": map[string]string{"url": imageUrl}},
 				},
 			},
 		},
-		MaxTokens: 1000, // Adjust max response tokens as needed
+		MaxTokens: 2048,
 	}
 
 	// Marshal request body
@@ -265,35 +291,28 @@ If there are no specific visual requirements mentioned, respond with {"satisfies
 	}
 
 	// Parse standard chat completion response to get the raw text content
-	var completionResponse struct {
+	var apiResponse struct {
 		Choices []struct {
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := json.Unmarshal(bodyBytes, &completionResponse); err != nil {
-		return CheckContentRequirementsResult{}, fmt.Errorf("failed to parse OpenAI vision completion response: %w (body: %s)", err, string(bodyBytes))
+	if err := json.Unmarshal(bodyBytes, &apiResponse); err != nil {
+		return CheckContentRequirementsResult{}, fmt.Errorf("failed to decode OpenAI vision API response: %w", err)
 	}
 
-	if len(completionResponse.Choices) == 0 || completionResponse.Choices[0].Message.Content == "" {
-		return CheckContentRequirementsResult{}, fmt.Errorf("no analysis content in OpenAI vision response")
+	if len(apiResponse.Choices) == 0 || apiResponse.Choices[0].Message.Content == "" {
+		return CheckContentRequirementsResult{}, fmt.Errorf("received an empty response from OpenAI vision API")
 	}
 
-	// Now, parse the message content as JSON into CheckContentRequirementsResult
-	llmResponseContent := strings.TrimSpace(completionResponse.Choices[0].Message.Content)
-	if strings.HasPrefix(llmResponseContent, "```json") {
-		llmResponseContent = strings.TrimPrefix(llmResponseContent, "```json")
-		llmResponseContent = strings.TrimSuffix(llmResponseContent, "```")
-	}
-	llmResponseContent = strings.TrimSpace(llmResponseContent)
-
-	var result CheckContentRequirementsResult
-	if err := json.Unmarshal([]byte(llmResponseContent), &result); err != nil {
-		return CheckContentRequirementsResult{}, fmt.Errorf("failed to parse LLM JSON response for image analysis: %w (raw_content: %s)", err, llmResponseContent)
+	// The response content is a JSON string, so we need to unmarshal it
+	var analysisResult CheckContentRequirementsResult
+	if err := json.Unmarshal([]byte(apiResponse.Choices[0].Message.Content), &analysisResult); err != nil {
+		return CheckContentRequirementsResult{}, fmt.Errorf("failed to unmarshal JSON from vision API response content: %w. Content: %s", err, apiResponse.Choices[0].Message.Content)
 	}
 
-	return result, nil
+	return analysisResult, nil
 }
 
 // OpenAIEmbeddingProvider implements LLMEmbeddingProvider for OpenAI

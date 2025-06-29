@@ -1011,6 +1011,12 @@ func awaitLoopUntilEmptyOrTimeout(
 						walletsThatReceivedPayout[signal.PayoutWallet] = true
 						logger.Debug("Recorded wallet in walletsThatReceivedPayout map", "PayoutWallet", signal.PayoutWallet)
 						// --- End Record Payout Detail ---
+
+						// Set status back to listening after successful payout
+						err = workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusListening)))
+						if err != nil {
+							logger.Error("Failed to update search attribute BountyStatus back to Listening after successful payout", "error", err)
+						}
 					}
 				} else {
 					logger.Info("Payout amount is zero for this content, no payout processed.", "ContentID", signal.ContentID)

@@ -261,8 +261,6 @@ FUND_AMOUNT = $(TOTAL_AMOUNT) # Amount to fund via fund-escrow, assuming it matc
 # Ensure these are set in your environment (e.g., from .env.server.debug or .env.worker.debug)
 # Or replace with actual values if not using environment variables for these targets.
 ABB_AUTH_TOKEN ?= "your_auth_token_here" # Must be a valid token
-BOUNTY_OWNER_WALLET ?= "$(SOLANA_TEST_OWNER_WALLET)" # Must be a valid Base58 public key
-BOUNTY_FUNDER_WALLET ?= "$(SOLANA_TEST_FUNDER_WALLET)" # Must be a valid Base58 public key
 
 # Define requirement strings for bounties
 define REDDIT_POST_REQ
@@ -329,7 +327,9 @@ create-reddit-post-bounty: build-cli ## Create a test Reddit Post bounty
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
 		-r "$(REDDIT_POST_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
-		--total "$(TOTAL_AMOUNT)"`; \
+		--total "$(TOTAL_AMOUNT)" \
+		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
+		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
@@ -354,7 +354,9 @@ create-reddit-comment-bounty: build-cli ## Create a test Reddit Comment bounty
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
 		-r "$(REDDIT_COMMENT_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
-		--total "$(TOTAL_AMOUNT)"`; \
+		--total "$(TOTAL_AMOUNT)" \
+		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
+		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
@@ -379,7 +381,9 @@ create-youtube-bounty: build-cli ## Create a test YouTube bounty
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
 		-r "$(YOUTUBE_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
-		--total "$(TOTAL_AMOUNT)"`; \
+		--total "$(TOTAL_AMOUNT)" \
+		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
+		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
@@ -404,7 +408,9 @@ create-twitch-bounty: build-cli ## Create a test Twitch bounty
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
 		-r "$(TWITCH_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
-		--total "$(TOTAL_AMOUNT)"`; \
+		--total "$(TOTAL_AMOUNT)" \
+		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
+		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
@@ -429,7 +435,9 @@ create-bluesky-bounty: build-cli ## Create a test Bluesky bounty
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
 		-r "$(BLUESKY_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
-		--total "$(TOTAL_AMOUNT)"`; \
+		--total "$(TOTAL_AMOUNT)" \
+		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
+		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
@@ -454,7 +462,9 @@ create-hackernews-comment-bounty: build-cli ## Create a test Hacker News Comment
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
 		-r "$(HACKERNEWS_COMMENT_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
-		--total "$(TOTAL_AMOUNT)"`; \
+		--total "$(TOTAL_AMOUNT)" \
+		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
+		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
@@ -479,7 +489,9 @@ create-hackernews-post-bounty: build-cli ## Create a simple test Hacker News pos
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
 		-r "$(HACKERNEWS_POST_REQ)" \
 		--per-post $(PER_POST_AMOUNT) \
-		--total $(TOTAL_AMOUNT)`; \
+		--total $(TOTAL_AMOUNT) \
+		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
+		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
@@ -504,7 +516,9 @@ create-instagram-post-bounty: build-cli ## Create a test Instagram Post bounty f
 	@OUTPUT=`$(ABB_CMD) admin bounty create \
 		-r "$(INSTAGRAM_POST_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
-		--total "$(TOTAL_AMOUNT)"`; \
+		--total "$(TOTAL_AMOUNT)" \
+		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
+		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
@@ -539,18 +553,32 @@ CONCURRENT_BOUNTY_TARGETS := \
 
 # Target to create and fund one bounty for each platform concurrently
 create-and-fund-bounties: ## Create and fund example bounties for all platforms (concurrently)
+	@mkdir -p logs
 	echo "Starting concurrent creation and funding of platform bounties..."
 	@pids=""; \
+	declare -A pid_to_target; \
 	for target_name in $(CONCURRENT_BOUNTY_TARGETS); do \
-		echo "Starting $$target_name..."; \
+		echo "Starting $$target_name... Log file: logs/$${target_name}.log"; \
 		$(MAKE) $$target_name > logs/$${target_name}.log 2>&1 & \
-		pids="$$pids $$!"; \
+		pid=$$!; \
+		pids="$$pids $$pid"; \
+		pid_to_target[$$pid]=$$target_name; \
 	done; \
 	echo "Waiting for all bounty creation jobs (PIDs:$$pids) to complete..."; \
+	any_failed=false; \
 	for pid in $$pids; do \
-		wait $$pid || echo "A bounty creation job (PID: $$pid) may have failed."; \
+		if ! wait $$pid; then \
+			target_name=$${pid_to_target[$$pid]}; \
+			echo "!!! ERROR: The '$$target_name' job (PID: $$pid) failed. Check logs/$$target_name.log for details." >&2; \
+			any_failed=true; \
+		fi; \
 	done; \
-	echo "All platform bounty creation and funding processes complete."
+	if $$any_failed; then \
+		echo "One or more bounty creation jobs failed." >&2; \
+		exit 1; \
+	else \
+		echo "All platform bounty creation and funding processes completed successfully."; \
+	fi
 
 create-from-yaml: build-cli ## Create and fund all bounties from a given YAML file (e.g., make create-from-yaml YAML_FILE=bounties_bootstrap.prod.yaml)
 	$(call setup_env, .env.server.debug)

@@ -67,19 +67,23 @@ Analyze the content against the requirements and determine if it satisfies them.
 
 	// Define the JSON schema for the expected output
 	schema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"satisfies": map[string]interface{}{
-				"type":        "boolean",
-				"description": "A boolean indicating if the content meets the requirements.",
+		"name":   "content_requirements_check",
+		"strict": true,
+		"schema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"satisfies": map[string]interface{}{
+					"type":        "boolean",
+					"description": "A boolean indicating if the content meets the requirements.",
+				},
+				"reason": map[string]interface{}{
+					"type":        "string",
+					"description": "A string explaining your decision.",
+				},
 			},
-			"reason": map[string]interface{}{
-				"type":        "string",
-				"description": "A string explaining your decision.",
-			},
+			"required":             []string{"satisfies", "reason"},
+			"additionalProperties": false,
 		},
-		"required": []string{"satisfies", "reason"},
-		"strict":   true,
 	}
 
 	// Create LLM provider instance from config fetched within the activity
@@ -170,19 +174,23 @@ Based *only* on the requirements pertaining to payout wallet restrictions (ignor
 	logger.Info("Sending wallet validation prompt to LLM", "estimated_tokens", estimatedTokens, "prompt_length_chars", len(prompt))
 
 	schema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"satisfies": map[string]interface{}{
-				"type":        "boolean",
-				"description": "True if the wallet is allowed by the requirements, false otherwise.",
+		"name":   "payout_wallet_validation",
+		"strict": true,
+		"schema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"satisfies": map[string]interface{}{
+					"type":        "boolean",
+					"description": "True if the wallet is allowed by the requirements, false otherwise.",
+				},
+				"reason": map[string]interface{}{
+					"type":        "string",
+					"description": "Explanation for the decision based *only* on wallet restrictions.",
+				},
 			},
-			"reason": map[string]interface{}{
-				"type":        "string",
-				"description": "Explanation for the decision based *only* on wallet restrictions.",
-			},
+			"required":             []string{"satisfies", "reason"},
+			"additionalProperties": false,
 		},
-		"required": []string{"satisfies", "reason"},
-		"strict":   true,
 	}
 
 	llmProvider, err := NewLLMProvider(cfg.LLMConfig)
@@ -334,19 +342,23 @@ Requirements:
 	logger.Info("Sending prompt to LLM for ShouldPerformImageAnalysisActivity", "estimated_tokens", len(prompt)/4)
 
 	schema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"should_analyze": map[string]interface{}{
-				"type":        "boolean",
-				"description": "True if the requirements mention visual aspects of an image/thumbnail.",
+		"name":   "should_perform_image_analysis",
+		"strict": true,
+		"schema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"should_analyze": map[string]interface{}{
+					"type":        "boolean",
+					"description": "True if the requirements mention visual aspects of an image/thumbnail.",
+				},
+				"reason": map[string]interface{}{
+					"type":        "string",
+					"description": "Explanation for the decision.",
+				},
 			},
-			"reason": map[string]interface{}{
-				"type":        "string",
-				"description": "Explanation for the decision.",
-			},
+			"required":             []string{"should_analyze", "reason"},
+			"additionalProperties": false,
 		},
-		"required": []string{"should_analyze", "reason"},
-		"strict":   true,
 	}
 
 	llmProvider, err := NewLLMProvider(cfg.LLMConfig) // Use the general text LLM for this decision
