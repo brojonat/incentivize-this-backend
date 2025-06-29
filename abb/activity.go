@@ -838,7 +838,7 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 		var content BlueskyContent // Assumes BlueskyContent struct is defined/accessible
 		postItemJSON := responseData.Posts[0]
 		if jsonErr := json.Unmarshal(postItemJSON, &content); jsonErr != nil {
-			return nil, fmt.Errorf("failed to unmarshal Bluesky post record to extract text", "uri", content.Uri, "error", jsonErr)
+			return nil, fmt.Errorf("failed to unmarshal Bluesky post record to extract text: %w (uri: %s)", jsonErr, content.Uri)
 		}
 
 		// Extract text from record
