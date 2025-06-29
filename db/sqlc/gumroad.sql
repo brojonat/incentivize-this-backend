@@ -1,4 +1,4 @@
--- name: InsertGumroadSale :one
+-- name: InsertGumroadSale :exec
 INSERT INTO gumroad_sales (
     id,
     product_id,
@@ -31,21 +31,26 @@ INSERT INTO gumroad_sales (
     subscription_ended_at,
     subscription_cancelled_at,
     subscription_failed_at,
-    raw_data,
     it_notified,
     it_api_key
 )
 VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+    $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
+    $31, $32, $33
 )
-RETURNING *;
+ON CONFLICT (id) DO NOTHING;
 
 -- name: GetUnnotifiedGumroadSales :many
-SELECT * FROM gumroad_sales
-WHERE it_notified = FALSE
-AND sale_timestamp >= sqlc.arg(min_sale_timestamp);
+SELECT *
+FROM gumroad_sales
+WHERE it_notified IS DISTINCT FROM TRUE;
 
 -- name: UpdateGumroadSaleNotification :exec
 UPDATE gumroad_sales
-SET it_notified = TRUE, it_api_key = sqlc.arg(api_key)
-WHERE id = sqlc.arg(id);
+SET it_notified = TRUE, it_api_key = @api_key
+WHERE id = @id;
+
+-- name: GetExistingGumroadSaleIDs :many
+SELECT id FROM gumroad_sales WHERE id = ANY(@sale_ids::text[]);

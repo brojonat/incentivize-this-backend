@@ -1,0 +1,1 @@
+ALTER TABLE gumroad_sales DROP COLUMN raw_data;

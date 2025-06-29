@@ -1,11 +1,7 @@
 bounties:
   - name: A
-    requirements: >
-      Write a comment about Austin's Hardwoods lumber store. The comment
-      must show the business in a positive light and emphasize their competitive
-      prices and the fact that they're a local business. The comment must have
-      at least 10 upvotes. The comment must be in one of the following
-      subreddits:
+    requirements: |
+      Write a comment about Austin's Hardwoods lumber store. The comment must show the business in a positive light and emphasize their competitive prices and the fact that they're a local business. The comment must have at least 10 upvotes. The comment must be in one of the following subreddits:
       - r/OrangeCounty
       - r/Irvine
       - r/SantaAna
@@ -17,21 +13,16 @@ bounties:
     fee_percentage: 0
 
   - name: B
-    requirements: >
-      Write an Instagram post about SuzieCakes. The post must show the business
-      in a positive light and emphasize their amazing baked goods and the fact
-      that they're a local business. The post must have at least 10 comments and
-      mention @susiecakesbakery and either #Austin or #OrangeCounty (or both).
+    requirements: |
+      Write an Instagram post about SuzieCakes. The post must show the business in a positive light and emphasize their amazing baked goods and the fact that they're a local business. The post must have at least 10 comments and mention @susiecakesbakery and either #Austin or #OrangeCounty (or both).
     total_amount: 10.0
     per_post_amount: 0.25
     duration: 180d
     fee_percentage: 0
 
   - name: C
-    requirements: >
-      Write a comment in one of the following subreddits that is an encouraging
-      comment that makes the poster feel good about what they've posted. The
-      comment must have at least 20 upvotes. Here are the valid subreddits:
+    requirements: |
+      Write a comment in one of the following subreddits that is an encouraging comment that makes the poster feel good about what they've posted. The comment must have at least 20 upvotes. Here are the valid subreddits:
       - r/houseplants
       - r/baking
       - r/woodworking
@@ -46,11 +37,8 @@ bounties:
     fee_percentage: 0
 
   - name: D
-    requirements: >
-      Write a post about DuckDB. The post must show the database in a positive
-      light and emphasize its speed and ease of use. It must also mention
-      DuckLake. The post must have at least 10 upvotes. The post must be in one
-      of the following subreddits:
+    requirements: |
+      Write a post about DuckDB. The post must show the database in a positive light and emphasize its speed and ease of use. It must also mention DuckLake. The post must have at least 10 upvotes. The post must be in one of the following subreddits:
       - r/dataengineering
       - r/databases
       - r/sql
@@ -61,95 +49,71 @@ bounties:
     fee_percentage: 0
 
   - name: E
-    requirements: >
-      Write a post about IncentivizeThis. The post must show the platform in a
-      positive light and emphasize its ease of use and the fact that it's a
-      community-driven platform. The post must have at least 10 replies, 10 likes,
-      and 10 reposts. The post must tag #incentivizethis and @brojonat.bsky.social.
+    requirements: |
+      Write a post about IncentivizeThis. The post must show the platform in a positive light and emphasize its ease of use and the fact that it's a community-driven platform. The post must have at least 10 replies, 10 likes, and 10 reposts. The post must tag #incentivizethis and @brojonat.bsky.social.
     total_amount: 5.0
     per_post_amount: 1.0
     duration: 180d
     fee_percentage: 0
 
   - name: F
-    requirements: >
-      Write a Hacker News post about IncentivizeThis. The post must show the
-      platform in a positive light and emphasize its ease of use and the fact
-      that it's a community-driven platform. The post must have at least 50
-      upvotes and 50 comments.
+    requirements: |
+      Write a Hacker News post about IncentivizeThis. The post must show the platform in a positive light and emphasize its ease of use and the fact that it's a community-driven platform. The post must have at least 50 upvotes and 50 comments.
     total_amount: 20.0
     per_post_amount: 5.0
     duration: 180d
     fee_percentage: 0
 
   - name: G
-    requirements: >
-      Write a Hacker News comment on a post that's about IncentivizeThis. The
-      comment must be at least 50 characters long and contribute meaningfully to
-      the discussion. The comment must have at least 2 upvotes.
+    requirements: |
+      Write a Hacker News comment on a post that's about IncentivizeThis. The comment must be at least 50 characters long and contribute meaningfully to the discussion. The comment must have at least 2 upvotes.
     total_amount: 30.0
     per_post_amount: 1.0
     duration: 180d
     fee_percentage: 0
 
   - name: H
-    requirements: >
-      Create a YouTube video about RocketMoney. The video must be at least 3
-      minutes long and have at least 5k views. It should emphasize the benefits
-      of using RocketMoney: that it can help you save money on your bills by
-      cancelling your unused subscriptions.
+    requirements: |
+      Create a YouTube video about RocketMoney. The video must be at least 3 minutes long and have at least 5k views. It should emphasize the benefits of using RocketMoney: that it can help you save money on your bills by cancelling your unused subscriptions.
     total_amount: 10.0
     per_post_amount: 5.0
     duration: 180d
     fee_percentage: 0
 
   - name: I
-    requirements: >
-      Create a Reddit comment about RocketMoney. It should have at least 10 upvotes.
-      It should emphasize the benefits of using RocketMoney: that it can help
-      you save money on your bills by cancelling your unused subscriptions.
+    requirements: |
+      Create a Reddit comment about RocketMoney. It should have at least 10 upvotes. It should emphasize the benefits of using RocketMoney: that it can help you save money on your bills by cancelling your unused subscriptions.
     total_amount: 5.0
     per_post_amount: 0.25
     duration: 30d
     fee_percentage: 0
 
   - name: J
-    requirements: >
-      Create a YouTube video about BetterHelp. The video must be at least 3
-      minutes long and have at least 5k views. It should emphasize the benefits
-      of using BetterHelp: that it can help connect you with a therapist.
+    requirements: |
+      Create a YouTube video about BetterHelp. The video must be at least 3 minutes long and have at least 5k views. It should emphasize the benefits of using BetterHelp: that it can help connect you with a therapist.
     total_amount: 5.0
     per_post_amount: 5.0
     duration: 30d
     fee_percentage: 0
 
   - name: K
-    requirements: >
-      Create a Reddit comment about BetterHelp. It should have at least 10 upvotes.
-      It should emphasize the benefits of using BetterHelp: that it can help
-      connect you with a therapist.
+    requirements: |
+      Create a Reddit comment about BetterHelp. It should have at least 10 upvotes. It should emphasize the benefits of using BetterHelp: that it can help connect you with a therapist.
     total_amount: 5.0
     per_post_amount: 0.25
     fee_percentage: 0
 
   - name: L
-    requirements: >
-      Create a YouTube video about NordVPN. The video must be at least 3 minutes
-      long and have at least 5k views. It should emphasize the benefits of using
-      NordVPN: that it can help you stay safe online by encrypting your traffic.
-      It should also mention that it's a good way to access content that is
-      blocked in your country.
+    requirements: |
+      Create a YouTube video about NordVPN. The video must be at least 3 minutes long and have at least 5k views. It should emphasize the benefits of using NordVPN: that it can help you stay safe online by encrypting your traffic. It should also mention that it's a good way to access content that is blocked in your country.
     total_amount: 5.0
     per_post_amount: 2.5
     duration: 180d
     fee_percentage: 0
 
   - name: M
-    requirements: >
-      Create a reddit comment about NordVPN. It should have at least 10 upvotes.
-      It should emphasize the benefits of using NordVPN: that it can help you
-      stay safe online by encrypting your traffic. It should also mention that
-      it's a good way to access content that is blocked in your country.
+    requirements: |
+      Create a reddit comment about NordVPN. It should have at least 10 upvotes. It should emphasize the benefits of using NordVPN: that it can help you stay safe online by encrypting your traffic. It should also mention that it's a good way to access content that is blocked in your country. The comment must be in one of the following subreddits:
       - r/netflix
       - r/hulu
       - r/disneyplus

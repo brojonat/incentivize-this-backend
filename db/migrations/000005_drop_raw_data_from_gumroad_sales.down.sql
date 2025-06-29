@@ -1,0 +1,1 @@
+ALTER TABLE gumroad_sales ADD COLUMN raw_data JSONB;

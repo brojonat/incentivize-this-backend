@@ -441,7 +441,16 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		requireStatus(UserStatusSudo),
 	))
 
-	// Gumroad notification route (sudo access required)
+	// Route for inserting gumroad sales (sudo access required)
+	mux.HandleFunc("POST /gumroad", stools.AdaptHandler(
+		handleInsertGumroadSales(logger, querier),
+		withLogging(logger),
+		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		requireStatus(UserStatusSudo),
+	))
+
+	// Route for notifying gumroad sales (sudo access required). This will fetch unnotified gumroad sales
+	// and launch a workflow to notify them.
 	mux.HandleFunc("POST /gumroad/notify", stools.AdaptHandler(
 		handleNotifyGumroadSales(logger, querier, tc),
 		withLogging(logger),
@@ -449,7 +458,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		requireStatus(UserStatusSudo),
 	))
 
-	// Route for Temporal workflow to mark a Gumroad sale as notified
+	// Route for marking a Gumroad sale as notified (sudo access required)
 	mux.HandleFunc("POST /gumroad/notified", stools.AdaptHandler(
 		handleMarkGumroadSaleNotified(logger, querier),
 		withLogging(logger),
@@ -640,7 +649,7 @@ func setupGumroadNotifySchedule(ctx context.Context, logger *slog.Logger, tc cli
 	scheduleOptions := client.ScheduleOptions{
 		ID: scheduleID, // The ID for the schedule itself
 		Spec: client.ScheduleSpec{
-			CronExpressions: []string{"*/5 * * * *"}, // Every 5 minutes
+			CronExpressions: []string{"* * * * *"}, // Every minute
 		},
 		Action: &client.ScheduleWorkflowAction{
 			Workflow:  abb.GumroadNotifyWorkflow,

@@ -59,7 +59,6 @@ type GumroadSale struct {
 	SubscriptionEndedAt     pgtype.Timestamptz `json:"subscription_ended_at"`
 	SubscriptionCancelledAt pgtype.Timestamptz `json:"subscription_cancelled_at"`
 	SubscriptionFailedAt    pgtype.Timestamptz `json:"subscription_failed_at"`
-	RawData                 []byte             `json:"raw_data"`
 	ItNotified              pgtype.Bool        `json:"it_notified"`
 	ItApiKey                pgtype.Text        `json:"it_api_key"`
 }

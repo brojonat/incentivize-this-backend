@@ -43,8 +43,6 @@ CREATE TABLE gumroad_sales (
     subscription_ended_at TIMESTAMPTZ,
     subscription_cancelled_at TIMESTAMPTZ,
     subscription_failed_at TIMESTAMPTZ,
-    -- Raw JSON data from the API for any fields not explicitly mapped or for future use
-    raw_data JSONB,
     -- IncentivizeThis-specific fields
     it_notified BOOLEAN DEFAULT FALSE,
     it_api_key TEXT

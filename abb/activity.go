@@ -14,10 +14,12 @@ import (
 	"strings"
 	"time"
 
-	solanago "github.com/gagliardetto/solana-go"
-	"github.com/jmespath/go-jmespath"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
+
+	"github.com/brojonat/affiliate-bounty-board/db/dbgen"
+	solanago "github.com/gagliardetto/solana-go"
+	"github.com/jmespath/go-jmespath"
 )
 
 // Environment Variable Keys for Configuration
@@ -836,7 +838,7 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 		var content BlueskyContent // Assumes BlueskyContent struct is defined/accessible
 		postItemJSON := responseData.Posts[0]
 		if jsonErr := json.Unmarshal(postItemJSON, &content); jsonErr != nil {
-			return nil, fmt.Errorf("failed to unmarshal Bluesky post view content: %w (json: %s)", jsonErr, string(postItemJSON))
+			return nil, fmt.Errorf("failed to unmarshal Bluesky post record to extract text", "uri", content.Uri, "error", jsonErr)
 		}
 
 		// Extract text from record
@@ -1046,61 +1048,89 @@ type CallGumroadNotifyActivityInput struct {
 // This is intended to be called by a scheduled workflow to periodically trigger notifications
 // for Gumroad sales within the specified lookback window.
 func (a *Activities) CallGumroadNotifyActivity(ctx context.Context, input CallGumroadNotifyActivityInput) error {
-	logger := activity.GetLogger(ctx)
-	logger.Info("CallGumroadNotifyActivity started", "lookbackDuration", input.LookbackDuration)
-
 	cfg, err := getConfiguration(ctx)
 	if err != nil {
-		logger.Error("Failed to get configuration for CallGumroadNotifyActivity", "error", err)
 		return fmt.Errorf("failed to get configuration: %w", err)
 	}
+	logger := activity.GetLogger(ctx)
 
-	apiEndpoint := cfg.ABBServerConfig.APIEndpoint
-	if apiEndpoint == "" {
-		logger.Error("ABB_API_ENDPOINT not configured for CallGumroadNotifyActivity")
-		return fmt.Errorf("abb API endpoint not configured")
+	if cfg.Environment != "prod" {
+		logger.Info("Skipping Gumroad notification activity in non-prod environment", "env", cfg.Environment)
+		return nil
 	}
 
+	// 1. Fetch sales from Gumroad
+	gumroadClient, err := NewGumroadClient()
+	if err != nil {
+		return fmt.Errorf("failed to create gumroad client: %w", err)
+	}
+
+	accessToken := os.Getenv(EnvGumroadAPIKey)
+	if accessToken == "" {
+		return fmt.Errorf("%s must be set", EnvGumroadAPIKey)
+	}
+
+	salesResp, err := gumroadClient.GetSales("", accessToken, input.LookbackDuration, "", "")
+	if err != nil {
+		return fmt.Errorf("failed to get sales from gumroad: %w", err)
+	}
+	logger.Info("Fetched sales from gumroad", "count", len(salesResp.Sales))
+
+	// Get an auth token to talk to our server
 	authToken, err := a.getABBAuthToken(ctx, logger, cfg, a.httpClient)
 	if err != nil {
-		logger.Error("Failed to get ABB auth token for CallGumroadNotifyActivity", "error", err)
-		return fmt.Errorf("failed to get abb auth token: %w", err)
+		return fmt.Errorf("failed to get ABB auth token: %w", err)
 	}
 
-	targetURL, err := url.Parse(strings.TrimRight(apiEndpoint, "/") + "/gumroad/notify")
+	if len(salesResp.Sales) > 0 {
+
+		// 2. Make an HTTP call to our own server to insert the sales
+		insertReqBody, err := json.Marshal(map[string][]dbgen.InsertGumroadSaleParams{"sales": salesResp.Sales})
+		if err != nil {
+			return fmt.Errorf("failed to marshal sales for insert request: %w", err)
+		}
+
+		insertURL := fmt.Sprintf("%s/gumroad", cfg.ABBServerConfig.APIEndpoint)
+		httpReq, err := http.NewRequestWithContext(ctx, "POST", insertURL, bytes.NewBuffer(insertReqBody))
+		if err != nil {
+			return fmt.Errorf("failed to create insert request: %w", err)
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", authToken))
+
+		resp, err := a.httpClient.Do(httpReq)
+		if err != nil {
+			return fmt.Errorf("failed to execute insert request: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("insert request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+		}
+		logger.Info("Successfully called internal endpoint to insert Gumroad sales.")
+	}
+
+	// 3. Now that sales are in the DB, trigger the notification workflows for unnotified sales
+	// We call the notify endpoint which is now responsible for this part.
+	notifyURL := fmt.Sprintf("%s/gumroad/notify", cfg.ABBServerConfig.APIEndpoint)
+	notifyReq, err := http.NewRequestWithContext(ctx, "POST", notifyURL, nil)
 	if err != nil {
-		return fmt.Errorf("failed to parse gumroad notify URL: %w", err)
+		return fmt.Errorf("failed to create notify request: %w", err)
 	}
-	q := targetURL.Query()
-	q.Set("hours_ago", fmt.Sprintf("%.0f", input.LookbackDuration.Hours()))
-	targetURL.RawQuery = q.Encode()
+	notifyReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", authToken))
 
-	req, err := http.NewRequestWithContext(ctx, "POST", targetURL.String(), nil)
+	notifyResp, err := a.httpClient.Do(notifyReq)
 	if err != nil {
-		logger.Error("Failed to create HTTP request for CallGumroadNotifyActivity", "error", err)
-		return fmt.Errorf("failed to create request: %w", err)
+		return fmt.Errorf("failed to execute notify request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+authToken)
+	defer notifyResp.Body.Close()
 
-	client := a.httpClient
-	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		logger.Error("Failed to execute HTTP request for CallGumroadNotifyActivity", "error", err, "url", targetURL)
-		return fmt.Errorf("failed to execute request to %s: %w", targetURL, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		logger.Error("CallGumroadNotifyActivity HTTP request failed", "statusCode", resp.StatusCode, "url", targetURL, "responseBody", string(bodyBytes))
-		return fmt.Errorf("http request to %s failed with status %d: %s", targetURL, resp.StatusCode, string(bodyBytes))
+	if notifyResp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(notifyResp.Body)
+		return fmt.Errorf("notify request failed with status %d: %s", notifyResp.StatusCode, string(bodyBytes))
 	}
 
-	logger.Info("CallGumroadNotifyActivity completed successfully", "statusCode", resp.StatusCode, "url", targetURL)
 	return nil
 }
 

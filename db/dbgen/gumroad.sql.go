@@ -11,14 +11,38 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const getUnnotifiedGumroadSales = `-- name: GetUnnotifiedGumroadSales :many
-SELECT id, product_id, product_name, permalink, product_permalink, email, price, gumroad_fee, currency, quantity, discover_fee_charged, can_contact, referrer, order_number, sale_id, sale_timestamp, purchaser_id, subscription_id, license_key, is_multiseat_license, ip_country, recurrence, is_gift_receiver_purchase, refunded, disputed, dispute_won, created_at, chargebacked, subscription_ended_at, subscription_cancelled_at, subscription_failed_at, raw_data, it_notified, it_api_key FROM gumroad_sales
-WHERE it_notified = FALSE
-AND sale_timestamp >= $1
+const getExistingGumroadSaleIDs = `-- name: GetExistingGumroadSaleIDs :many
+SELECT id FROM gumroad_sales WHERE id = ANY($1::text[])
 `
 
-func (q *Queries) GetUnnotifiedGumroadSales(ctx context.Context, minSaleTimestamp pgtype.Timestamptz) ([]GumroadSale, error) {
-	rows, err := q.db.Query(ctx, getUnnotifiedGumroadSales, minSaleTimestamp)
+func (q *Queries) GetExistingGumroadSaleIDs(ctx context.Context, saleIds []string) ([]string, error) {
+	rows, err := q.db.Query(ctx, getExistingGumroadSaleIDs, saleIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getUnnotifiedGumroadSales = `-- name: GetUnnotifiedGumroadSales :many
+SELECT id, product_id, product_name, permalink, product_permalink, email, price, gumroad_fee, currency, quantity, discover_fee_charged, can_contact, referrer, order_number, sale_id, sale_timestamp, purchaser_id, subscription_id, license_key, is_multiseat_license, ip_country, recurrence, is_gift_receiver_purchase, refunded, disputed, dispute_won, created_at, chargebacked, subscription_ended_at, subscription_cancelled_at, subscription_failed_at, it_notified, it_api_key
+FROM gumroad_sales
+WHERE it_notified IS DISTINCT FROM TRUE
+`
+
+func (q *Queries) GetUnnotifiedGumroadSales(ctx context.Context) ([]GumroadSale, error) {
+	rows, err := q.db.Query(ctx, getUnnotifiedGumroadSales)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +82,6 @@ func (q *Queries) GetUnnotifiedGumroadSales(ctx context.Context, minSaleTimestam
 			&i.SubscriptionEndedAt,
 			&i.SubscriptionCancelledAt,
 			&i.SubscriptionFailedAt,
-			&i.RawData,
 			&i.ItNotified,
 			&i.ItApiKey,
 		); err != nil {
@@ -72,7 +95,7 @@ func (q *Queries) GetUnnotifiedGumroadSales(ctx context.Context, minSaleTimestam
 	return items, nil
 }
 
-const insertGumroadSale = `-- name: InsertGumroadSale :one
+const insertGumroadSale = `-- name: InsertGumroadSale :exec
 INSERT INTO gumroad_sales (
     id,
     product_id,
@@ -105,14 +128,16 @@ INSERT INTO gumroad_sales (
     subscription_ended_at,
     subscription_cancelled_at,
     subscription_failed_at,
-    raw_data,
     it_notified,
     it_api_key
 )
 VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+    $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
+    $31, $32, $33
 )
-RETURNING id, product_id, product_name, permalink, product_permalink, email, price, gumroad_fee, currency, quantity, discover_fee_charged, can_contact, referrer, order_number, sale_id, sale_timestamp, purchaser_id, subscription_id, license_key, is_multiseat_license, ip_country, recurrence, is_gift_receiver_purchase, refunded, disputed, dispute_won, created_at, chargebacked, subscription_ended_at, subscription_cancelled_at, subscription_failed_at, raw_data, it_notified, it_api_key
+ON CONFLICT (id) DO NOTHING
 `
 
 type InsertGumroadSaleParams struct {
@@ -147,13 +172,12 @@ type InsertGumroadSaleParams struct {
 	SubscriptionEndedAt     pgtype.Timestamptz `json:"subscription_ended_at"`
 	SubscriptionCancelledAt pgtype.Timestamptz `json:"subscription_cancelled_at"`
 	SubscriptionFailedAt    pgtype.Timestamptz `json:"subscription_failed_at"`
-	RawData                 []byte             `json:"raw_data"`
 	ItNotified              pgtype.Bool        `json:"it_notified"`
 	ItApiKey                pgtype.Text        `json:"it_api_key"`
 }
 
-func (q *Queries) InsertGumroadSale(ctx context.Context, arg InsertGumroadSaleParams) (GumroadSale, error) {
-	row := q.db.QueryRow(ctx, insertGumroadSale,
+func (q *Queries) InsertGumroadSale(ctx context.Context, arg InsertGumroadSaleParams) error {
+	_, err := q.db.Exec(ctx, insertGumroadSale,
 		arg.ID,
 		arg.ProductID,
 		arg.ProductName,
@@ -185,48 +209,10 @@ func (q *Queries) InsertGumroadSale(ctx context.Context, arg InsertGumroadSalePa
 		arg.SubscriptionEndedAt,
 		arg.SubscriptionCancelledAt,
 		arg.SubscriptionFailedAt,
-		arg.RawData,
 		arg.ItNotified,
 		arg.ItApiKey,
 	)
-	var i GumroadSale
-	err := row.Scan(
-		&i.ID,
-		&i.ProductID,
-		&i.ProductName,
-		&i.Permalink,
-		&i.ProductPermalink,
-		&i.Email,
-		&i.Price,
-		&i.GumroadFee,
-		&i.Currency,
-		&i.Quantity,
-		&i.DiscoverFeeCharged,
-		&i.CanContact,
-		&i.Referrer,
-		&i.OrderNumber,
-		&i.SaleID,
-		&i.SaleTimestamp,
-		&i.PurchaserID,
-		&i.SubscriptionID,
-		&i.LicenseKey,
-		&i.IsMultiseatLicense,
-		&i.IpCountry,
-		&i.Recurrence,
-		&i.IsGiftReceiverPurchase,
-		&i.Refunded,
-		&i.Disputed,
-		&i.DisputeWon,
-		&i.CreatedAt,
-		&i.Chargebacked,
-		&i.SubscriptionEndedAt,
-		&i.SubscriptionCancelledAt,
-		&i.SubscriptionFailedAt,
-		&i.RawData,
-		&i.ItNotified,
-		&i.ItApiKey,
-	)
-	return i, err
+	return err
 }
 
 const updateGumroadSaleNotification = `-- name: UpdateGumroadSaleNotification :exec

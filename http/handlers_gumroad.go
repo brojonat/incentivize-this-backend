@@ -1,21 +1,19 @@
 package http
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
-	"strconv"
-	"sync"
+	"strings"
 	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/abb"
 	"github.com/brojonat/affiliate-bounty-board/db/dbgen"
-	"github.com/brojonat/affiliate-bounty-board/http/api"
 	"github.com/brojonat/affiliate-bounty-board/internal/stools"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/temporal"
 )
 
 const (
@@ -27,6 +25,36 @@ const (
 type MarkGumroadSaleNotifiedRequest struct {
 	SaleID string `json:"sale_id"`
 	APIKey string `json:"api_key"`
+}
+
+type InsertGumroadSalesRequest struct {
+	Sales []dbgen.InsertGumroadSaleParams `json:"sales"`
+}
+
+func handleInsertGumroadSales(logger *slog.Logger, querier dbgen.Querier) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req InsertGumroadSalesRequest
+		if err := stools.DecodeJSONBody(r, &req); err != nil {
+			writeBadRequestError(w, fmt.Errorf("invalid request body for inserting gumroad sales: %w", err))
+			return
+		}
+
+		var insertedCount int
+		for _, saleParams := range req.Sales {
+			if err := querier.InsertGumroadSale(r.Context(), saleParams); err != nil {
+				if err != nil {
+					// Check for unique_violation error, which we can ignore because of ON CONFLICT
+					if !strings.Contains(err.Error(), "unique_violation") {
+						logger.Error("Failed to insert gumroad sale", "sale_id", saleParams.ID, "error", err)
+					}
+					continue // Continue to next sale even if this one fails insertion
+				}
+				insertedCount++
+			}
+		}
+		logger.Info("handleInsertGumroadSales finished", "attempted_sales", len(req.Sales), "inserted_sales", insertedCount)
+		writeOK(w)
+	}
 }
 
 // handleMarkGumroadSaleNotified is called by a Temporal activity after an email has been sent.
@@ -44,12 +72,10 @@ func handleMarkGumroadSaleNotified(logger *slog.Logger, querier dbgen.Querier) h
 			return
 		}
 
-		updateParams := dbgen.UpdateGumroadSaleNotificationParams{
+		if err := querier.UpdateGumroadSaleNotification(r.Context(), dbgen.UpdateGumroadSaleNotificationParams{
 			ID:     req.SaleID,
 			ApiKey: pgtype.Text{String: req.APIKey, Valid: true},
-		}
-
-		if err := querier.UpdateGumroadSaleNotification(r.Context(), updateParams); err != nil {
+		}); err != nil {
 			writeInternalError(logger, w, fmt.Errorf("failed to update gumroad sale notification status via internal API: %w", err))
 			return
 		}
@@ -58,99 +84,57 @@ func handleMarkGumroadSaleNotified(logger *slog.Logger, querier dbgen.Querier) h
 	}
 }
 
-// handleNotifyGumroadSales processes recent Gumroad sales that haven't been notified,
-// generates an API key (JWT) for the customer, and triggers a Temporal workflow to send an email
-// and subsequently mark the sale as notified via an internal API call from the workflow.
-// Assumes createUserToken is in the http package.
+// handleNotifyGumroadSales fetches unnotified Gumroad sales from the database
+// and launches a Temporal workflow for each one to send a notification email.
 func handleNotifyGumroadSales(logger *slog.Logger, querier dbgen.Querier, tc client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		requestCtx := r.Context()
-
-		hoursAgoStr := r.URL.Query().Get("hours_ago")
-		hoursAgo := defaultHoursAgoForNotification
-		if hoursAgoStr != "" {
-			if val, err := strconv.Atoi(hoursAgoStr); err == nil && val > 0 {
-				hoursAgo = val
-			} else {
-				writeBadRequestError(w, fmt.Errorf("invalid 'hours_ago' query parameter: must be a positive integer"))
-				return
-			}
-		}
-
-		minSaleAgeDuration := time.Duration(hoursAgo) * time.Hour
-		minTimestamp := time.Now().Add(-minSaleAgeDuration)
-
-		salesToNotify, err := querier.GetUnnotifiedGumroadSales(requestCtx, pgtype.Timestamptz{Time: minTimestamp, Valid: true})
+		unnotifiedSales, err := querier.GetUnnotifiedGumroadSales(r.Context())
 		if err != nil {
-			writeInternalError(logger, w, fmt.Errorf("failed to get unnotified Gumroad sales: %w", err))
+			writeInternalError(logger, w, fmt.Errorf("failed to get unnotified gumroad sales: %w", err))
 			return
 		}
 
-		if len(salesToNotify) == 0 {
-			writeJSONResponse(w, api.DefaultJSONResponse{Message: fmt.Sprintf("No new Gumroad sales to notify in the last %d hours.", hoursAgo)}, http.StatusOK)
+		if len(unnotifiedSales) == 0 {
+			logger.Info("No unnotified Gumroad sales to process.")
+			writeOK(w)
 			return
 		}
 
-		var wg sync.WaitGroup
-		workflowsInitiated := 0
-		var mu sync.Mutex
+		var startedWorkflows int
+		var failedWorkflows int
 
-		taskQueue := os.Getenv(EnvTaskQueue)
-		if taskQueue == "" {
-			logger.Error("TASK_QUEUE environment variable not set, cannot start EmailTokenWorkflow for Gumroad notifications.")
-			writeInternalError(logger, w, fmt.Errorf("server configuration error: task queue not set"))
-			return
-		}
-
-		for _, saleRecord := range salesToNotify {
-			sale := saleRecord // this isn't necessary for recent go versions
-
-			if sale.Email == "" {
-				logger.Warn("Gumroad sale record missing email, skipping notification workflow", "sale_id", sale.ID)
+		for _, sale := range unnotifiedSales {
+			// create a token for the user
+			tokenString, err := createUserToken(sale.Email, time.Now().Add(30*24*time.Hour))
+			if err != nil {
+				logger.Error("Failed to create token for Gumroad sale notification", "sale_id", sale.ID, "email", sale.Email, "error", err)
+				failedWorkflows++
 				continue
 			}
+			workflowID := fmt.Sprintf("email-token-gumroad-%s", sale.ID)
+			workflowOptions := client.StartWorkflowOptions{
+				ID:        workflowID,
+				TaskQueue: os.Getenv(EnvTaskQueue),
+				RetryPolicy: &temporal.RetryPolicy{
+					MaximumAttempts: 3,
+				},
+			}
+			workflowInput := abb.EmailTokenWorkflowInput{
+				SaleID:         sale.ID,
+				Email:          sale.Email,
+				Token:          tokenString,
+				SourcePlatform: abb.PlatformGumroad,
+			}
 
-			wg.Add(1)
-			go func(currentSale dbgen.GumroadSale) {
-				defer wg.Done()
-
-				apiToken, tokenErr := createUserToken(currentSale.Email, time.Now().Add(gumroadNotificationTokenDuration))
-				if tokenErr != nil {
-					logger.Error("Failed to create token for Gumroad sale notification workflow", "sale_id", currentSale.ID, "email", currentSale.Email, "error", tokenErr)
-					return
-				}
-
-				wfInput := abb.EmailTokenWorkflowInput{
-					SaleID:         currentSale.ID,
-					Email:          currentSale.Email,
-					Token:          apiToken,
-					SourcePlatform: abb.PlatformGumroad,
-				}
-				wfOptions := client.StartWorkflowOptions{
-					ID:        fmt.Sprintf("gumroad-sale-email-token-%s", currentSale.ID), // Ensure unique workflow ID
-					TaskQueue: taskQueue,
-				}
-
-				_, execErr := tc.ExecuteWorkflow(context.Background(), wfOptions, abb.EmailTokenWorkflow, wfInput)
-				if execErr != nil {
-					logger.Error("Failed to start EmailTokenWorkflow for Gumroad sale", "error", execErr, "workflowID", wfOptions.ID, "sale_id", currentSale.ID)
-					// Do not return here; allow wg.Done() to be called. The error is logged.
-				} else {
-					mu.Lock()
-					workflowsInitiated++
-					mu.Unlock()
-					logger.Info("Successfully initiated EmailTokenWorkflow for Gumroad sale", "sale_id", currentSale.ID, "email", currentSale.Email, "workflowID", wfOptions.ID)
-				}
-			}(sale)
+			_, err = tc.ExecuteWorkflow(r.Context(), workflowOptions, abb.EmailTokenWorkflow, workflowInput)
+			if err != nil {
+				logger.Error("Failed to start EmailTokenWorkflow for Gumroad sale", "sale_id", sale.ID, "email", sale.Email, "error", err)
+				failedWorkflows++
+				continue
+			}
+			startedWorkflows++
 		}
 
-		wg.Wait()
-
-		response := map[string]interface{}{
-			"message":                     fmt.Sprintf("Gumroad sales email notification workflow initiation process completed for sales in the last %d hours.", hoursAgo),
-			"workflows_initiated":         workflowsInitiated,
-			"total_sales_queried_pending": len(salesToNotify),
-		}
-		writeJSONResponse(w, response, http.StatusOK)
+		writeOK(w)
 	}
 }
