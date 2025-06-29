@@ -10,6 +10,7 @@ import (
 
 	"github.com/brojonat/affiliate-bounty-board/abb"
 	"github.com/brojonat/affiliate-bounty-board/db/dbgen"
+	"github.com/brojonat/affiliate-bounty-board/http/api"
 	"github.com/brojonat/affiliate-bounty-board/internal/stools"
 	"github.com/pgvector/pgvector-go"
 	"go.temporal.io/api/enums/v1"
@@ -117,7 +118,7 @@ func handleSearchBounties(logger *slog.Logger, querier dbgen.Querier, tc client.
 		}
 
 		if len(results) == 0 {
-			writeJSONResponse(w, []BountyListItem{}, http.StatusOK)
+			writeJSONResponse(w, []api.BountyListItem{}, http.StatusOK)
 			return
 		}
 
@@ -143,7 +144,7 @@ func handleSearchBounties(logger *slog.Logger, querier dbgen.Querier, tc client.
 		// Let's try to fetch details for found bounties, similar to handleListBounties but more targeted.
 		// This is a simplified version and might be slow if many IDs are returned.
 		// Proper batching or a dedicated Temporal query for batch fetching details would be better.
-		var detailedBounties []BountyListItem
+		var detailedBounties []api.BountyListItem
 		for _, id := range bountyIDs {
 			// This is a simplified version of fetching bounty details. Refer to handleGetBountyByID or handleListBounties
 			// for more complete logic to extract all fields for BountyListItem.
@@ -174,6 +175,17 @@ func handleSearchBounties(logger *slog.Logger, querier dbgen.Querier, tc client.
 			if saPayload, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyTimeoutTimeKey.GetName()]; ok {
 				_ = converter.GetDefaultDataConverter().FromPayload(saPayload, &endTime)
 			}
+			var tier int64
+			if tierPayload, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyTierKey.GetName()]; ok {
+				err = converter.GetDefaultDataConverter().FromPayload(tierPayload, &tier)
+				if err != nil {
+					logger.Warn("Failed to decode BountyTier search attribute for list item", "workflow_id", id, "error", err)
+					tier = int64(abb.DefaultBountyTier) // Fallback to default
+				}
+			} else {
+				logger.Warn("BountyTier search attribute not found for list item", "workflow_id", id)
+				tier = int64(abb.DefaultBountyTier) // Fallback to default
+			}
 			var remainingBountyValue float64
 			if val, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyValueRemainingKey.GetName()]; ok {
 				_ = converter.GetDefaultDataConverter().FromPayload(val, &remainingBountyValue)
@@ -181,7 +193,7 @@ func handleSearchBounties(logger *slog.Logger, querier dbgen.Querier, tc client.
 				remainingBountyValue = input.TotalBounty.ToUSDC() // Default if not found
 			}
 
-			bountyItem := BountyListItem{
+			bountyItem := api.BountyListItem{
 				BountyID:             id,
 				Status:               descResp.WorkflowExecutionInfo.Status.String(),
 				Requirements:         input.Requirements, // May be empty if history fetch failed
@@ -189,10 +201,11 @@ func handleSearchBounties(logger *slog.Logger, querier dbgen.Querier, tc client.
 				TotalBounty:          input.TotalBounty.ToUSDC(),
 				RemainingBountyValue: remainingBountyValue,
 				BountyOwnerWallet:    input.BountyOwnerWallet,
-				PlatformType:         input.Platform,
-				ContentKind:          input.ContentKind,
+				PlatformKind:         string(input.Platform),
+				ContentKind:          string(input.ContentKind),
+				Tier:                 int(tier),
 				CreatedAt:            descResp.WorkflowExecutionInfo.StartTime.AsTime(),
-				EndTime:              endTime,
+				EndAt:                endTime,
 			}
 			detailedBounties = append(detailedBounties, bountyItem)
 		}

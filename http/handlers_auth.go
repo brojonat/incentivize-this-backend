@@ -44,6 +44,18 @@ func createUserToken(email string, expiresAt time.Time) (string, error) {
 	return generateAccessToken(claims)
 }
 
+func createBlackHatToken(email string, expiresAt time.Time) (string, error) {
+	claims := authJWTClaims{
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: expiresAt.Unix(),
+		},
+		Email:  email,
+		Status: UserStatusPremium,
+		Tier:   int(abb.BountyTierBlackHat),
+	}
+	return generateAccessToken(claims)
+}
+
 func generateAccessToken(claims authJWTClaims) (string, error) {
 	t := jwt.New(jwt.SigningMethodHS256)
 	t.Claims = claims

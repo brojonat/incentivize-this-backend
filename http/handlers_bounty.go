@@ -58,22 +58,6 @@ type CreateBountyRequest struct {
 	Tier               string   `json:"tier,omitempty"`
 }
 
-// BountyListItem represents a single bounty in the list response
-type BountyListItem struct {
-	BountyID             string           `json:"bounty_id"`
-	Status               string           `json:"status"`
-	Requirements         []string         `json:"requirements"`
-	BountyPerPost        float64          `json:"bounty_per_post"`
-	TotalBounty          float64          `json:"total_bounty"`
-	BountyOwnerWallet    string           `json:"bounty_owner_wallet"`
-	PlatformType         abb.PlatformKind `json:"platform_kind"`
-	ContentKind          abb.ContentKind  `json:"content_kind"`
-	Tier                 abb.BountyTier   `json:"tier"`
-	CreatedAt            time.Time        `json:"created_at"`
-	EndTime              time.Time        `json:"end_time,omitempty"`
-	RemainingBountyValue float64          `json:"remaining_bounty_value"`
-}
-
 // PaidBountyItem represents a single paid bounty in the list response
 type PaidBountyItem struct {
 	Signature            string    `json:"signature"`
@@ -586,7 +570,7 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 		}
 
 		// Convert workflows to bounty list items
-		bounties := make([]BountyListItem, 0)
+		bounties := make([]api.BountyListItem, 0)
 		for _, execution := range executions.Executions {
 			// Get workflow input from history
 			var input abb.BountyAssessmentWorkflowInput
@@ -695,7 +679,7 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 				remainingBountyValue = input.TotalBounty.ToUSDC()
 			}
 
-			bounties = append(bounties, BountyListItem{
+			bounties = append(bounties, api.BountyListItem{
 				BountyID:             execution.Execution.WorkflowId,
 				Status:               status, // Use the status derived from search attribute
 				Requirements:         input.Requirements,
@@ -703,11 +687,11 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 				TotalBounty:          input.TotalBounty.ToUSDC(),
 				RemainingBountyValue: remainingBountyValue,
 				BountyOwnerWallet:    input.BountyOwnerWallet,
-				PlatformType:         input.Platform,
-				ContentKind:          input.ContentKind,
-				Tier:                 abb.BountyTier(tier),
+				PlatformKind:         string(input.Platform),
+				ContentKind:          string(input.ContentKind),
+				Tier:                 int(tier),
 				CreatedAt:            execution.StartTime.AsTime(),
-				EndTime:              endTime,
+				EndAt:                endTime,
 			})
 		}
 
@@ -1266,7 +1250,7 @@ func handleGetBountyByID(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			remainingBountyValue = 0.0 // Default to 0 if search attributes are missing
 		}
 
-		bountyDetail := BountyListItem{
+		bountyDetail := api.BountyListItem{
 			BountyID:             workflowID,
 			Status:               status, // Use the status derived from search attribute
 			Requirements:         input.Requirements,
@@ -1274,11 +1258,11 @@ func handleGetBountyByID(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			TotalBounty:          input.TotalBounty.ToUSDC(),
 			RemainingBountyValue: remainingBountyValue,
 			BountyOwnerWallet:    input.BountyOwnerWallet,
-			PlatformType:         input.Platform,
-			ContentKind:          input.ContentKind,
-			Tier:                 abb.BountyTier(tier),
+			PlatformKind:         string(input.Platform),
+			ContentKind:          string(input.ContentKind),
+			Tier:                 int(abb.BountyTier(tier)),
 			CreatedAt:            descResp.WorkflowExecutionInfo.StartTime.AsTime(),
-			EndTime:              endTime,
+			EndAt:                endTime,
 		}
 
 		writeJSONResponse(w, bountyDetail, http.StatusOK)

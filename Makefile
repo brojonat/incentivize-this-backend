@@ -328,6 +328,7 @@ create-reddit-post-bounty: build-cli ## Create a test Reddit Post bounty
 		-r "$(REDDIT_POST_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)" \
+		--duration "24h" \
 		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
 		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
 	echo "Create Output: $$OUTPUT"; \
@@ -355,6 +356,7 @@ create-reddit-comment-bounty: build-cli ## Create a test Reddit Comment bounty
 		-r "$(REDDIT_COMMENT_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)" \
+		--duration "24h" \
 		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
 		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
 	echo "Create Output: $$OUTPUT"; \
@@ -382,6 +384,7 @@ create-youtube-bounty: build-cli ## Create a test YouTube bounty
 		-r "$(YOUTUBE_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)" \
+		--duration "24h" \
 		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
 		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
 	echo "Create Output: $$OUTPUT"; \
@@ -409,6 +412,7 @@ create-twitch-bounty: build-cli ## Create a test Twitch bounty
 		-r "$(TWITCH_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)" \
+		--duration "24h" \
 		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
 		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
 	echo "Create Output: $$OUTPUT"; \
@@ -436,6 +440,7 @@ create-bluesky-bounty: build-cli ## Create a test Bluesky bounty
 		-r "$(BLUESKY_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)" \
+		--duration "24h" \
 		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
 		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
 	echo "Create Output: $$OUTPUT"; \
@@ -463,6 +468,7 @@ create-hackernews-comment-bounty: build-cli ## Create a test Hacker News Comment
 		-r "$(HACKERNEWS_COMMENT_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)" \
+		--duration "24h" \
 		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
 		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
 	echo "Create Output: $$OUTPUT"; \
@@ -490,6 +496,7 @@ create-hackernews-post-bounty: build-cli ## Create a simple test Hacker News pos
 		-r "$(HACKERNEWS_POST_REQ)" \
 		--per-post $(PER_POST_AMOUNT) \
 		--total $(TOTAL_AMOUNT) \
+		--duration "24h" \
 		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
 		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
 	echo "Create Output: $$OUTPUT"; \
@@ -517,6 +524,7 @@ create-instagram-post-bounty: build-cli ## Create a test Instagram Post bounty f
 		-r "$(INSTAGRAM_POST_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)" \
+		--duration "24h" \
 		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
 		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
 	echo "Create Output: $$OUTPUT"; \
