@@ -100,6 +100,7 @@ type CancelBountySignal struct {
 
 // BountyAssessmentWorkflowInput represents the input parameters for the workflow
 type BountyAssessmentWorkflowInput struct {
+	Title              string             `json:"title"`
 	Requirements       []string           `json:"requirements"`
 	BountyPerPost      *solana.USDCAmount `json:"bounty_per_post"`
 	TotalBounty        *solana.USDCAmount `json:"total_bounty"`
@@ -159,6 +160,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 
 		summaryData := BountySummaryData{
 			BountyID:             wfInfo.WorkflowExecution.ID,
+			Title:                input.Title,
 			Requirements:         input.Requirements,
 			Platform:             input.Platform,
 			ContentKind:          input.ContentKind,

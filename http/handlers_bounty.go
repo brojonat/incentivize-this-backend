@@ -50,6 +50,7 @@ type ReturnBountyToOwnerRequest struct {
 
 // CreateBountyRequest represents the request body for creating a new bounty
 type CreateBountyRequest struct {
+	Title              string   `json:"title"`
 	Requirements       []string `json:"requirements"`
 	BountyPerPost      float64  `json:"bounty_per_post"`
 	TotalBounty        float64  `json:"total_bounty"`
@@ -236,6 +237,70 @@ func handleCreateBounty(
 			bountyTier = abb.DefaultBountyTier
 		}
 		// --- End Tier Processing ---
+
+		// --- Title Processing ---
+		bountyTitle := req.Title
+		if bountyTitle == "" {
+			type inferredTitleRequest struct {
+				Title string `json:"title"`
+				Error string `json:"error,omitempty"`
+			}
+			schema := map[string]interface{}{
+				"name":   "infer_bounty_title",
+				"strict": true,
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"title": map[string]interface{}{
+							"type":        "string",
+							"description": "A short (less than 10 words), lighthearted or witty title for the bounty.",
+						},
+						"error": map[string]interface{}{
+							"type":        "string",
+							"description": "An error message if a title cannot be determined. Set to an empty string on success.",
+						},
+					},
+					"required":             []string{"title", "error"},
+					"additionalProperties": false,
+				},
+			}
+
+			prompt := fmt.Sprintf(`
+You will be given a list of requirements that comprise a bounty for online content.
+Your task is to create a short (less than 10 words), direct title for this bounty
+based on the provided requirements. You can leave the internet platform out of the
+title, but you should include any businesses that are mentioned in the requirements.
+Don't include exclamations or other punctuation unless that sort of sentiment, spirit,
+or tone is clearly reflected in the requirements.
+
+Requirements:
+---
+%s
+---`, strings.Join(req.Requirements, "\n"))
+
+			llmJSONResponse, err := llmProvider.Complete(r.Context(), prompt, schema)
+			if err != nil {
+				logger.Error("LLM completion failed for title inference", "error", err)
+				writeInternalError(logger, w, fmt.Errorf("failed to generate title via LLM: %w", err))
+				return
+			}
+
+			logger.Debug("Received LLM response for Title inference", "llm_response", llmJSONResponse)
+
+			var inferredTitle inferredTitleRequest
+			if err := json.Unmarshal([]byte(llmJSONResponse), &inferredTitle); err != nil {
+				logger.Error("Failed to unmarshal LLM response for title inference", "raw_response", llmJSONResponse, "error", err)
+				writeInternalError(logger, w, fmt.Errorf("LLM provided an invalid response format for title. Raw response: %s", llmJSONResponse))
+				return
+			}
+
+			if inferredTitle.Error != "" {
+				writeInternalError(logger, w, fmt.Errorf("failed to infer title from requirements: %s", inferredTitle.Error))
+				return
+			}
+			bountyTitle = inferredTitle.Title
+		}
+		// --- End Title Processing ---
 
 		// --- Requirements Length Check ---
 		if len(requirementsStr) > abb.MaxRequirementsCharsForLLMCheck {
@@ -447,8 +512,8 @@ Determine the most appropriate PlatformKind and ContentKind.
 		// Conditionally add timestamp requirement for prod environment
 		if env == "prod" {
 			currentTime := time.Now().UTC().Format("2006-01-02")
-			timestampReq := fmt.Sprintf("Content must be created after %s.\n", currentTime)
-			noEditReq := "Content must not have been edited.\n"
+			timestampReq := fmt.Sprintf("Content must be created after %s.", currentTime)
+			noEditReq := "Content must not have been edited."
 			req.Requirements = append(req.Requirements, timestampReq, noEditReq)
 		}
 
@@ -503,6 +568,7 @@ Determine the most appropriate PlatformKind and ContentKind.
 
 		// Create workflow input
 		input := abb.BountyAssessmentWorkflowInput{
+			Title:              bountyTitle,
 			Requirements:       req.Requirements,
 			BountyPerPost:      bountyPerPost,
 			TotalBounty:        totalBounty,
@@ -700,7 +766,8 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 
 			bounties = append(bounties, api.BountyListItem{
 				BountyID:             execution.Execution.WorkflowId,
-				Status:               status, // Use the status derived from search attribute
+				Title:                input.Title,
+				Status:               status,
 				Requirements:         input.Requirements,
 				BountyPerPost:        input.BountyPerPost.ToUSDC(),
 				TotalBounty:          input.TotalBounty.ToUSDC(),
@@ -1271,7 +1338,8 @@ func handleGetBountyByID(l *slog.Logger, tc client.Client) http.HandlerFunc {
 
 		bountyDetail := api.BountyListItem{
 			BountyID:             workflowID,
-			Status:               status, // Use the status derived from search attribute
+			Title:                input.Title,
+			Status:               status,
 			Requirements:         input.Requirements,
 			BountyPerPost:        input.BountyPerPost.ToUSDC(),
 			TotalBounty:          input.TotalBounty.ToUSDC(),
@@ -1279,7 +1347,7 @@ func handleGetBountyByID(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			BountyOwnerWallet:    input.BountyOwnerWallet,
 			PlatformKind:         string(input.Platform),
 			ContentKind:          string(input.ContentKind),
-			Tier:                 int(abb.BountyTier(tier)),
+			Tier:                 int(tier),
 			CreatedAt:            descResp.WorkflowExecutionInfo.StartTime.AsTime(),
 			EndAt:                endTime,
 		}

@@ -17,6 +17,7 @@ type DefaultJSONResponse struct {
 
 type BountyListItem struct {
 	BountyID             string    `json:"bounty_id"`
+	Title                string    `json:"title"`
 	Status               string    `json:"status"`
 	Requirements         []string  `json:"requirements"`
 	BountyPerPost        float64   `json:"bounty_per_post"`

@@ -17,6 +17,7 @@ import (
 // BountySummaryData holds all the information to be stored as a JSON summary for a bounty.
 type BountySummaryData struct {
 	BountyID             string             `json:"bounty_id"`
+	Title                string             `json:"title"`
 	Requirements         []string           `json:"requirements"`
 	Platform             PlatformKind       `json:"platform"`
 	ContentKind          ContentKind        `json:"content_kind"`
