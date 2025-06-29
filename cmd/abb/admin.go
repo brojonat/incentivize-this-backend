@@ -46,18 +46,19 @@ type BountyDefinition struct {
 	OwnerWallet   string  `yaml:"owner_wallet,omitempty"`
 	FunderWallet  string  `yaml:"funder_wallet,omitempty"`
 	Duration      string  `yaml:"duration,omitempty"`
+	FeePercentage float64 `yaml:"fee_percentage,omitempty"`
 }
 
 // Environment variables used by the CLI
 const (
-	EnvServerEndpoint             = "SERVER_ENDPOINT"
+	EnvAPIEndpoint                = "ABB_API_ENDPOINT"
 	EnvAuthToken                  = "ABB_AUTH_TOKEN"
 	EnvUsername                   = "ABB_USERNAME"
 	EnvPassword                   = "ABB_PASSWORD"
-	EnvContactUsURL               = "CONTACT_US_URL"
-	EnvDotEnvPath                 = "DOTENV_PATH"
 	EnvServerSecretKey            = "ABB_SECRET_KEY"
 	EnvAbbDatabaseURL             = "ABB_DATABASE_URL"
+	EnvContactUsURL               = "CONTACT_US_URL"
+	EnvDotEnvPath                 = "DOTENV_PATH"
 	EnvSolanaRPCEndpoint          = "SOLANA_RPC_ENDPOINT"
 	EnvSolanaWsEndpoint           = "SOLANA_WS_ENDPOINT"
 	EnvSolanaEscrowWallet         = "SOLANA_ESCROW_WALLET"
@@ -71,15 +72,15 @@ const (
 )
 
 func getAuthToken(ctx *cli.Context) error {
-	serverAddr := ctx.String("server-addr")
+	serverAddr := ctx.String("endpoint")
 	if serverAddr == "" {
 		return fmt.Errorf("server address not provided")
 	}
 
 	// Prepare form data
 	formData := url.Values{}
-	formData.Set("username", ctx.String("username"))
-	formData.Set("password", ctx.String("password"))
+	formData.Set("username", ctx.String("email"))
+	formData.Set("password", ctx.String("secret-key"))
 
 	r, err := http.NewRequest(
 		http.MethodPost,
@@ -171,11 +172,8 @@ func createBounty(ctx *cli.Context) error {
 		"total_bounty":         ctx.Float64("total"),
 		"bounty_owner_wallet":  bountyOwnerWallet,
 		"bounty_funder_wallet": bountyFunderWallet,
-	}
-
-	// Add duration if provided
-	if ctx.IsSet("duration") {
-		req["timeout_duration"] = ctx.String("duration")
+		"fee_percentage":       ctx.Float64("fee-percentage"),
+		"timeout_duration":     ctx.String("duration"),
 	}
 
 	// Marshal to JSON
@@ -478,6 +476,13 @@ type walletInfo struct {
 	Address solanago.PublicKey
 }
 
+func truncateWallet(address string) string {
+	if len(address) > 8 {
+		return address[:4] + "..." + address[len(address)-4:]
+	}
+	return address
+}
+
 func getWalletBalancesAction(c *cli.Context) error {
 	rpcEndpoint := os.Getenv(EnvSolanaRPCEndpoint)
 	if rpcEndpoint == "" {
@@ -505,39 +510,44 @@ func getWalletBalancesAction(c *cli.Context) error {
 	}
 
 	fmt.Println("Fetching balances...")
-	fmt.Println("-----------------------------------------------------")
-	fmt.Printf("%-15s | %-15s | %-15s\n", "Wallet", "SOL Balance", "USDC Balance")
-	fmt.Println("-----------------------------------------------------")
+	fmt.Println("-----------------------------------------------------------------")
+	fmt.Printf("%-15s | %-15s | %-15s | %-15s\n", "Wallet", "Address", "SOL Balance", "USDC Balance")
+	fmt.Println("-----------------------------------------------------------------")
 
 	for i, w := range wallets {
 		walletAddrStr := os.Getenv(w.EnvVar)
+		truncatedAddr := "N/A"
+		if walletAddrStr != "" {
+			truncatedAddr = truncateWallet(walletAddrStr)
+		}
+
 		if walletAddrStr == "" {
-			fmt.Printf("%-15s | Error: %s not set\n", w.Name, w.EnvVar)
+			fmt.Printf("%-15s | %-15s | %-32s\n", w.Name, truncatedAddr, "Error: env var not set")
 			continue
 		}
+
 		walletPk, err := solanago.PublicKeyFromBase58(walletAddrStr)
 		if err != nil {
-			fmt.Printf("%-15s | Error: Invalid address %s (%s): %v\n", w.Name, walletAddrStr, w.EnvVar, err)
+			fmt.Printf("%-15s | %-15s | %-32s\n", w.Name, truncatedAddr, "Error: invalid address")
 			continue
 		}
 		wallets[i].Address = walletPk // Store valid public key
 
-		// Get SOL Balance
-		solBalance, err := getSolBalance(ctx, rpcClient, walletPk)
-		if err != nil {
-			fmt.Printf("%-15s | SOL: Error: %v | USDC: N/A\n", w.Name, err)
-			continue
+		solBalance, solErr := getSolBalance(ctx, rpcClient, walletPk)
+		usdcBalance, usdcErr := getUsdcBalance(ctx, rpcClient, walletPk, usdcMintPk)
+
+		solStr := "Error"
+		if solErr == nil {
+			solStr = fmt.Sprintf("%.6f", solBalance)
+		}
+		usdcStr := "Error"
+		if usdcErr == nil {
+			usdcStr = fmt.Sprintf("%.6f", usdcBalance)
 		}
 
-		// Get USDC Balance
-		usdcBalance, err := getUsdcBalance(ctx, rpcClient, walletPk, usdcMintPk)
-		if err != nil {
-			fmt.Printf("%-15s | SOL: %.6f | USDC: Error: %v\n", w.Name, solBalance, err)
-			continue
-		}
-		fmt.Printf("%-15s | %.6f SOL   | %.6f USDC\n", w.Name, solBalance, usdcBalance)
+		fmt.Printf("%-15s | %-15s | %-15s | %-15s\n", w.Name, truncatedAddr, solStr, usdcStr)
 	}
-	fmt.Println("-----------------------------------------------------")
+	fmt.Println("-----------------------------------------------------------------")
 
 	return nil
 }
@@ -988,11 +998,8 @@ func bootstrapBountiesAction(ctx *cli.Context) error {
 				"total_bounty":         bd.TotalAmount,
 				"bounty_owner_wallet":  bountyOwnerWallet,
 				"bounty_funder_wallet": bountyFunderWallet,
-			}
-
-			// Add duration if specified in the YAML
-			if bd.Duration != "" {
-				createReqPayload["timeout_duration"] = bd.Duration
+				"fee_percentage":       bd.FeePercentage,
+				"timeout_duration":     bd.Duration,
 			}
 
 			payloadBytes, err := json.Marshal(createReqPayload)
@@ -1177,7 +1184,7 @@ func adminCommands() []*cli.Command {
 							Aliases: []string{"end", "e"},
 							Value:   "http://localhost:8080",
 							Usage:   "Server endpoint",
-							EnvVars: []string{EnvServerEndpoint},
+							EnvVars: []string{EnvAPIEndpoint},
 						},
 						&cli.StringFlag{
 							Name:    "secret-key",
@@ -1213,7 +1220,7 @@ func adminCommands() []*cli.Command {
 							Aliases: []string{"end", "e"},
 							Value:   "http://localhost:8080",
 							Usage:   "Server endpoint",
-							EnvVars: []string{EnvServerEndpoint},
+							EnvVars: []string{EnvAPIEndpoint},
 						},
 						&cli.StringFlag{
 							Name:     "token",
@@ -1254,6 +1261,11 @@ func adminCommands() []*cli.Command {
 							Usage:   "Duration for the bounty (e.g., '72h', '7d'). Defaults to server-side default (7 days) if not set.",
 							// No default value here, let the server handle it.
 						},
+						&cli.Float64Flag{
+							Name:  "fee-percentage",
+							Usage: "Platform fee percentage to take from the total bounty. Overrides global default if set.",
+							Value: -1,
+						},
 					},
 					Action: createBounty,
 				},
@@ -1267,7 +1279,7 @@ func adminCommands() []*cli.Command {
 							Aliases: []string{"end", "e"},
 							Value:   "http://localhost:8080",
 							Usage:   "Server endpoint",
-							EnvVars: []string{EnvServerEndpoint},
+							EnvVars: []string{EnvAPIEndpoint},
 						},
 						&cli.StringFlag{
 							Name:     "token",
@@ -1314,7 +1326,7 @@ func adminCommands() []*cli.Command {
 							Aliases: []string{"end", "e"},
 							Value:   "http://localhost:8080",
 							Usage:   "Server endpoint",
-							EnvVars: []string{EnvServerEndpoint},
+							EnvVars: []string{EnvAPIEndpoint},
 						},
 						&cli.StringFlag{
 							Name:     "token",
@@ -1335,7 +1347,7 @@ func adminCommands() []*cli.Command {
 							Aliases: []string{"end", "e"},
 							Value:   "http://localhost:8080",
 							Usage:   "Server endpoint",
-							EnvVars: []string{EnvServerEndpoint},
+							EnvVars: []string{EnvAPIEndpoint},
 						},
 						&cli.StringFlag{
 							Name:     "token",
@@ -1367,7 +1379,7 @@ func adminCommands() []*cli.Command {
 							Aliases: []string{"end", "e"},
 							Value:   "http://localhost:8080",
 							Usage:   "Server endpoint",
-							EnvVars: []string{EnvServerEndpoint},
+							EnvVars: []string{EnvAPIEndpoint},
 						},
 						&cli.StringFlag{
 							Name:     "token",
@@ -1398,7 +1410,7 @@ func adminCommands() []*cli.Command {
 							Aliases: []string{"end", "e"},
 							Value:   "http://localhost:8080",
 							Usage:   "Server endpoint for creating bounties",
-							EnvVars: []string{EnvServerEndpoint},
+							EnvVars: []string{EnvAPIEndpoint},
 						},
 						&cli.StringFlag{
 							Name:     "token",
@@ -1407,25 +1419,28 @@ func adminCommands() []*cli.Command {
 							Required: true,
 						},
 						&cli.StringFlag{
-							Name:    "funder-secret-key", // For funding part
-							Usage:   "Base58 encoded private key string of the funder for escrow funding",
-							EnvVars: []string{EnvSolanaTestFunderPrivateKey},
-							// Not strictly required here if all bounties in YAML specify it, but good to have as default
+							Name:     "funder-secret-key", // For funding part
+							Usage:    "Base58 encoded private key string of the funder for escrow funding",
+							EnvVars:  []string{EnvSolanaTestFunderPrivateKey},
+							Required: true,
 						},
 						&cli.StringFlag{
-							Name:    "escrow-wallet-address", // For funding part
-							Usage:   "Default recipient escrow wallet public key address for funding",
-							EnvVars: []string{EnvSolanaEscrowWallet},
+							Name:     "escrow-wallet-address", // For funding part
+							Usage:    "Default recipient escrow wallet public key address for funding",
+							EnvVars:  []string{EnvSolanaEscrowWallet},
+							Required: true,
 						},
 						&cli.StringFlag{
-							Name:    "rpc-endpoint", // For funding part
-							Usage:   "Solana RPC endpoint URL for funding",
-							EnvVars: []string{EnvSolanaRPCEndpoint},
+							Name:     "rpc-endpoint", // For funding part
+							Usage:    "Solana RPC endpoint URL for funding",
+							EnvVars:  []string{EnvSolanaRPCEndpoint},
+							Required: true,
 						},
 						&cli.StringFlag{
-							Name:    "usdc-mint-address", // For funding part
-							Usage:   "USDC mint public key address for funding",
-							EnvVars: []string{EnvSolanaUSDCMintAddress},
+							Name:     "usdc-mint-address", // For funding part
+							Usage:    "USDC mint public key address for funding",
+							EnvVars:  []string{EnvSolanaUSDCMintAddress},
+							Required: true,
 						},
 						&cli.StringSliceFlag{
 							Name:    "name",
@@ -1518,7 +1533,7 @@ func adminCommands() []*cli.Command {
 						&cli.StringFlag{
 							Name:     "db-url",
 							Usage:    "PostgreSQL database URL for bounty embeddings (e.g., postgresql://user:pass@host:port/dbname)",
-							EnvVars:  []string{"ABB_DATABASE_URL"},
+							EnvVars:  []string{EnvAbbDatabaseURL},
 							Required: true,
 						},
 						&cli.BoolFlag{

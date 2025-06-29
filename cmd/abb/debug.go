@@ -132,7 +132,7 @@ func debugCommands() []*cli.Command {
 					Aliases: []string{"end", "e"},
 					Value:   "http://localhost:8080",
 					Usage:   "Server endpoint",
-					EnvVars: []string{EnvServerEndpoint},
+					EnvVars: []string{EnvAPIEndpoint},
 				},
 				&cli.StringFlag{
 					Name:     "token",

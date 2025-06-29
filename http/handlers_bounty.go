@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Rhymond/go-money"
 	"github.com/brojonat/affiliate-bounty-board/abb"
 	"github.com/brojonat/affiliate-bounty-board/db/dbgen"
 	"github.com/brojonat/affiliate-bounty-board/http/api"
@@ -52,6 +53,7 @@ type CreateBountyRequest struct {
 	Requirements       []string `json:"requirements"`
 	BountyPerPost      float64  `json:"bounty_per_post"`
 	TotalBounty        float64  `json:"total_bounty"`
+	FeePercentage      float64  `json:"fee_percentage,omitempty"`
 	BountyOwnerWallet  string   `json:"bounty_owner_wallet"`
 	BountyFunderWallet string   `json:"bounty_funder_wallet"`
 	TimeoutDuration    string   `json:"timeout_duration"`
@@ -445,14 +447,31 @@ Determine the most appropriate PlatformKind and ContentKind.
 		// Conditionally add timestamp requirement for prod environment
 		if env == "prod" {
 			currentTime := time.Now().UTC().Format("2006-01-02")
-			timestampReq := fmt.Sprintf("Content must be created after %s", currentTime)
-			noEditReq := "If the content contains an field indicating whether it was edited, the content must not have been edited."
+			timestampReq := fmt.Sprintf("Content must be created after %s.\n", currentTime)
+			noEditReq := "Content must not have been edited.\n"
 			req.Requirements = append(req.Requirements, timestampReq, noEditReq)
 		}
 
 		// Apply revenue sharing using the calculator function
 		userBountyPerPost := req.BountyPerPost
-		userTotalBounty := payoutCalculator(req.TotalBounty)
+		userTotalBounty := req.TotalBounty
+
+		// if the request specifies a fee percentage, use it to allocate the bounty
+		// otherwise, use the default payout calculator
+		if req.FeePercentage >= 0 {
+			totalMoney := money.NewFromFloat(req.TotalBounty, money.USD)
+			feePercentage := int(req.FeePercentage)
+			userPercentage := 100 - feePercentage
+
+			parties, err := totalMoney.Allocate(userPercentage, feePercentage)
+			if err != nil {
+				writeInternalError(logger, w, fmt.Errorf("failed to allocate bounty amount: %w", err))
+				return
+			}
+			userTotalBounty = parties[0].AsMajorUnits()
+		} else {
+			userTotalBounty = payoutCalculator(req.TotalBounty)
+		}
 
 		// --- START: Validate BountyPerPost against effective TotalBounty ---
 		if userBountyPerPost > userTotalBounty {

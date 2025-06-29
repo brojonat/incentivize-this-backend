@@ -1,30 +1,33 @@
 bounties:
-  - name: "Reddit Comment on Local Business (Austin Hardwoods)"
+  - name: A
     requirements: >
-      Write a comment about Austin Hardwoods lumber store. The comment must show
-      the business in a positive light and emphasize their competitive prices and
-      the fact that they're a local business. The comment must have at least 10
-      upvotes. Comment must be in one of the following subreddits:
+      Write a comment about Austin's Hardwoods lumber store. The comment
+      must show the business in a positive light and emphasize their competitive
+      prices and the fact that they're a local business. The comment must have
+      at least 10 upvotes. The comment must be in one of the following
+      subreddits:
       - r/OrangeCounty
       - r/Irvine
       - r/SantaAna
       - r/woodworking
       - r/beginnerwoodworking
-    total_amount: 5.0
+    total_amount: 10.0
     per_post_amount: 0.25
-    duration: 30d
+    duration: 180d
+    fee_percentage: 0
 
-  - name: "Instagram Post on Local Business (Suzie Cakes)"
+  - name: B
     requirements: >
-      Write an Instagram post about Suzie Cakes. The post must show the business
+      Write an Instagram post about SuzieCakes. The post must show the business
       in a positive light and emphasize their amazing baked goods and the fact
       that they're a local business. The post must have at least 10 comments and
-      mention @susiecakesbakery and either #austin or #orangecounty (or both).
-    total_amount: 5.0
+      mention @susiecakesbakery and either #Austin or #OrangeCounty (or both).
+    total_amount: 10.0
     per_post_amount: 0.25
-    duration: 30d
+    duration: 180d
+    fee_percentage: 0
 
-  - name: "Positive Reddit Comment"
+  - name: C
     requirements: >
       Write a comment in one of the following subreddits that is an encouraging
       comment that makes the poster feel good about what they've posted. The
@@ -37,54 +40,71 @@ bounties:
       - r/DIY
       - r/homeimprovement
       - r/renovations
-    total_amount: 15.0
-    per_post_amount: 0.25
-    duration: 30d
+    total_amount: 20.0
+    per_post_amount: 0.05
+    duration: 180d
+    fee_percentage: 0
 
-  - name: "Reddit DuckDB Post"
+  - name: D
     requirements: >
       Write a post about DuckDB. The post must show the database in a positive
-      light and emphasize its speed and ease of use. The post must have at least
-      10 upvotes. Post must be in the following subreddit:
-      - r/duckdb
+      light and emphasize its speed and ease of use. It must also mention
+      DuckLake. The post must have at least 10 upvotes. The post must be in one
+      of the following subreddits:
+
       - r/dataengineering
       - r/databases
       - r/sql
+      - r/programmerhumor
     total_amount: 5.0
     per_post_amount: 1.0
-    duration: 30d
+    duration: 180d
+    fee_percentage: 0
 
-  - name: "Bluesky Post About IncentivizeThis"
+  - name: E
     requirements: >
       Write a post about IncentivizeThis. The post must show the platform in a
       positive light and emphasize its ease of use and the fact that it's a
       community-driven platform. The post must have at least 10 replies, 10 likes,
-      and 10 reposts.
+      and 10 reposts. The post must tag #incentivizethis and @brojonat.bsky.social.
     total_amount: 5.0
     per_post_amount: 1.0
-    duration: 30d
+    duration: 180d
+    fee_percentage: 0
 
-  - name: "Hacker News Post About IncentivizeThis"
+  - name: F
     requirements: >
       Write a Hacker News post about IncentivizeThis. The post must show the
       platform in a positive light and emphasize its ease of use and the fact
-      that it's a community-driven platform. The post must have at least 10
-      upvotes and 30 comments.
+      that it's a community-driven platform. The post must have at least 50
+      upvotes and 50 comments.
     total_amount: 20.0
-    per_post_amount: 10.0
-    duration: 30d
+    per_post_amount: 5.0
+    duration: 180d
+    fee_percentage: 0
 
-  - name: "YouTube Video About RocketMoney"
+  - name: G
+    requirements: >
+      Write a Hacker News comment on a post that's about IncentivizeThis. The
+      comment must be at least 50 characters long and contribute meaningfully to
+      the discussion. The comment must have at least 2 upvotes.
+    total_amount: 30.0
+    per_post_amount: 1.0
+    duration: 180d
+    fee_percentage: 0
+
+  - name: H
     requirements: >
       Create a YouTube video about RocketMoney. The video must be at least 3
       minutes long and have at least 5k views. It should emphasize the benefits
       of using RocketMoney: that it can help you save money on your bills by
       cancelling your unused subscriptions.
     total_amount: 10.0
-    per_post_amount: 1.0
-    duration: 30d
+    per_post_amount: 5.0
+    duration: 180d
+    fee_percentage: 0
 
-  - name: "Reddit Comment About RocketMoney"
+  - name: I
     requirements: >
       Create a Reddit comment about RocketMoney. It should have at least 10 upvotes.
       It should emphasize the benefits of using RocketMoney: that it can help
@@ -92,36 +112,40 @@ bounties:
     total_amount: 5.0
     per_post_amount: 0.25
     duration: 30d
+    fee_percentage: 0
 
-  - name: "YouTube Video About BetterHelp"
+  - name: J
     requirements: >
       Create a YouTube video about BetterHelp. The video must be at least 3
       minutes long and have at least 5k views. It should emphasize the benefits
       of using BetterHelp: that it can help connect you with a therapist.
-    total_amount: 10.0
-    per_post_amount: 1.0
+    total_amount: 5.0
+    per_post_amount: 5.0
     duration: 30d
+    fee_percentage: 0
 
-  - name: "Reddit Comment About BetterHelp"
+  - name: K
     requirements: >
       Create a Reddit comment about BetterHelp. It should have at least 10 upvotes.
       It should emphasize the benefits of using BetterHelp: that it can help
       connect you with a therapist.
     total_amount: 5.0
     per_post_amount: 0.25
+    fee_percentage: 0
 
-  - name: "YouTube Video About NordVPN"
+  - name: L
     requirements: >
       Create a YouTube video about NordVPN. The video must be at least 3 minutes
       long and have at least 5k views. It should emphasize the benefits of using
       NordVPN: that it can help you stay safe online by encrypting your traffic.
       It should also mention that it's a good way to access content that is
       blocked in your country.
-    total_amount: 10.0
-    per_post_amount: 1.0
-    duration: 30d
+    total_amount: 5.0
+    per_post_amount: 2.5
+    duration: 180d
+    fee_percentage: 0
 
-  - name: "Reddit Comment About NordVPN"
+  - name: M
     requirements: >
       Create a reddit comment about NordVPN. It should have at least 10 upvotes.
       It should emphasize the benefits of using NordVPN: that it can help you
@@ -138,5 +162,6 @@ bounties:
       - r/homelab
       - r/DIY
     total_amount: 5.0
-    per_post_amount: 0.25
-    duration: 30d
+    per_post_amount: 0.5
+    duration: 180d
+    fee_percentage: 0

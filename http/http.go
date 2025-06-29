@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Rhymond/go-money"
 	"github.com/brojonat/affiliate-bounty-board/abb"
 	"github.com/brojonat/affiliate-bounty-board/db/dbgen"
 	"github.com/brojonat/affiliate-bounty-board/http/api"
@@ -85,7 +86,20 @@ func DefaultPayoutCalculator() PayoutCalculator {
 
 	// Return a calculator function that applies the percentage
 	return func(totalAmount float64) float64 {
-		return totalAmount * (userRevSharePct / 100.0)
+		totalMoney := money.NewFromFloat(totalAmount, money.USD)
+		userShare := int(userRevSharePct)
+		platformShare := 100 - userShare
+		// Allocate can take ratios
+		parties, err := totalMoney.Allocate(userShare, platformShare)
+		if err != nil {
+			// Since this function can't return an error, log it and return a value
+			// that indicates failure, like the original amount, so it can be handled upstream.
+			// Ideally, the signature would allow for an error return.
+			slog.Default().Error("failed to allocate money in DefaultPayoutCalculator", "error", err)
+			return totalAmount
+		}
+		userPayoutMoney := parties[0]
+		return userPayoutMoney.AsMajorUnits()
 	}
 }
 
