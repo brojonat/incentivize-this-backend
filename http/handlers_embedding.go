@@ -25,8 +25,9 @@ const (
 
 // StoreEmbeddingRequest is the request body for storing a bounty embedding.
 type StoreEmbeddingRequest struct {
-	BountyID  string          `json:"bounty_id"`
-	Embedding pgvector.Vector `json:"embedding"` // Using pgvector.Vector type
+	BountyID    string          `json:"bounty_id"`
+	Embedding   pgvector.Vector `json:"embedding"`
+	Environment string          `json:"environment"`
 }
 
 // handleStoreBountyEmbedding handles storing a bounty embedding in the database.
@@ -38,14 +39,15 @@ func handleStoreBountyEmbedding(logger *slog.Logger, querier dbgen.Querier) http
 			return
 		}
 
-		if req.BountyID == "" || len(req.Embedding.Slice()) == 0 {
-			writeBadRequestError(w, errors.New("bounty_id and embedding are required"))
+		if req.BountyID == "" || len(req.Embedding.Slice()) == 0 || req.Environment == "" {
+			writeBadRequestError(w, errors.New("bounty_id, embedding, and environment are required"))
 			return
 		}
 
 		params := dbgen.InsertEmbeddingParams{
-			BountyID:  req.BountyID,
-			Embedding: req.Embedding,
+			BountyID:    req.BountyID,
+			Embedding:   req.Embedding,
+			Environment: req.Environment,
 		}
 
 		if err := querier.InsertEmbedding(r.Context(), params); err != nil {
@@ -107,8 +109,9 @@ func handleSearchBounties(logger *slog.Logger, querier dbgen.Querier, tc client.
 		limit := defaultSearchLimit
 
 		searchParams := dbgen.SearchEmbeddingsParams{
-			Embedding: embeddingVec,
-			RowCount:  int32(limit),
+			Embedding:   embeddingVec,
+			RowCount:    int32(limit),
+			Environment: env,
 		}
 
 		results, err := querier.SearchEmbeddings(r.Context(), searchParams)

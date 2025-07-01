@@ -76,11 +76,13 @@ func (a *Activities) GenerateAndStoreBountyEmbeddingActivity(ctx context.Context
 
 	// Make HTTP POST request to /bounties/embeddings
 	storeEmbeddingReqPayload := struct {
-		BountyID  string          `json:"bounty_id"`
-		Embedding pgvector.Vector `json:"embedding"`
+		BountyID    string          `json:"bounty_id"`
+		Embedding   pgvector.Vector `json:"embedding"`
+		Environment string          `json:"environment"`
 	}{
-		BountyID:  input.BountyID,
-		Embedding: embeddingVector,
+		BountyID:    input.BountyID,
+		Embedding:   embeddingVector,
+		Environment: cfg.Environment,
 	}
 
 	payloadBytes, err := json.Marshal(storeEmbeddingReqPayload)

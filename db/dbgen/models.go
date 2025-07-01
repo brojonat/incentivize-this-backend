@@ -10,8 +10,9 @@ import (
 )
 
 type BountyEmbedding struct {
-	BountyID  string          `json:"bounty_id"`
-	Embedding pgvector.Vector `json:"embedding"`
+	BountyID    string          `json:"bounty_id"`
+	Embedding   pgvector.Vector `json:"embedding"`
+	Environment string          `json:"environment"`
 }
 
 type BountySummary struct {

@@ -21,7 +21,7 @@ type Querier interface {
 	InsertEmbedding(ctx context.Context, arg InsertEmbeddingParams) error
 	InsertGumroadSale(ctx context.Context, arg InsertGumroadSaleParams) error
 	ListBountyIDs(ctx context.Context) ([]string, error)
-	SearchEmbeddings(ctx context.Context, arg SearchEmbeddingsParams) ([]BountyEmbedding, error)
+	SearchEmbeddings(ctx context.Context, arg SearchEmbeddingsParams) ([]SearchEmbeddingsRow, error)
 	UpdateBountySummary(ctx context.Context, arg UpdateBountySummaryParams) error
 	UpdateGumroadSaleNotification(ctx context.Context, arg UpdateGumroadSaleNotificationParams) error
 	UpsertBountySummary(ctx context.Context, arg UpsertBountySummaryParams) error

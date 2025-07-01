@@ -1,12 +1,14 @@
 -- name: InsertEmbedding :exec
-INSERT INTO bounty_embeddings (bounty_id, embedding)
-VALUES (@bounty_id, @embedding)
+INSERT INTO bounty_embeddings (bounty_id, embedding, environment)
+VALUES (@bounty_id, @embedding, @environment)
 ON CONFLICT (bounty_id) DO UPDATE SET
-embedding = EXCLUDED.embedding;
+embedding = EXCLUDED.embedding,
+environment = EXCLUDED.environment;
 
 -- name: SearchEmbeddings :many
 SELECT bounty_id, embedding
 FROM bounty_embeddings
+WHERE environment = @environment
 ORDER BY embedding <=> @embedding
 LIMIT @row_count;
 

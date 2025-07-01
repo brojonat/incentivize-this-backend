@@ -150,3 +150,27 @@ bounties:
     per_post_amount: 0.25
     duration: 179d
     fee_percentage: 0
+
+  - name: P
+    requirements: |
+      Write a Reddit comment about heat pumps. The comment should be educational about heat pumps and emphasize how they're a very efficient way to heat and cool your home. The comment must have at least 10 upvotes and be posted in one of these subreddits:
+      - r/firsttimhomebuyer
+      - r/homeimprovement
+      - r/thisoldhouse
+      - r/DIY
+      - r/woodworking
+      - r/beginnerwoodworking
+      - r/homeowners
+      - r/wallstreetbets
+    total_amount: 5.0
+    per_post_amount: 0.25
+    duration: 180d
+    fee_percentage: 0
+
+  - name: Q
+    requirements: |
+      Create a YouTube video in which Mark Wiens visits Vila Foz Hotel restaurant in Portugal. The video must be at least 15 minutes long and have at least 50k views. It should show the restaurant in a positive light and emphasize their amazing food and service.
+    total_amount: 5.0
+    per_post_amount: 5.0
+    duration: 180d
+    fee_percentage: 0

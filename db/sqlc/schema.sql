@@ -3,7 +3,8 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE bounty_embeddings (
     bounty_id VARCHAR(255) PRIMARY KEY,
-    embedding vector(1536)
+    embedding vector(1536),
+    environment VARCHAR(255) NOT NULL
 );
 
 CREATE TABLE bounty_summaries (

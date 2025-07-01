@@ -42,19 +42,21 @@ func (q *Queries) DeleteEmbeddingsNotIn(ctx context.Context, bountyIds string) e
 }
 
 const insertEmbedding = `-- name: InsertEmbedding :exec
-INSERT INTO bounty_embeddings (bounty_id, embedding)
-VALUES ($1, $2)
+INSERT INTO bounty_embeddings (bounty_id, embedding, environment)
+VALUES ($1, $2, $3)
 ON CONFLICT (bounty_id) DO UPDATE SET
-embedding = EXCLUDED.embedding
+embedding = EXCLUDED.embedding,
+environment = EXCLUDED.environment
 `
 
 type InsertEmbeddingParams struct {
-	BountyID  string          `json:"bounty_id"`
-	Embedding pgvector.Vector `json:"embedding"`
+	BountyID    string          `json:"bounty_id"`
+	Embedding   pgvector.Vector `json:"embedding"`
+	Environment string          `json:"environment"`
 }
 
 func (q *Queries) InsertEmbedding(ctx context.Context, arg InsertEmbeddingParams) error {
-	_, err := q.db.Exec(ctx, insertEmbedding, arg.BountyID, arg.Embedding)
+	_, err := q.db.Exec(ctx, insertEmbedding, arg.BountyID, arg.Embedding, arg.Environment)
 	return err
 }
 
@@ -86,24 +88,31 @@ func (q *Queries) ListBountyIDs(ctx context.Context) ([]string, error) {
 const searchEmbeddings = `-- name: SearchEmbeddings :many
 SELECT bounty_id, embedding
 FROM bounty_embeddings
-ORDER BY embedding <=> $1
-LIMIT $2
+WHERE environment = $1
+ORDER BY embedding <=> $2
+LIMIT $3
 `
 
 type SearchEmbeddingsParams struct {
-	Embedding pgvector.Vector `json:"embedding"`
-	RowCount  int32           `json:"row_count"`
+	Environment string          `json:"environment"`
+	Embedding   pgvector.Vector `json:"embedding"`
+	RowCount    int32           `json:"row_count"`
 }
 
-func (q *Queries) SearchEmbeddings(ctx context.Context, arg SearchEmbeddingsParams) ([]BountyEmbedding, error) {
-	rows, err := q.db.Query(ctx, searchEmbeddings, arg.Embedding, arg.RowCount)
+type SearchEmbeddingsRow struct {
+	BountyID  string          `json:"bounty_id"`
+	Embedding pgvector.Vector `json:"embedding"`
+}
+
+func (q *Queries) SearchEmbeddings(ctx context.Context, arg SearchEmbeddingsParams) ([]SearchEmbeddingsRow, error) {
+	rows, err := q.db.Query(ctx, searchEmbeddings, arg.Environment, arg.Embedding, arg.RowCount)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []BountyEmbedding
+	var items []SearchEmbeddingsRow
 	for rows.Next() {
-		var i BountyEmbedding
+		var i SearchEmbeddingsRow
 		if err := rows.Scan(&i.BountyID, &i.Embedding); err != nil {
 			return nil, err
 		}
