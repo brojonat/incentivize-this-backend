@@ -154,7 +154,7 @@ bounties:
   - name: P
     requirements: |
       Write a Reddit comment about heat pumps. The comment should be educational about heat pumps and emphasize how they're a very efficient way to heat and cool your home. The comment must have at least 10 upvotes and be posted in one of these subreddits:
-      - r/firsttimhomebuyer
+      - r/firsttimehomebuyer
       - r/homeimprovement
       - r/thisoldhouse
       - r/DIY

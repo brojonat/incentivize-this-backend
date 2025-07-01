@@ -1,278 +1,174 @@
 # affiliate-bounty-board
 
-I was watching this new show on Apple with Seth Rogan where he has to make a cinematic Koolaid movie. This got me thinking about advertising on Reddit. Advertisers would pay for favorable mentions of their product. We can facilitate that. This is a collection of Temporal workflows and activities that provide a sort of "bounty" board for producing content on the Internet.
+This project is a bounty board for online content creation, powered by Temporal workflows and Solana for payments. Advertisers can create bounties, and content creators can fulfill them to earn rewards.
 
-1. Funder (e.g., a business owner) creates a bounty with a reward amount and stipulations.
-2. Content creator sees the bounty.
-3. Content creator produces some content that fulfills the bounty and provides a link along with their Solana wallet address.
-4. The content is assessed using our automated content analysis system.
-5. If the content fulfills the requirements set by the bounty funder, the content creator gets paid with USDC from the escrow.
+## How It Works
 
-## Development
+1.  A **Funder** (e.g., a business owner) creates a bounty with a reward amount and specific requirements.
+2.  A **Content Creator** sees the bounty on the board.
+3.  The creator produces content that fulfills the bounty's requirements and submits a link along with their Solana wallet address.
+4.  An automated system analyzes the content against the requirements.
+5.  If the content is valid, the creator is paid in USDC from an escrow account.
+
+## Getting Started
 
 ### Prerequisites
 
 - Go 1.24 or later
 - Docker
-- Kubernetes cluster
-- kubectl configured to access your cluster
-- Temporal server
 - Make
+- Temporal (typically running on k8s)
 
 ### Environment Setup
 
-1. Copy the example environment files:
+The application uses environment files for configuration. Before running any services, you must set up your configuration.
 
-   ```bash
-   cp worker/.env.example worker/.env.prod
-   cp server/.env.server.example server/.env.server.prod
-   ```
+1.  **Copy the example files:** There are separate configurations for local debugging and production.
 
-2. Update the environment files with your configuration:
-   - Set up your database credentials
-   - Configure Temporal connection details
-   - Configure Solana credentials
-   - Configure individual platform credentials
+    ```bash
+    # For local development
+    cp server/.env.server.example .env.server.debug
+    cp worker/.env.example .env.worker.debug
+
+    # For production deployment
+    cp server/.env.server.example .env.server.prod
+    cp worker/.env.example .env.worker.prod
+    ```
+
+2.  **Update the `.env.*` files:** Fill in the necessary values for your setup, including:
+    - Database credentials (`ABB_DATABASE_URL`)
+    - Temporal connection details (`TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`)
+    - Solana credentials and addresses
+    - API keys for various platforms (Reddit, YouTube, etc.)
+
+## Development & Operations via Makefile
+
+All common development and operational tasks are managed through the `Makefile`.
 
 ### Local Development
 
-The recommended way to run the server and worker locally for development is using the integrated tmux development session. This provides separate panes for the server, worker, Temporal port-forwarding, and a CLI with environment variables automatically sourced.
+The recommended way to run the project locally is with the integrated `tmux` development session. It starts the server, worker, and port-forwarding to your Temporal instance.
 
-**Prerequisites for Dev Session:**
+**Prerequisites:**
 
 - Ensure `tmux` is installed (`brew install tmux` on macOS).
-- Ensure you have configured `kubectl` access to a Kubernetes cluster where Temporal is running.
+- Ensure `kubectl` is configured to access the cluster where Temporal is running.
 
-**Running the Dev Session:**
-
-1.  **Build the CLI and run tests:**
-
-    ```bash
-    make build-cli
-    make test
-    ```
-
-2.  **Start the Session:**
-
-    ```bash
-    make start-dev-session
-    ```
-
-    This will create/attach to a tmux session named `abb-dev`.
-
-3.  **Stopping the Session:**
-    Detach from tmux normally (`Ctrl+b`, `d`) or run:
-    ```bash
-    make stop-dev-session
-    ```
-
-_(For details on the specific processes running in the session and how to test the bounty workflow within it, see the "Testing the Bounty Workflow Locally" section below.)_
-
-### Testing the Bounty Workflow Locally
-
-This flow demonstrates how to create a bounty, fund it using the CLI utility (simulating an advertiser payment), and trigger the workflow locally using the `dev-session`.
-
-1.  **Start the Development Session:**
-    This launches tmux with the necessary components (server, worker, port-forwarding) and sources `.env.server.debug` in the CLI pane.
-
-    ```bash
-    make start-dev-session
-    ```
-
-2.  **Create the Bounty (in the tmux CLI pane):**
-    Run the `bounty create` command. Note the `Bounty started: <WORKFLOW_ID>` message in the output.
-
-    ```bash
-    # Example:
-    ./bin/abb admin bounty create -r "Foo. Bar. Baz." --per-post 0.01 --total 0.1
-    # Output will include: Bounty started: bounty-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-    ```
-
-3.  **Prepare Funder Private Key (CLI pane):**
-    Ensure the funder wallet configured in `.env.server.debug` (`SOLANA_TEST_FUNDER_PRIVATE_KEY`) has Devnet SOL for fees and the correct Devnet USDC (matching `SOLANA_USDC_MINT_ADDRESS`) for the bounty amount. You can export the private key for use in the next step (or just have it ready).
-
-    ```bash
-    # Example using print-private-key utility (assuming key is in a file)
-    export SOLANA_TEST_FUNDER_PRIVATE_KEY=$(./bin/abb admin util print-private-key -k ~/.config/solana/test-funder.json)
-    # Or, if SOLANA_TEST_FUNDER_PRIVATE_KEY is already set in .env.server.debug, it's sourced by dev-session.
-    ```
-
-4.  **Fund the Bounty (CLI pane):**
-    Use the `fund-escrow` command. Crucially, you must provide:
-
-    - The _original_ total bounty amount (`-a 0.1` in this example).
-    - The specific `workflowID` (`-w <WORKFLOW_ID>`) obtained from step 2. This links the payment to the correct bounty workflow via the transaction memo.
-
-    ```bash
-    # Replace {bounty_workflow_id} with the actual ID from step 2
-    ./bin/abb admin util fund-escrow -a 0.1 -w {bounty_workflow_id}
-    ```
-
-    **Note on Transaction Memos:**
-
-    - Funding transactions (from funder to escrow) use the `bounty_id` (which is the `workflow_id`) directly as the memo string.
-    - Payout transactions (from escrow to creator) use a JSON memo structure: `{"bounty_id": "<BOUNTY_ID>", "platform": "<PLATFORM>", "content_id": "<CONTENT_ID>"}`. This is important for the `handleListPaidBounties` endpoint to correctly identify and list actual bounty payouts. FIXME: double check this.
-
-5.  **Observe Verification (in the tmux Worker pane):**
-    The worker logs (`logs/worker.log`) should show the `VerifyPayment` activity polling for transactions. Once it finds the funding transaction matching the amount and the workflow ID in the memo, it will log `Matching payment transaction found` and `Payment verified successfully`, allowing the workflow to proceed.
-
-6.  **(Optional) Trigger Assessment (CLI pane):**
-    Use the `assess` command to signal the workflow to check specific content.
-
-    ```bash
-    # Example for Reddit content
-    # Replace {bounty_workflow_id}, {user_wallet}, {content_id}
-    ./bin/abb admin bounty assess --bounty-id {bounty_workflow_id} --payout-wallet {user_wallet} --content-id t3_{content_id} --platform reddit
-    ```
-
-7.  **(Optional) Directly Pay a Bounty (Debug - CLI pane):**
-    Use the `pay-bounty` command under the `debug` group. This bypasses the normal assessment workflow and directly calls the payment endpoint. Useful for testing the payment activity independently.
-
-    ```bash
-    # Example
-    # Replace {user_wallet}
-    ./bin/abb debug pay-bounty --amount 0.01 --wallet {user_wallet}
-    ```
-
-This process allows you to test the full bounty lifecycle, including the crucial payment verification step, in your local development environment.
-
-### Key Makefile Targets
-
-Here are some of the most frequently used Makefile targets:
-
-- `make build-cli`: Builds the `abb` command-line interface executable.
-- `make test`: Runs all unit tests.
-- `make start-dev-session`: Starts a tmux session with the server, worker, and a CLI pane for easy local development. It handles port-forwarding automatically. Requires `tmux`.
-- `make stop-dev-session`: Stops the tmux development session and associated processes.
-- `make test-coverage`: Runs tests and generates an HTML coverage report.
-- `make run-http-server-local`: Runs the HTTP server locally (requires Temporal and port-forwarding).
-- `make run-worker-local`: Runs the Temporal worker locally (requires Temporal and port-forwarding).
-- `make deploy-all`: Builds and deploys both the server and worker to the configured Kubernetes cluster.
-- `make logs-server`/`make logs-worker`: Tails logs for the deployed server/worker pods.
-- `make status`: Shows the status of Kubernetes deployments and pods.
-
-Refer to the `Makefile` for the complete list and details.
-
-## Deployment
-
-### Prerequisites
-
-- Kubernetes cluster with:
-  - nginx-ingress controller
-  - cert-manager for SSL certificates
-  - A default StorageClass for persistent volumes
-- Docker registry access
-- kubectl configured to access your cluster
-
-### Environment Setup
-
-1. Set up your environment files:
-
-   ```bash
-   cp worker/.env.example worker/.env.prod
-   cp server/.env.server.example server/.env.server.prod
-   ```
-
-2. Update the environment files with production values:
-   - Database credentials
-   - Temporal connection details
-   - API keys and secrets
-   - Other environment-specific configurations
-
-### Building and Pushing Images
-
-1. Build and push the CLI image:
-   ```bash
-   make build-push-cli
-   ```
-
-### Deploying to Kubernetes
-
-1. Deploy both server and worker:
-
-   ```bash
-   make deploy-all
-   ```
-
-2. Or deploy components individually:
-
-   ```bash
-   # Deploy server only
-   make deploy-server
-
-   # Deploy worker only
-   make deploy-worker
-   ```
-
-3. Verify the deployment:
-   ```bash
-   make status
-   ```
-
-### Managing Deployments
-
-1. View logs:
-
-   ```bash
-   # Server logs
-   make logs-server
-
-   # Worker logs
-   make logs-worker
-   ```
-
-2. Update secrets without redeploying:
-
-   ```bash
-   # Update server secrets
-   make update-secrets-server
-
-   # Update worker secrets
-   make update-secrets-worker
-   ```
-
-3. Restart deployments:
-
-   ```bash
-   # Restart server
-   make restart-server
-
-   # Restart worker
-   make restart-worker
-   ```
-
-4. Debug deployments:
-
-   ```bash
-   # View detailed server information
-   make describe-server
-
-   # View detailed worker information
-   make describe-worker
-   ```
-
-5. Port forwarding for local access:
-   ```bash
-   make port-forward-server
-   ```
-
-### Cleanup
-
-To remove all deployed resources:
+**To start the development session:**
 
 ```bash
-make delete-all
+make start-dev-session
 ```
 
-Or remove components individually:
+This command will:
+
+1. Build the project's command-line interface (`abb`).
+2. Start a new `tmux` session named `abb-dev`.
+3. Create panes for the server, the worker, and a general-purpose CLI.
+4. Start port-forwarding from your local machine to the Temporal frontend and web UI in Kubernetes.
+5. Source the `.env.server.debug` file in the CLI panes for immediate use.
+
+To stop the session and all related processes:
 
 ```bash
-# Remove server only
-make delete-server
-
-# Remove worker only
-make delete-worker
+make stop-dev-session
 ```
+
+### Testing
+
+Run the full test suite:
+
+```bash
+make test
+```
+
+Generate and view a test coverage report:
+
+```bash
+make test-coverage
+```
+
+### Building
+
+To build the `abb` CLI binary without running it:
+
+```bash
+make build-cli
+```
+
+To build and push a Docker image for the CLI (used by deployment targets):
+
+```bash
+make build-push-cli
+```
+
+### Kubernetes Deployment
+
+**Prerequisites:**
+
+- A Kubernetes cluster with an `nginx-ingress` controller and `cert-manager`.
+- Your `.env.server.prod` and `.env.worker.prod` files must be populated with production values.
+
+**Commands:**
+
+- **Deploy server and workers:**
+
+  ```bash
+  make deploy-all
+  ```
+
+- **Deploy components individually:**
+
+  ```bash
+  make deploy-server
+  make deploy-worker
+  ```
+
+- **Update Kubernetes secrets** from your `.env.*.prod` files without a full redeployment:
+
+  ```bash
+  make update-secrets-server
+  make update-secrets-worker
+  ```
+
+- **Restart a deployment** to force a pod refresh:
+
+  ```bash
+  make restart-server
+  make restart-worker
+  ```
+
+- **Delete all components** from the cluster:
+  ```bash
+  make delete-all
+  ```
+
+### Interacting with the Deployment
+
+- **Check status:**
+
+  ```bash
+  make status
+  ```
+
+- **Tail logs:**
+
+  ```bash
+  make logs-server
+  make logs-worker
+  ```
+
+- **Get detailed information** about a deployment:
+
+  ```bash
+  make describe-server
+  make describe-worker
+  ```
+
+- **Port-forward** the server to your local machine:
+  ```bash
+  make port-forward-server
+  ```
 
 ## Architecture
 
