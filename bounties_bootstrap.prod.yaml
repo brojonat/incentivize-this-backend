@@ -50,7 +50,7 @@ bounties:
 
   - name: E
     requirements: |
-      Write a post about IncentivizeThis. The post must show the platform in a positive light and emphasize its ease of use and the fact that it's a community-driven platform. The post must have at least 10 replies, 10 likes, and 10 reposts. The post must tag #incentivizethis and @brojonat.bsky.social.
+      Write a post about IncentivizeThis. The post must show the platform in a positive light and emphasize its ease of use and the fact that it's a community-driven platform. The post must have at least 10 replies, 10 likes, and 10 reposts. The post must tag #incentivizethis and @incentivizethis.bsky.social.
     total_amount: 5.0
     per_post_amount: 1.0
     duration: 180d
@@ -127,4 +127,26 @@ bounties:
     total_amount: 5.0
     per_post_amount: 0.5
     duration: 180d
+    fee_percentage: 0
+
+  - name: N
+    requirements: |
+      Create an Instagram post about Sign Design in Fountain Valley, CA. The post must show the business in a positive light and emphasize their cool designs, incredible customer service and the fact that they're a local business. The post must have at least 10 likes, 5 commends, and mention @signdesignoc.
+    total_amount: 10.0
+    per_post_amount: 0.25
+    duration: 179d
+    fee_percentage: 0
+
+  - name: O
+    requirements: |
+      Create a Reddit comment about Serendipity The Venue in Fountain Valley, CA. The comment must show the business in a positive light and emphasize that they are an all-inclusive event space and banquet hall perfect for wedding ceremonies & receptions, corporate events, and private celebrations. The comment should highlight their excellent service and that they are a local business. The comment must have at least 10 upvotes and be posted in one of these subreddits:
+      - r/OrangeCounty
+      - r/Irvine
+      - r/FountainValley
+      - r/weddingplanning
+      - r/weddings
+      - r/weddingsunder10k
+    total_amount: 5.0
+    per_post_amount: 0.25
+    duration: 179d
     fee_percentage: 0
