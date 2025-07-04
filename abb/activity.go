@@ -114,7 +114,7 @@ const (
 	PlatformBluesky         PlatformKind = "bluesky"
 	PlatformInstagram       PlatformKind = "instagram"
 	PlatformIncentivizeThis PlatformKind = "incentivizethis"
-	PlatformTripadvisor     PlatformKind = "tripadvisor"
+	PlatformTripAdvisor     PlatformKind = "tripadvisor"
 
 	ContentKindPost    ContentKind = "post"
 	ContentKindComment ContentKind = "comment"
@@ -896,7 +896,7 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 			return nil, fmt.Errorf("failed to marshal IncentivizeThis content: %w", err)
 		}
 
-	case PlatformTripadvisor:
+	case PlatformTripAdvisor:
 		logger.Debug("Executing Tripadvisor pull logic within PullContentActivity")
 		if input.ContentKind != ContentKindReview {
 			return nil, fmt.Errorf("unsupported content kind for Tripadvisor: %s. Only '%s' is supported", input.ContentKind, ContentKindReview)

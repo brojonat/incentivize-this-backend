@@ -245,10 +245,8 @@ bounties:
     requirements: |
       Create a Tripadvisor review about the Sharaton Waikiki Beach Resort in Honolulu, Hawaii. The review must have the following characteristics:
       - Review must be at least 100 characters long.
-      - Review must have at least 20 helpful votes.
-      - Review must be in the following language: English.
-      Content must be created after {{.Date}}.
-      If the content has been edited, the bounty is not fulfilled.
+      - Review must have at least 1 helpful vote.
+      - Review must provide an honest opinion.
     total_amount: 1.0
     per_post_amount: 0.10
     duration: 180d

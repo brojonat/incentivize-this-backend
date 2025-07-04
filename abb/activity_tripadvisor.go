@@ -17,7 +17,7 @@ type TripadvisorDependencies struct {
 
 // Type returns the platform type
 func (deps TripadvisorDependencies) Type() PlatformKind {
-	return PlatformTripadvisor
+	return PlatformTripAdvisor
 }
 
 // MarshalJSON implements json.Marshaler for TripadvisorDependencies
@@ -83,42 +83,59 @@ func (a *Activities) PullTripadvisorContentActivity(ctx context.Context, deps Tr
 	locationID := parts[0]
 	reviewID := parts[1]
 
-	apiURL := fmt.Sprintf("https://api.content.tripadvisor.com/api/v1/location/%s/reviews", locationID)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request to tripadvisor: %w", err)
-	}
-
-	req.Header.Add("X-Tripadvisor-API-Key", deps.APIKey)
-	req.Header.Add("Accept", "application/json")
-
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute request to tripadvisor: %w", err)
-	}
-	defer resp.Body.Close()
+	pageCount := 0
+	maxPages := 20 // Safety break to prevent infinite loops
+	limit := 20
+	offset := 0
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body from tripadvisor: %w", err)
-	}
+	for pageCount < maxPages {
+		pageCount++
+		apiURL := fmt.Sprintf("https://api.content.tripadvisor.com/api/v1/location/%s/reviews?language=en&key=%s&limit=%d&offset=%d", locationID, deps.APIKey, limit, offset)
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("tripadvisor api returned non-200 status: %d, body: %s", resp.StatusCode, string(body))
-	}
-
-	var apiResponse TripadvisorAPIResponse
-	if err := json.Unmarshal(body, &apiResponse); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal tripadvisor response: %w. body: %s", err, string(body))
-	}
-
-	for _, review := range apiResponse.Data {
-		if review.ID.String() == reviewID {
-			return &review, nil
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request to tripadvisor (page %d): %w", pageCount, err)
 		}
+
+		req.Header.Add("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to execute request to tripadvisor (page %d): %w", pageCount, err)
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response body from tripadvisor (page %d): %w", pageCount, err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("tripadvisor api returned non-200 status (page %d): %d, body: %s", pageCount, resp.StatusCode, string(body))
+		}
+
+		var apiResponse TripadvisorAPIResponse
+		if err := json.Unmarshal(body, &apiResponse); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal tripadvisor response (page %d): %w. body: %s", pageCount, err, string(body))
+		}
+
+		// If we get an empty data slice, we've reached the end
+		if len(apiResponse.Data) == 0 {
+			break
+		}
+
+		// Search for the review on the current page
+		for _, review := range apiResponse.Data {
+			if review.ID.String() == reviewID {
+				return &review, nil
+			}
+		}
+
+		// Prepare for the next page
+		offset += limit
+		time.Sleep(1 * time.Second)
 	}
 
-	return nil, fmt.Errorf("review with id '%s' not found for location '%s' in tripadvisor api response", reviewID, locationID)
+	return nil, fmt.Errorf("review with id '%s' not found for location '%s' in tripadvisor api response after checking %d pages", reviewID, locationID, pageCount)
 }

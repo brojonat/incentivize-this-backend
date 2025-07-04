@@ -10,6 +10,13 @@ This project is a bounty board for online content creation, powered by Temporal 
 4.  An automated system analyzes the content against the requirements.
 5.  If the content is valid, the creator is paid in USDC from an escrow account.
 
+## Current Limitations
+
+1. Tripadvisor is a newly supported platform. Their API only allows for fetching the 5 most recent reviews for a location.
+2. Bounties cannot be edited, but you can easily cancel and create a new bounty.
+3. Payout amounts are fixed (i.e., no dynamic payout amounts).
+4. Image analysis is limited to thumbnails; we'll be adding more powerful image analysis features in the very near future.
+
 ## Getting Started
 
 ### Prerequisites
