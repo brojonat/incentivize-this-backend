@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 
 	"crypto/tls"
@@ -231,60 +232,6 @@ func payBounty(ctx *cli.Context) error {
 	// Set headers
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", ctx.String("token")))
-
-	// Execute the request
-	res, err := http.DefaultClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-
-	return printServerResponse(res)
-}
-
-func assessContent(ctx *cli.Context) error {
-	// Get flags
-	payoutWalletStr := ctx.String("payout-wallet")
-	platform := ctx.String("platform")
-	kind := ctx.String("kind")
-	contentID := ctx.String("content-id")
-
-	// Prepend prefix based on platform and kind for Reddit
-	if platform == "reddit" {
-		if kind == "post" && !strings.HasPrefix(contentID, "t3_") {
-			contentID = "t3_" + contentID
-		} else if kind == "comment" && !strings.HasPrefix(contentID, "t1_") {
-			contentID = "t1_" + contentID
-		}
-	}
-
-	// Create a map for the request (without kind)
-	req := map[string]interface{}{
-		"bounty_id":     ctx.String("bounty-id"),
-		"content_id":    contentID,
-		"payout_wallet": payoutWalletStr,
-		"platform":      platform,
-		"content_kind":  kind,
-	}
-
-	// Marshal to JSON
-	body, err := json.Marshal(req)
-	if err != nil {
-		return fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	// Create and send the HTTP request
-	httpReq, err := http.NewRequest(
-		http.MethodPost,
-		ctx.String("endpoint")+"/assess",
-		bytes.NewBuffer(body),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set headers
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+ctx.String("token"))
 
 	// Execute the request
 	res, err := http.DefaultClient.Do(httpReq)
@@ -909,8 +856,27 @@ func bootstrapBountiesAction(ctx *cli.Context) error {
 		return fmt.Errorf("failed to read YAML file '%s': %w", filePath, err)
 	}
 
+	// Create a new template and parse the YAML file content.
+	tmpl, err := template.New("bounties").Parse(string(yamlFile))
+	if err != nil {
+		return fmt.Errorf("failed to parse YAML template: %w", err)
+	}
+
+	// Prepare data for the template.
+	data := struct {
+		Date string
+	}{
+		Date: time.Now().Format("January 2, 2006"),
+	}
+
+	// Execute the template into a buffer.
+	var processedYaml bytes.Buffer
+	if err := tmpl.Execute(&processedYaml, data); err != nil {
+		return fmt.Errorf("failed to execute template: %w", err)
+	}
+
 	var bootstrapConfig BountyBootstrapConfig
-	err = yaml.Unmarshal(yamlFile, &bootstrapConfig)
+	err = yaml.Unmarshal(processedYaml.Bytes(), &bootstrapConfig)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal YAML from '%s': %w", filePath, err)
 	}
@@ -1268,53 +1234,6 @@ func adminCommands() []*cli.Command {
 						},
 					},
 					Action: createBounty,
-				},
-				{
-					Name:        "assess",
-					Usage:       "Signal to assess content against bounty requirements",
-					Description: "Sends a signal to assess content against bounty requirements",
-					Flags: []cli.Flag{
-						&cli.StringFlag{
-							Name:    "endpoint",
-							Aliases: []string{"end", "e"},
-							Value:   "http://localhost:8080",
-							Usage:   "Server endpoint",
-							EnvVars: []string{EnvAPIEndpoint},
-						},
-						&cli.StringFlag{
-							Name:     "token",
-							Required: true,
-							Usage:    "Authorization token",
-							EnvVars:  []string{EnvAuthToken},
-						},
-						&cli.StringFlag{
-							Name:     "bounty-id",
-							Required: true,
-							Usage:    "ID of the bounty",
-						},
-						&cli.StringFlag{
-							Name:     "payout-wallet",
-							Required: true,
-							Usage:    "Public key of the wallet to receive the payout",
-						},
-						&cli.StringFlag{
-							Name:     "content-id",
-							Required: true,
-							Usage:    "ID of the content to assess",
-						},
-						&cli.StringFlag{
-							Name:     "platform",
-							Required: true,
-							Usage:    "Platform type (reddit, youtube, yelp, google)",
-							Value:    "reddit",
-						},
-						&cli.StringFlag{
-							Name:  "kind",
-							Usage: "Kind of content (e.g., post, comment, clip) (optional, depends on platform)",
-							Value: "",
-						},
-					},
-					Action: assessContent,
 				},
 				{
 					Name:        "list",

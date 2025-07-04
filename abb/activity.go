@@ -72,6 +72,7 @@ const (
 	EnvDiscordChannelID = "DISCORD_CHANNEL_ID"
 
 	EnvRapidAPIInstagramKey = "RAPIDAPI_INSTAGRAM_KEY"
+	EnvTripadvisorAPIKey    = "TRIPADVISOR_API_KEY"
 
 	DefaultLLMCheckReqPromptBase = `You are an AI assistant evaluating content based on a set of requirements.
 Determine if the provided content satisfies ALL the given requirements.
@@ -113,13 +114,14 @@ const (
 	PlatformBluesky         PlatformKind = "bluesky"
 	PlatformInstagram       PlatformKind = "instagram"
 	PlatformIncentivizeThis PlatformKind = "incentivizethis"
+	PlatformTripAdvisor     PlatformKind = "tripadvisor"
 
 	ContentKindPost    ContentKind = "post"
 	ContentKindComment ContentKind = "comment"
 	ContentKindVideo   ContentKind = "video"
 	ContentKindClip    ContentKind = "clip"
-	ContentKindStory   ContentKind = "story"
 	ContentKindBounty  ContentKind = "bounty"
+	ContentKindReview  ContentKind = "review"
 
 	PlatformGumroad PaymentPlatformKind = "gumroad"
 	PlatformBMC     PaymentPlatformKind = "bmc"
@@ -164,6 +166,7 @@ type Configuration struct {
 	BlueskyDeps            BlueskyDependencies         `json:"bluesky_deps"`
 	InstagramDeps          InstagramDependencies       `json:"instagram_deps"`
 	IncentivizeThisDeps    IncentivizeThisDependencies `json:"incentivizethis_deps"`
+	TripadvisorDeps        TripadvisorDependencies     `json:"tripadvisor_deps"`
 	DiscordConfig          DiscordConfig               `json:"discord_config"`
 	Prompt                 string                      `json:"prompt"`
 	PublishTargetSubreddit string                      `json:"publish_target_subreddit"`
@@ -389,6 +392,11 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		PublicBaseURL: os.Getenv(EnvABBPublicBaseURL), // Use the common ABB Public Base URL
 	}
 
+	// --- Tripadvisor Dependencies ---
+	tripadvisorDeps := TripadvisorDependencies{
+		APIKey: os.Getenv(EnvTripadvisorAPIKey),
+	}
+
 	// --- Discord Config ---
 	discordConfig := DiscordConfig{
 		BotToken:  os.Getenv(EnvDiscordBotToken),
@@ -423,6 +431,7 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		BlueskyDeps:            blueskyDeps,
 		InstagramDeps:          instagramDeps,
 		IncentivizeThisDeps:    incentivizeThisDeps,
+		TripadvisorDeps:        tripadvisorDeps,
 		DiscordConfig:          discordConfig,
 		Prompt:                 llmConfig.BasePrompt,
 		PublishTargetSubreddit: targetSubreddit,
@@ -885,6 +894,20 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 		contentBytes, err = json.Marshal(incentivizeThisContent)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal IncentivizeThis content: %w", err)
+		}
+
+	case PlatformTripAdvisor:
+		logger.Debug("Executing Tripadvisor pull logic within PullContentActivity")
+		if input.ContentKind != ContentKindReview {
+			return nil, fmt.Errorf("unsupported content kind for Tripadvisor: %s. Only '%s' is supported", input.ContentKind, ContentKindReview)
+		}
+		tripadvisorContent, err := a.PullTripadvisorContentActivity(ctx, cfg.TripadvisorDeps, input.ContentID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to pull Tripadvisor content: %w", err)
+		}
+		contentBytes, err = json.Marshal(tripadvisorContent)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal Tripadvisor content: %w", err)
 		}
 
 	default:

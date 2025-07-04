@@ -897,6 +897,8 @@ func awaitLoopUntilEmptyOrTimeout(
 					logger.Debug("No explicit thumbnail analysis implemented for Instagram yet", "ContentID", signal.ContentID)
 				case PlatformIncentivizeThis:
 					logger.Debug("No thumbnail analysis needed for IncentivizeThis platform", "ContentID", signal.ContentID)
+				case PlatformTripAdvisor:
+					logger.Debug("No thumbnail analysis implemented for Tripadvisor", "ContentID", signal.ContentID)
 				default:
 					logger.Warn("Thumbnail analysis not implemented for platform or platform unhandled in switch", "platform", signal.Platform, "ContentID", signal.ContentID)
 				}

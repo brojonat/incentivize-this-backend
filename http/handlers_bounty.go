@@ -320,6 +320,7 @@ Requirements:
 			abb.PlatformBluesky,
 			abb.PlatformInstagram,
 			abb.PlatformIncentivizeThis,
+			abb.PlatformTripAdvisor,
 		}
 		validContentKinds := []abb.ContentKind{
 			abb.ContentKindPost,
@@ -327,6 +328,7 @@ Requirements:
 			abb.ContentKindVideo,
 			abb.ContentKindClip,
 			abb.ContentKindBounty,
+			abb.ContentKindReview,
 		}
 
 		// Convert valid kinds to string slices for the prompt
@@ -360,7 +362,8 @@ Requirements:
 - Hacker News: post, comment
 - Bluesky: post
 - Instagram: post
-- IncentivizeThis: bounty`,
+- IncentivizeThis: bounty
+- TripAdvisor: review`,
 						"enum": validContentKindsStr,
 					},
 					"Error": map[string]interface{}{
@@ -467,7 +470,12 @@ Determine the most appropriate PlatformKind and ContentKind.
 			}
 		case abb.PlatformIncentivizeThis:
 			if normalizedContentKind != abb.ContentKindBounty {
-				writeBadRequestError(w, fmt.Errorf("invalid content_kind for IncentivizeThis: must be '%s'", abb.ContentKindPost))
+				writeBadRequestError(w, fmt.Errorf("invalid content_kind for IncentivizeThis: must be '%s'", abb.ContentKindBounty))
+				return
+			}
+		case abb.PlatformTripAdvisor:
+			if normalizedContentKind != abb.ContentKindReview {
+				writeBadRequestError(w, fmt.Errorf("invalid content_kind for TripAdvisor: must be '%s'", abb.ContentKindReview))
 				return
 			}
 		default:
@@ -507,14 +515,6 @@ Determine the most appropriate PlatformKind and ContentKind.
 		if bountyTimeoutDuration < 24*time.Hour {
 			writeBadRequestError(w, fmt.Errorf("timeout_duration must be at least 24 hours (e.g., \"24h\")"))
 			return
-		}
-
-		// Conditionally add timestamp requirement for prod environment
-		if env == "prod" {
-			currentTime := time.Now().UTC().Format("2006-01-02")
-			timestampReq := fmt.Sprintf("Content must be created after %s.", currentTime)
-			noEditReq := "Content must not have been edited."
-			req.Requirements = append(req.Requirements, timestampReq, noEditReq)
 		}
 
 		// Apply revenue sharing using the calculator function
