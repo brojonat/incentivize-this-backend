@@ -7,6 +7,8 @@ bounties:
       - r/SantaAna
       - r/woodworking
       - r/beginnerwoodworking
+      Content must be created after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
     total_amount: 10.0
     per_post_amount: 0.25
     duration: 180d
@@ -15,6 +17,8 @@ bounties:
   - name: B
     requirements: |
       Write an Instagram post about SuzieCakes. The post must show the business in a positive light and emphasize their amazing baked goods and the fact that they're a local business. The post must have at least 10 comments and mention @susiecakesbakery and either #Austin or #OrangeCounty (or both).
+      Content must be created after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
     total_amount: 10.0
     per_post_amount: 0.25
     duration: 180d
@@ -31,6 +35,8 @@ bounties:
       - r/DIY
       - r/homeimprovement
       - r/renovations
+      Content must be created after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
     total_amount: 20.0
     per_post_amount: 0.05
     duration: 180d
@@ -43,6 +49,8 @@ bounties:
       - r/databases
       - r/sql
       - r/programmerhumor
+      Content must be created after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 1.0
     duration: 180d
@@ -51,6 +59,8 @@ bounties:
   - name: E
     requirements: |
       Write a post about IncentivizeThis. The post must show the platform in a positive light and emphasize its ease of use and the fact that it's a community-driven platform. The post must have at least 10 replies, 10 likes, and 10 reposts. The post must tag #incentivizethis and @incentivizethis.bsky.social.
+      Content must be created after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 1.0
     duration: 180d
@@ -59,6 +69,8 @@ bounties:
   - name: F
     requirements: |
       Write a Hacker News post about IncentivizeThis. The post must show the platform in a positive light and emphasize its ease of use and the fact that it's a community-driven platform. The post must have at least 50 upvotes and 50 comments.
+      Content must be created after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
     total_amount: 20.0
     per_post_amount: 5.0
     duration: 180d
@@ -67,6 +79,8 @@ bounties:
   - name: G
     requirements: |
       Write a Hacker News comment on a post that's about IncentivizeThis. The comment must be at least 50 characters long and contribute meaningfully to the discussion. The comment must have at least 2 upvotes.
+      Content must be created after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
     total_amount: 30.0
     per_post_amount: 1.0
     duration: 180d
@@ -75,6 +89,8 @@ bounties:
   - name: H
     requirements: |
       Create a YouTube video about RocketMoney. The video must be at least 3 minutes long and have at least 5k views. It should emphasize the benefits of using RocketMoney: that it can help you save money on your bills by cancelling your unused subscriptions.
+      Content must be created after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
     total_amount: 10.0
     per_post_amount: 5.0
     duration: 180d
@@ -83,6 +99,8 @@ bounties:
   - name: I
     requirements: |
       Create a Reddit comment about RocketMoney. It should have at least 10 upvotes. It should emphasize the benefits of using RocketMoney: that it can help you save money on your bills by cancelling your unused subscriptions.
+      Content must be created after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 0.25
     duration: 30d
@@ -91,6 +109,8 @@ bounties:
   - name: J
     requirements: |
       Create a YouTube video about BetterHelp. The video must be at least 3 minutes long and have at least 5k views. It should emphasize the benefits of using BetterHelp: that it can help connect you with a therapist.
+      Content must be created after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 5.0
     duration: 30d
@@ -99,6 +119,8 @@ bounties:
   - name: K
     requirements: |
       Create a Reddit comment about BetterHelp. It should have at least 10 upvotes. It should emphasize the benefits of using BetterHelp: that it can help connect you with a therapist.
+      Content must be created after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 0.25
     fee_percentage: 0
@@ -106,6 +128,8 @@ bounties:
   - name: L
     requirements: |
       Create a YouTube video about NordVPN. The video must be at least 3 minutes long and have at least 5k views. It should emphasize the benefits of using NordVPN: that it can help you stay safe online by encrypting your traffic. It should also mention that it's a good way to access content that is blocked in your country.
+      Content must be created after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 2.5
     duration: 180d
@@ -124,6 +148,8 @@ bounties:
       - r/hbo
       - r/homelab
       - r/DIY
+      Content must be created after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 0.5
     duration: 180d
@@ -132,6 +158,8 @@ bounties:
   - name: N
     requirements: |
       Create an Instagram post about Sign Design in Fountain Valley, CA. The post must show the business in a positive light and emphasize their cool designs, incredible customer service and the fact that they're a local business. The post must have at least 10 likes, 5 commends, and mention @signdesignoc.
+      Content must be created after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
     total_amount: 10.0
     per_post_amount: 0.25
     duration: 179d
@@ -146,6 +174,8 @@ bounties:
       - r/weddingplanning
       - r/weddings
       - r/weddingsunder10k
+      Content must be created after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 0.25
     duration: 179d
@@ -162,6 +192,8 @@ bounties:
       - r/beginnerwoodworking
       - r/homeowners
       - r/wallstreetbets
+      Content must be created after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 0.25
     duration: 180d
@@ -170,6 +202,8 @@ bounties:
   - name: Q
     requirements: |
       Create a YouTube video in which Mark Wiens visits Vila Foz Hotel restaurant in Portugal. The video must be at least 15 minutes long and have at least 50k views. It should show the restaurant in a positive light and emphasize their amazing food and service.
+      Content must be created after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 5.0
     duration: 180d

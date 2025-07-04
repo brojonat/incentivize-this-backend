@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 
 	"crypto/tls"
@@ -909,8 +910,27 @@ func bootstrapBountiesAction(ctx *cli.Context) error {
 		return fmt.Errorf("failed to read YAML file '%s': %w", filePath, err)
 	}
 
+	// Create a new template and parse the YAML file content.
+	tmpl, err := template.New("bounties").Parse(string(yamlFile))
+	if err != nil {
+		return fmt.Errorf("failed to parse YAML template: %w", err)
+	}
+
+	// Prepare data for the template.
+	data := struct {
+		Date string
+	}{
+		Date: time.Now().Format("January 2, 2006"),
+	}
+
+	// Execute the template into a buffer.
+	var processedYaml bytes.Buffer
+	if err := tmpl.Execute(&processedYaml, data); err != nil {
+		return fmt.Errorf("failed to execute template: %w", err)
+	}
+
 	var bootstrapConfig BountyBootstrapConfig
-	err = yaml.Unmarshal(yamlFile, &bootstrapConfig)
+	err = yaml.Unmarshal(processedYaml.Bytes(), &bootstrapConfig)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal YAML from '%s': %w", filePath, err)
 	}

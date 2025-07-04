@@ -509,14 +509,6 @@ Determine the most appropriate PlatformKind and ContentKind.
 			return
 		}
 
-		// Conditionally add timestamp requirement for prod environment
-		if env == "prod" {
-			currentTime := time.Now().UTC().Format("2006-01-02")
-			timestampReq := fmt.Sprintf("Content must be created after %s.", currentTime)
-			noEditReq := "Content must not have been edited."
-			req.Requirements = append(req.Requirements, timestampReq, noEditReq)
-		}
-
 		// Apply revenue sharing using the calculator function
 		userBountyPerPost := req.BountyPerPost
 		userTotalBounty := req.TotalBounty
