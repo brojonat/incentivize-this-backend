@@ -208,3 +208,48 @@ bounties:
     per_post_amount: 5.0
     duration: 180d
     fee_percentage: 0
+
+  - name: R
+    requirements: |
+      YouTube video must be about the router jig made by "YouTuber 3x3 Custom - Tamar". The video should emphasize how insanely cool the router jig is. Video creator must have at least 10k subscribers and the video must have at least 20k views. The video must be at least 10 minutes long and demonstrate how to use the jig in the following ways:
+      - Flush cutting inlays or proud joinery
+      - Flush trimming edge banding, dovetails, or box joints
+      - Edge guide for dados, grooves, or mortises
+      - Circle cutting
+      - As a router table
+    total_amount: 50.0
+    per_post_amount: 25.0
+    duration: 180d
+    fee_percentage: 0
+
+  - name: S
+    requirements: |
+      This content must be an instagram post about the "Diddlylift" deadlift jack. It must mention that it's a handmade product made from real walnut. The content must also mention that it is for sale on diddlylift.com. The content must have at least 10 likes and 10 comments.
+      Content must be created after {{.Date}}.
+    total_amount: 1.0
+    per_post_amount: 0.10
+    duration: 180d
+    fee_percentage: 0
+
+  - name: T
+    requirements: |
+      Create a Bluesky post about a recently released indie game you're excited about.
+      Include the game's name, a brief reason why it's interesting, and the
+      #IndieGaming hashtag. Must be at least 100 characters.
+    total_amount: 1.0
+    per_post_amount: 0.10
+    duration: 180d
+    fee_percentage: 0
+
+  - name: U
+    requirements: |
+      Create a Tripadvisor review about the Sharaton Waikiki Beach Resort in Honolulu, Hawaii. The review must have the following characteristics:
+      - Review must be at least 100 characters long.
+      - Review must have at least 20 helpful votes.
+      - Review must be in the following language: English.
+      Content must be created after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
+    total_amount: 1.0
+    per_post_amount: 0.10
+    duration: 180d
+    fee_percentage: 0
