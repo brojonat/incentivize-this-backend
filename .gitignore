@@ -31,3 +31,5 @@ bin/*
 # Logs
 logs/*
 *.logbin/
+
+outreach.yaml

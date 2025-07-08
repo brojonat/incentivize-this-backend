@@ -191,19 +191,6 @@ The application consists of two main components:
    - Handles content assessment
    - Manages payment distribution
 
-### System Architecture Diagram
-
-![System Architecture](docs/architecture.svg)
-
-The diagram above illustrates the flow of data and interactions between different components of the system:
-
-- **Advertisers** create bounties through the HTTP Server
-- The **HTTP Server** orchestrates the workflow by communicating with the Temporal Server
-- The **Temporal Server** manages the workflow execution
-- The **Worker** processes the workflow and interacts with Reddit
-- **Content Creators** submit their posts to Reddit
-- The system verifies the content and processes payments
-
 ## Contributing
 
 1. Fork the repository
@@ -211,10 +198,6 @@ The diagram above illustrates the flow of data and interactions between differen
 3. Commit your changes
 4. Push to the branch
 5. Create a new Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Environment Setup
 
@@ -263,97 +246,13 @@ Options:
 - `--endpoint`: Override server endpoint
 - `--secret-key`: Override server secret key
 
-**Note**: A running server is required to generate new tokens. Make sure to start the server in another terminal using `abb run http-server` before attempting to get a new token.
-
-### Content Assessment Examples
-
-The CLI provides commands for pulling and assessing content from various platforms:
-
-#### Pulling Content
-
-```bash
-# Pull a Reddit post
-./bin/abb debug pull-content \
-  --platform reddit \
-  --content-id t3_1johy3a \
-  --reddit-user-agent "YourApp/1.0" \
-  --reddit-username "your_username" \
-  --reddit-password "your_password" \
-  --reddit-client-id "your_client_id" \
-  --reddit-client-secret "your_client_secret"
-
-# Pull a YouTube video
-./bin/abb debug pull-content \
-  --platform youtube \
-  --content-id yt_dQw4w9WgXcQ \
-  --youtube-api-key "your_api_key" \
-  --youtube-app-name "YourApp"
-```
-
-#### Assessing Content
-
-You can pipe the output from `pull-content` directly into `check-requirements`:
-
-```bash
-# Assess a Reddit post
-./bin/abb debug pull-content \
-  --platform reddit \
-  --content-id t3_1johy3a \
-  --reddit-user-agent "YourApp/1.0" \
-  --reddit-username "your_username" \
-  --reddit-password "your_password" \
-  --reddit-client-id "your_client_id" \
-  --reddit-client-secret "your_client_secret" | \
-./bin/abb debug check-requirements \
-  --content - \
-  --requirement "Content must be at least 500 words" \
-  --requirement "Must discuss AI technology" \
-  --requirement "Must be in English"
-
-# Assess a YouTube video
-./bin/abb debug pull-content \
-  --platform youtube \
-  --content-id yt_dQw4w9WgXcQ \
-  --youtube-api-key "your_api_key" \
-  --youtube-app-name "YourApp" | \
-./bin/abb debug check-requirements \
-  --content - \
-  --requirement "Video must be at least 10 minutes long" \
-  --requirement "Must include captions" \
-  --requirement "Must be in English"
-```
-
-The `check-requirements` command supports additional parameters:
-
-- `--openai-api-key`: Your OpenAI API key
-- `--openai-model`: Model to use (defaults to "gpt-4")
-- `--max-tokens`: Maximum tokens to generate (defaults to 1000)
-- `--temperature`: Temperature for text generation (defaults to 0.7)
-
-The output will be JSON containing:
-
-```json
-{
-  "satisfies": true,
-  "reason": "The content meets all requirements..."
-}
-```
+**Note**: A running server is required to generate new tokens (this will be fixed soon). Make sure to start the server in another terminal using `abb run http-server` before attempting to get a new token.
 
 ## Temporal Workflows
 
 The system uses Temporal for orchestrating the bounty verification process:
 
 ### Workflows
-
-1. **BountyAssessmentWorkflow**
-
-   - Handles the creation and initialization of new bounties, assessment, and payment.
-   - Sets up escrow and initializes verification parameters
-
-2. **SubmissionVerificationWorkflow**
-   - Orchestrates the verification of user submissions
-   - Coordinates with LLM for content analysis
-   - Handles payment distribution
 
 Below are diagrams illustrating the logic of the primary workflows:
 
