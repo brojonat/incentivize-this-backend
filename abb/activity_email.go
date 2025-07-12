@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/smtp"
 	"os"
+	"strings"
+	"time"
 
 	"go.temporal.io/sdk/activity"
 )
@@ -101,6 +103,77 @@ func (a *Activities) SendContactUsEmail(ctx context.Context, input ContactUsNoti
 	err := smtp.SendMail(smtpServer+":"+smtpPort, auth, sender, []string{recipient}, msg)
 	if err != nil {
 		return fmt.Errorf("failed to send contact us email: %w", err)
+	}
+
+	return nil
+}
+
+func (a *Activities) SendBountySummaryEmail(ctx context.Context, summary BountySummaryData) error {
+	logger := activity.GetLogger(ctx)
+	logger.Info("Sending bounty summary email")
+
+	// Get SMTP server and port from env
+	smtpServer := os.Getenv(EnvEmailSMTPHost)
+	if smtpServer == "" {
+		return fmt.Errorf("EMAIL_SMTP_HOST environment variable not set")
+	}
+	smtpPort := os.Getenv(EnvEmailSMTPPort)
+	if smtpPort == "" {
+		return fmt.Errorf("EMAIL_SMTP_PORT environment variable not set")
+	}
+
+	// Get password from env
+	pwd := os.Getenv(EnvEmailPassword)
+	if pwd == "" {
+		return fmt.Errorf("EMAIL_PASSWORD environment variable not set")
+	}
+
+	// Get sender email from env
+	sender := os.Getenv(EnvEmailSender)
+	if sender == "" {
+		return fmt.Errorf("EMAIL_SENDER environment variable not set")
+	}
+
+	// Get recipient email from env.
+	recipient := os.Getenv(EnvEmailAdminRecipient)
+	if recipient == "" {
+		return fmt.Errorf("EMAIL_ADMIN_RECIPIENT environment variable not set")
+	}
+
+	// Send using vanilla smtp client
+	auth := smtp.PlainAuth("", sender, pwd, smtpServer)
+	subject := fmt.Sprintf("Bounty Assessment Summary: %s (%s)", summary.Title, summary.FinalStatus)
+
+	var bodyBuilder strings.Builder
+	bodyBuilder.WriteString(fmt.Sprintf("Bounty assessment for '%s' has completed.\n\n", summary.Title))
+	bodyBuilder.WriteString(fmt.Sprintf("Bounty ID: %s\n", summary.BountyID))
+	bodyBuilder.WriteString(fmt.Sprintf("Status: %s\n", summary.FinalStatus))
+
+	if summary.ErrorDetails != "" {
+		bodyBuilder.WriteString(fmt.Sprintf("Details: %s\n", summary.ErrorDetails))
+	}
+
+	if summary.TotalAmountPaid != nil && summary.TotalAmountPaid.IsPositive() {
+		bodyBuilder.WriteString("\n--- Payouts ---\n")
+		for _, p := range summary.Payouts {
+			bodyBuilder.WriteString(fmt.Sprintf("  - To: %s\n", p.PayoutWallet))
+			bodyBuilder.WriteString(fmt.Sprintf("    Amount: $%.2f\n", p.Amount.ToUSDC()))
+			bodyBuilder.WriteString(fmt.Sprintf("    Content: %s/%s\n", p.Platform, p.ContentID))
+			bodyBuilder.WriteString(fmt.Sprintf("    Timestamp: %s\n", p.Timestamp.Format(time.RFC1123)))
+		}
+	}
+
+	if summary.AmountRefunded != nil && summary.AmountRefunded.IsPositive() {
+		bodyBuilder.WriteString(fmt.Sprintf("\nRefunded to owner: $%.2f\n", summary.AmountRefunded.ToUSDC()))
+	}
+
+	msg := []byte("To: " + recipient + "\r\n" +
+		"Subject: " + subject + "\r\n" +
+		"\r\n" +
+		bodyBuilder.String() + "\r\n")
+	err := smtp.SendMail(smtpServer+":"+smtpPort, auth, sender, []string{recipient}, msg)
+	if err != nil {
+		return fmt.Errorf("failed to send bounty summary email: %w", err)
 	}
 
 	return nil

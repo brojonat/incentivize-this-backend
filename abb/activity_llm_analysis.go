@@ -383,3 +383,70 @@ Requirements:
 	logger.Info("ShouldPerformImageAnalysisActivity result", "should_analyze", result.ShouldAnalyze, "reason", result.Reason)
 	return result, nil
 }
+
+// DetectMaliciousContentResult is the structured response from the malicious content detection LLM call.
+type DetectMaliciousContentResult struct {
+	IsMalicious bool   `json:"is_malicious"`
+	Reason      string `json:"reason"`
+}
+
+// DetectMaliciousContent uses an LLM to determine if the provided content contains
+// prompt injection or other attempts to manipulate a downstream AI.
+func (a *Activities) DetectMaliciousContent(ctx context.Context, content []byte) (DetectMaliciousContentResult, error) {
+	logger := activity.GetLogger(ctx)
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return DetectMaliciousContentResult{IsMalicious: true, Reason: "Configuration error"}, fmt.Errorf("failed to get configuration: %w", err)
+	}
+
+	contentStr := string(content)
+	if len(contentStr) > MaxContentCharsForLLMCheck {
+		logger.Warn("Content exceeds maximum character limit, truncating for malicious content check", "original_length", len(contentStr), "max_length", MaxContentCharsForLLMCheck)
+		contentStr = contentStr[:MaxContentCharsForLLMCheck]
+	}
+
+	prompt := fmt.Sprintf(DefaultLLMMaliciousContentPromptBase, contentStr)
+
+	logger.Info("Sending prompt to LLM for malicious content detection", "estimated_tokens", len(prompt)/4)
+
+	schema := map[string]interface{}{
+		"name":   "malicious_content_detection",
+		"strict": true,
+		"schema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"is_malicious": map[string]interface{}{
+					"type":        "boolean",
+					"description": "True if the content contains malicious instructions or a jailbreak attempt.",
+				},
+				"reason": map[string]interface{}{
+					"type":        "string",
+					"description": "A brief explanation for the decision.",
+				},
+			},
+			"required": []string{"is_malicious", "reason"},
+		},
+	}
+
+	llmProvider, err := NewLLMProvider(cfg.LLMConfig)
+	if err != nil {
+		logger.Error("Failed to create LLM provider for malicious content detection", "error", err)
+		return DetectMaliciousContentResult{IsMalicious: true, Reason: "LLM provider error"}, fmt.Errorf("failed to create LLM provider: %w", err)
+	}
+
+	resp, err := llmProvider.Complete(ctx, prompt, schema)
+	if err != nil {
+		logger.Error("Failed to get LLM response for malicious content detection", "error", err)
+		return DetectMaliciousContentResult{IsMalicious: true, Reason: "LLM communication error"}, fmt.Errorf("failed to get LLM response: %w", err)
+	}
+
+	var result DetectMaliciousContentResult
+	if err := json.Unmarshal([]byte(resp), &result); err != nil {
+		logger.Error("Failed to parse LLM response for malicious content detection", "error", err, "raw_response", resp)
+		// Default to flagging as malicious if the response is unparseable, as a safety measure.
+		return DetectMaliciousContentResult{IsMalicious: true, Reason: fmt.Sprintf("LLM response parsing error: %v", err)}, nil
+	}
+
+	logger.Info("Malicious content detection result", "is_malicious", result.IsMalicious, "reason", result.Reason)
+	return result, nil
+}

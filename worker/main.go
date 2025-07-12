@@ -86,6 +86,7 @@ func RunWorker(ctx context.Context, l *slog.Logger, thp, tns string) error {
 	w.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
 	w.RegisterActivity(activities.SendTokenEmail)
 	w.RegisterActivity(activities.SendContactUsEmail)
+	w.RegisterActivity(activities.SendBountySummaryEmail)
 	w.RegisterActivity(activities.SummarizeAndStoreBountyActivity)
 	w.RegisterActivity(activities.PruneStaleEmbeddingsActivity)
 	w.RegisterActivity(activities.DeleteBountyEmbeddingViaHTTPActivity)

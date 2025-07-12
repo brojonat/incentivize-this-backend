@@ -191,10 +191,14 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 		// This logic will be more accurately set within the awaitLoop or its return path.
 
 		logger.Info("Preparing to execute SummarizeAndStoreBountyActivity", "bounty_id", summaryData.BountyID, "final_status_for_summary", summaryData.FinalStatus)
-		err := workflow.ExecuteActivity(summaryCtx, (*Activities).SummarizeAndStoreBountyActivity, SummarizeAndStoreBountyActivityInput{SummaryData: summaryData}).Get(summaryCtx, nil)
-		if err != nil {
+		if err := workflow.ExecuteActivity(summaryCtx, (*Activities).SummarizeAndStoreBountyActivity, SummarizeAndStoreBountyActivityInput{SummaryData: summaryData}).Get(summaryCtx, nil); err != nil {
 			// Log critical failure to store summary, but don't let this error overshadow the original workflow error.
 			logger.Error("Critical: Failed to execute SummarizeAndStoreBountyActivity", "bounty_id", summaryData.BountyID, "error", err)
+		}
+
+		// After successfully storing the summary, send a notification email.
+		if emailErr := workflow.ExecuteActivity(summaryCtx, (*Activities).SendBountySummaryEmail, summaryData).Get(summaryCtx, nil); emailErr != nil {
+			logger.Error("Failed to send bounty summary email", "bounty_id", summaryData.BountyID, "error", emailErr)
 		}
 
 		// --- Attempt to delete the bounty embedding via HTTP --- //
@@ -206,8 +210,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 		}
 		deleteEmbeddingCtx := workflow.WithActivityOptions(disconnectedCtx, deleteEmbeddingActivityOpts)
 		deleteInput := DeleteBountyEmbeddingViaHTTPActivityInput{BountyID: wfInfo.WorkflowExecution.ID}
-		err = workflow.ExecuteActivity(deleteEmbeddingCtx, (*Activities).DeleteBountyEmbeddingViaHTTPActivity, deleteInput).Get(deleteEmbeddingCtx, nil)
-		if err != nil {
+		if err := workflow.ExecuteActivity(deleteEmbeddingCtx, (*Activities).DeleteBountyEmbeddingViaHTTPActivity, deleteInput).Get(deleteEmbeddingCtx, nil); err != nil {
 			logger.Error("Failed to execute DeleteBountyEmbeddingViaHTTPActivity", "bounty_id", deleteInput.BountyID, "error", err)
 		}
 
