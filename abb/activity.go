@@ -44,10 +44,14 @@ const (
 	EnvSolanaEscrowWallet     = "SOLANA_ESCROW_WALLET"      // Base58 public key (can be same as Treasury)
 	EnvSolanaUSDCMint         = "SOLANA_USDC_MINT_ADDRESS"  // Base58 public key of USDC mint
 
-	EnvEmailSender   = "EMAIL_SENDER"
-	EnvEmailPassword = "EMAIL_PASSWORD"
-	EnvEmailSMTPHost = "EMAIL_SMTP_HOST"
-	EnvEmailSMTPPort = "EMAIL_SMTP_PORT"
+	EnvEmailSender         = "EMAIL_SENDER"
+	EnvEmailPassword       = "EMAIL_PASSWORD"
+	EnvEmailSMTPHost       = "EMAIL_SMTP_HOST"
+	EnvEmailSMTPPort       = "EMAIL_SMTP_PORT"
+	EnvEmailAdminRecipient = "EMAIL_ADMIN_RECIPIENT"
+	EnvGumroadAccessToken  = "GUMROAD_ACCESS_TOKEN"
+	EnvGumroadProductID    = "GUMROAD_PRODUCT_ID"
+	EnvTripAdvisorAPIKey   = "TRIPADVISOR_API_KEY"
 
 	EnvRedditFlairID          = "REDDIT_FLAIR_ID"
 	EnvRedditClientID         = "REDDIT_CLIENT_ID"
@@ -1088,9 +1092,9 @@ func (a *Activities) CallGumroadNotifyActivity(ctx context.Context, input CallGu
 		return fmt.Errorf("failed to create gumroad client: %w", err)
 	}
 
-	accessToken := os.Getenv(EnvGumroadAPIKey)
+	accessToken := os.Getenv(EnvGumroadAccessToken)
 	if accessToken == "" {
-		return fmt.Errorf("%s must be set", EnvGumroadAPIKey)
+		return fmt.Errorf("%s must be set", EnvGumroadAccessToken)
 	}
 
 	salesResp, err := gumroadClient.GetSales("", accessToken, input.LookbackDuration, "", "")

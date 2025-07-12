@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 
+	"github.com/brojonat/affiliate-bounty-board/abb"
 	"github.com/brojonat/affiliate-bounty-board/db/dbgen"
 	"github.com/brojonat/affiliate-bounty-board/internal/stools"
 	"github.com/jackc/pgx/v5/pgtype"
+	"go.temporal.io/sdk/client"
 )
 
 // ContactUsRequest is the request body for POST /contact-us
@@ -19,7 +22,7 @@ type ContactUsRequest struct {
 }
 
 // handleContactUs handles the submission of the contact us form.
-func handleContactUs(logger *slog.Logger, querier dbgen.Querier) http.HandlerFunc {
+func handleContactUs(logger *slog.Logger, querier dbgen.Querier, tc client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req ContactUsRequest
 		if err := stools.DecodeJSONBody(r, &req); err != nil {
@@ -43,6 +46,26 @@ func handleContactUs(logger *slog.Logger, querier dbgen.Querier) http.HandlerFun
 		if err != nil {
 			writeInternalError(logger, w, fmt.Errorf("failed to create contact us submission: %w", err))
 			return
+		}
+
+		// kick off workflow to notify admin
+		taskQueue := os.Getenv(EnvTaskQueue)
+		if taskQueue == "" {
+			logger.Error("TASK_QUEUE environment variable not set, cannot kick off notification workflow")
+		} else {
+			workflowOpts := client.StartWorkflowOptions{
+				ID:        fmt.Sprintf("contact-us-%d", submission.ID),
+				TaskQueue: taskQueue,
+			}
+			in := abb.ContactUsNotifyWorkflowInput{
+				Name:    req.Name,
+				Email:   req.Email,
+				Message: req.Message,
+			}
+			_, err := tc.ExecuteWorkflow(r.Context(), workflowOpts, abb.ContactUsNotifyWorkflow, in)
+			if err != nil {
+				logger.Error("failed to kick off contact us workflow", "error", err, "submission_id", submission.ID)
+			}
 		}
 
 		writeJSONResponse(w, submission, http.StatusCreated)

@@ -1353,3 +1353,24 @@ func GumroadNotifyWorkflow(ctx workflow.Context, input GumroadNotifyWorkflowInpu
 }
 
 // --- End Scheduled Gumroad Notify Workflow ---
+
+type ContactUsNotifyWorkflowInput struct {
+	Name    string
+	Email   string
+	Message string
+}
+
+func ContactUsNotifyWorkflow(ctx workflow.Context, input ContactUsNotifyWorkflowInput) error {
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 1 * time.Minute,
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	var activities *Activities
+	err := workflow.ExecuteActivity(ctx, activities.SendContactUsEmail, input).Get(ctx, nil)
+	if err != nil {
+		workflow.GetLogger(ctx).Error("failed to send contact us email", "error", err)
+		return err
+	}
+	return nil
+}

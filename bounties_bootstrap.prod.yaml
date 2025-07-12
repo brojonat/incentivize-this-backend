@@ -265,3 +265,10 @@ bounties:
     per_post_amount: 0.10
     duration: 180d
     fee_percentage: 0
+  - name: W
+    requirements: |
+      Create a Reddit comment with at least 5 upvotes that mentions the "ChompSaw" (it's a benchtop power tool that's safe for kids to use). The comment must in be in a subreddit about DIY, crafts, or toys. Comment must not be edited.
+      total_amount: 1.0
+      per_post_amount: 0.10
+      duration: 180d
+      fee_percentage: 0

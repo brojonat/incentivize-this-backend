@@ -467,7 +467,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	))
 
 	mux.HandleFunc("POST /contact-us", stools.AdaptHandler(
-		handleContactUs(logger, querier),
+		handleContactUs(logger, querier, tc),
 		withLogging(logger),
 	))
 

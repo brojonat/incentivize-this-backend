@@ -12,7 +12,6 @@ import (
 )
 
 const gumroadAPIBaseURL = "https://api.gumroad.com/v2/"
-const EnvGumroadAPIKey = "GUMROAD_API_KEY"
 
 // Client is a client for the Gumroad API.
 type Client struct {

@@ -70,6 +70,7 @@ func RunWorker(ctx context.Context, l *slog.Logger, thp, tns string) error {
 	w.RegisterWorkflow(abb.EmailTokenWorkflow)
 	w.RegisterWorkflow(abb.PruneStaleEmbeddingsWorkflow)
 	w.RegisterWorkflow(abb.GumroadNotifyWorkflow)
+	w.RegisterWorkflow(abb.ContactUsNotifyWorkflow)
 
 	// Register all activities
 	w.RegisterActivity(activities.GenerateAndStoreBountyEmbeddingActivity)
@@ -84,6 +85,7 @@ func RunWorker(ctx context.Context, l *slog.Logger, thp, tns string) error {
 	w.RegisterActivity(activities.AnalyzeImageURL)
 	w.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
 	w.RegisterActivity(activities.SendTokenEmail)
+	w.RegisterActivity(activities.SendContactUsEmail)
 	w.RegisterActivity(activities.SummarizeAndStoreBountyActivity)
 	w.RegisterActivity(activities.PruneStaleEmbeddingsActivity)
 	w.RegisterActivity(activities.DeleteBountyEmbeddingViaHTTPActivity)
