@@ -25,6 +25,7 @@ bounties:
     fee_percentage: 0
 
   - name: C
+    title: "Encouraging Comment"
     requirements: |
       Write a comment in one of the following subreddits that is an encouraging comment that makes the poster feel good about what they've posted. The comment must have at least 20 upvotes. Here are the valid subreddits:
       - r/houseplants
@@ -35,7 +36,7 @@ bounties:
       - r/DIY
       - r/homeimprovement
       - r/renovations
-      Content must be created after {{.Date}}.
+      The bounty content must be created after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
     total_amount: 20.0
     per_post_amount: 0.05

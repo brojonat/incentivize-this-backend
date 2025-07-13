@@ -252,6 +252,8 @@ stop-dev-session: ## Stop the tmux development session and kill related processe
 	@sleep 1 # Give processes a moment to terminate
 	@echo "Stopping tmux development session: $(TMUX_SESSION)"
 	@/usr/local/bin/tmux kill-session -t $(TMUX_SESSION) || true # Ignore error if session doesn't exist
+	# And finally kill the tmux session if it's running
+	@tmux kill-session -t $(TMUX_SESSION) 2>/dev/null || echo "No tmux session '$(TMUX_SESSION)' to stop."
 
 # Variables (customize as needed)
 ABB_CMD = ./bin/abb
@@ -622,3 +624,27 @@ create-from-yaml: build-cli ## Create and fund all bounties from a given YAML fi
 migrate:
 	$(call setup_env, .env.server.prod)
 	migrate -database ${ABB_DATABASE_URL} -path db/migrations up
+
+# Prompt/env generation
+# ---------------------
+.PHONY: generate-server-prompt-envs generate-worker-prompt-envs
+
+# This target reads prompts from prompts.server.yaml, base64 encodes them,
+# and prints the resulting environment variables to standard output for the server.
+# It requires `yq` to be installed (`pip install yq`).
+generate-server-prompt-envs: ## Generate base64-encoded prompt env vars for the server
+	@if ! command -v yq &> /dev/null; then \
+		echo "yq is not installed. Please install it to continue: pip install yq"; \
+		exit 1; \
+	fi
+	@yq -r 'to_entries | .[] | "LLM_PROMPT_" + (.key | ascii_upcase | gsub("-";"_")) + "_B64=" + (.value | @base64)' prompts.server.yaml
+
+# This target reads prompts from prompts.worker.yaml, base64 encodes them,
+# and prints the resulting environment variables to standard output for the worker.
+# It requires `yq` to be installed (`pip install yq`).
+generate-worker-prompt-envs: ## Generate base64-encoded prompt env vars for the worker
+	@if ! command -v yq &> /dev/null; then \
+		echo "yq is not installed. Please install it to continue: pip install yq"; \
+		exit 1; \
+	fi
+	@yq -r 'to_entries | .[] | "LLM_PROMPT_" + (.key | ascii_upcase | gsub("-";"_")) + "_B64=" + (.value | @base64)' prompts.worker.yaml

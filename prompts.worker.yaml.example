@@ -1,0 +1,10 @@
+check-content-requirements-base: |
+  Secret sauce prompt for checking requirements.
+validate-payout-wallet-base: |
+  Secret sauce prompt for validating a payout wallet.
+should-perform-image-analysis-base: |
+  Secret sauce prompt for checking if image analysis should be run.
+image-analysis-base: |
+  Secret sauce prompt for running thumbnail image analysis.
+malicious-content-base: |
+  Secret sauce prompt for checking for malicious content.

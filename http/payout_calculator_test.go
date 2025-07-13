@@ -1,46 +1,43 @@
 package http
 
 import (
-	"os"
 	"testing"
 )
 
 func TestDefaultPayoutCalculator(t *testing.T) {
 	tests := []struct {
-		name            string
-		envValue        string
-		inputAmount     float64
-		expectedAmount  float64
-		shouldSetEnvVar bool
+		name           string
+		userSharePct   float64
+		inputAmount    float64
+		expectedAmount float64
 	}{
 		{
-			name:           "default 50% split",
+			name:           "50% split",
+			userSharePct:   50.0,
 			inputAmount:    100.0,
 			expectedAmount: 50.0,
 		},
 		{
-			name:            "30% user share",
-			envValue:        "30",
-			inputAmount:     100.0,
-			expectedAmount:  30.0,
-			shouldSetEnvVar: true,
+			name:           "30% user share",
+			userSharePct:   30.0,
+			inputAmount:    100.0,
+			expectedAmount: 30.0,
 		},
 		{
-			name:            "70% user share",
-			envValue:        "70",
-			inputAmount:     100.0,
-			expectedAmount:  70.0,
-			shouldSetEnvVar: true,
+			name:           "70% user share",
+			userSharePct:   70.0,
+			inputAmount:    100.0,
+			expectedAmount: 70.0,
 		},
 		{
-			name:            "100% user share (no fee)",
-			envValue:        "100",
-			inputAmount:     100.0,
-			expectedAmount:  100.0,
-			shouldSetEnvVar: true,
+			name:           "100% user share (no fee)",
+			userSharePct:   100.0,
+			inputAmount:    100.0,
+			expectedAmount: 100.0,
 		},
 		{
 			name:           "zero input amount",
+			userSharePct:   50.0,
 			inputAmount:    0.0,
 			expectedAmount: 0.0,
 		},
@@ -48,15 +45,8 @@ func TestDefaultPayoutCalculator(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// Setup environment if needed
-			if tc.shouldSetEnvVar {
-				oldVal := os.Getenv(EnvUserRevenueSharePct)
-				os.Setenv(EnvUserRevenueSharePct, tc.envValue)
-				defer os.Setenv(EnvUserRevenueSharePct, oldVal)
-			}
-
 			// Create calculator and test
-			calc := DefaultPayoutCalculator()
+			calc := DefaultPayoutCalculator(tc.userSharePct)
 			result := calc(tc.inputAmount)
 
 			if result != tc.expectedAmount {
@@ -72,8 +62,8 @@ func TestPayoutCalculatorIntegration(t *testing.T) {
 	originalBountyPerPost := 10.0
 	originalTotalBounty := 100.0
 
-	// Test with default calculator (50%)
-	calc := DefaultPayoutCalculator()
+	// Test with 50%
+	calc := DefaultPayoutCalculator(50.0)
 	userBountyPerPost := calc(originalBountyPerPost)
 	userTotalBounty := calc(originalTotalBounty)
 
@@ -85,9 +75,7 @@ func TestPayoutCalculatorIntegration(t *testing.T) {
 	}
 
 	// Test with 100% share (no fee)
-	os.Setenv(EnvUserRevenueSharePct, "100")
-	defer os.Setenv(EnvUserRevenueSharePct, "")
-	noFeeCalc := DefaultPayoutCalculator()
+	noFeeCalc := DefaultPayoutCalculator(100.0)
 
 	userBountyPerPost = noFeeCalc(originalBountyPerPost)
 	userTotalBounty = noFeeCalc(originalTotalBounty)

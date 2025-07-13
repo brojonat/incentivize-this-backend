@@ -186,6 +186,10 @@ func handleCreateBounty(
 	llmEmbedProvider abb.LLMEmbeddingProvider,
 	payoutCalculator PayoutCalculator,
 	env string,
+	prompts struct {
+		InferBountyTitle   string
+		InferContentParams string
+	},
 ) http.HandlerFunc {
 	// Define a local struct for parsing the LLM's JSON response for content parameters
 	type inferredContentParamsRequest struct {
@@ -253,49 +257,35 @@ func handleCreateBounty(
 					"properties": map[string]interface{}{
 						"title": map[string]interface{}{
 							"type":        "string",
-							"description": "A short (less than 10 words), lighthearted or witty title for the bounty.",
+							"description": "A concise, descriptive title for the bounty based on its requirements.",
 						},
 						"error": map[string]interface{}{
 							"type":        "string",
-							"description": "An error message if a title cannot be determined. Set to an empty string on success.",
+							"description": "An optional error message if a title cannot be inferred. Leave blank if a title can be inferred.",
 						},
 					},
+					// these are needed because we have "strict" set to true
 					"required":             []string{"title", "error"},
 					"additionalProperties": false,
 				},
 			}
 
-			prompt := fmt.Sprintf(`
-You will be given a list of requirements that comprise a bounty for online content.
-Your task is to create a short (less than 10 words), direct title for this bounty
-based on the provided requirements. You can leave the internet platform out of the
-title, but you should include any businesses that are mentioned in the requirements.
-Don't include exclamations or other punctuation unless that sort of sentiment, spirit,
-or tone is clearly reflected in the requirements.
+			// Use the prompt from the configuration
+			prompt := fmt.Sprintf(prompts.InferBountyTitle, requirementsStr)
 
-Requirements:
----
-%s
----`, strings.Join(req.Requirements, "\n"))
-
-			llmJSONResponse, err := llmProvider.Complete(r.Context(), prompt, schema)
+			resp, err := llmProvider.Complete(r.Context(), prompt, schema)
 			if err != nil {
-				logger.Error("LLM completion failed for title inference", "error", err)
-				writeInternalError(logger, w, fmt.Errorf("failed to generate title via LLM: %w", err))
+				writeInternalError(logger, w, fmt.Errorf("failed to infer bounty title: %w", err))
 				return
 			}
-
-			logger.Debug("Received LLM response for Title inference", "llm_response", llmJSONResponse)
-
 			var inferredTitle inferredTitleRequest
-			if err := json.Unmarshal([]byte(llmJSONResponse), &inferredTitle); err != nil {
-				logger.Error("Failed to unmarshal LLM response for title inference", "raw_response", llmJSONResponse, "error", err)
-				writeInternalError(logger, w, fmt.Errorf("LLM provided an invalid response format for title. Raw response: %s", llmJSONResponse))
+			if err := json.Unmarshal([]byte(resp), &inferredTitle); err != nil {
+				writeInternalError(logger, w, fmt.Errorf("failed to parse inferred title response: %w", err))
 				return
 			}
-
 			if inferredTitle.Error != "" {
-				writeInternalError(logger, w, fmt.Errorf("failed to infer title from requirements: %s", inferredTitle.Error))
+				logger.Warn("Could not infer title", "error", inferredTitle.Error, "title", inferredTitle.Title)
+				writeBadRequestError(w, fmt.Errorf("could not infer title: %s", inferredTitle.Error))
 				return
 			}
 			bountyTitle = inferredTitle.Title
@@ -350,7 +340,7 @@ Requirements:
 				"properties": map[string]interface{}{
 					"PlatformKind": map[string]interface{}{
 						"type":        "string",
-						"description": "The platform that the bounty is for.",
+						"description": "The platform for the content (e.g., 'reddit', 'youtube').",
 						"enum":        validPlatformKindsStr,
 					},
 					"ContentKind": map[string]interface{}{
@@ -368,39 +358,28 @@ Requirements:
 					},
 					"Error": map[string]interface{}{
 						"type":        "string",
-						"description": "An error message if platform and content kind cannot be determined.",
+						"description": "Set only if determination is not possible.",
 					},
 				},
+				// these are needed because we have "strict" set to true
 				"required":             []string{"PlatformKind", "ContentKind", "Error"},
 				"additionalProperties": false,
 			},
 		}
-
-		promptFormat := `Given the bounty requirement: "%s".
-Determine the most appropriate PlatformKind and ContentKind.
-- If the requirement is ambiguous or you cannot confidently determine the parameters, provide a descriptive error message.`
-		prompt := fmt.Sprintf(promptFormat, requirementsStr)
-
-		logger.Debug("Sending prompt to LLM for Platform/Content Kind inference", "prompt", prompt)
-
-		llmJSONResponse, err := llmProvider.Complete(r.Context(), prompt, schema)
+		prompt := fmt.Sprintf(prompts.InferContentParams, requirementsStr)
+		resp, err := llmProvider.Complete(r.Context(), prompt, schema)
 		if err != nil {
-			logger.Error("LLM completion failed for content param inference", "error", err)
-			writeInternalError(logger, w, fmt.Errorf("failed to process requirements via LLM: %w", err))
+			writeInternalError(logger, w, fmt.Errorf("failed to infer content parameters: %w", err))
 			return
 		}
-
-		logger.Debug("Received LLM response for Platform/Content Kind inference", "llm_response", llmJSONResponse)
-
 		var inferredParams inferredContentParamsRequest
-		if err := json.Unmarshal([]byte(llmJSONResponse), &inferredParams); err != nil {
-			logger.Error("Failed to unmarshal LLM response for content param inference", "raw_response", llmJSONResponse, "error", err)
-			writeBadRequestError(w, fmt.Errorf("LLM provided an invalid response format. Raw response: %s", llmJSONResponse))
+		if err := json.Unmarshal([]byte(resp), &inferredParams); err != nil {
+			writeInternalError(logger, w, fmt.Errorf("failed to parse inferred content parameters: %w", err))
 			return
 		}
 
 		if inferredParams.Error != "" {
-			writeBadRequestError(w, fmt.Errorf("failed to infer content parameters from requirements: %s", inferredParams.Error))
+			writeBadRequestError(w, fmt.Errorf("failed to infer content parameters: %s", inferredParams.Error))
 			return
 		}
 

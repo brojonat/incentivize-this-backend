@@ -9,7 +9,10 @@
 # Environment files
 .env
 .env.*
+*.env
 !.env.example
+!.env.server.example
+!.env.worker.example
 keypair.json
 
 # IDE specific files
@@ -33,3 +36,5 @@ logs/*
 *.logbin/
 
 outreach.yaml
+prompts.server.yaml
+prompts.worker.yaml

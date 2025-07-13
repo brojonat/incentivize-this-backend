@@ -8,8 +8,9 @@ import (
 
 // BlueskyDependencies holds dependencies for Bluesky activities (currently none needed for public read)
 type BlueskyDependencies struct {
-	PDS string `json:"pds,omitempty"` // Added PDS field for the Personal Data Server URL
-	// Add fields like Handle, AppPassword if authentication is needed later
+	PDS        string `json:"pds,omitempty"` // Added PDS field for the Personal Data Server URL
+	Identifier string `json:"identifier,omitempty"`
+	Password   string `json:"password,omitempty"`
 }
 
 // Type returns the platform type for BlueskyDependencies

@@ -866,7 +866,8 @@ func bootstrapBountiesAction(ctx *cli.Context) error {
 	data := struct {
 		Date string
 	}{
-		Date: time.Now().Format("January 2, 2006"),
+		// Use yesterday's date to avoid issues with the LLM's future date guardrails.
+		Date: time.Now().AddDate(0, 0, -1).Format("January 2, 2006"),
 	}
 
 	// Execute the template into a buffer.

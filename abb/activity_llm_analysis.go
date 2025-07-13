@@ -46,20 +46,9 @@ func (a *Activities) CheckContentRequirements(ctx context.Context, content []byt
 	}
 	// --- End Input Size Checks ---
 
-	// Construct the final prompt. This part of the prompt includes the specification
-	// for the LLM to follow when checking the content against the requirements. That
-	// is to say, you may influence the LLM's behavior by changing the base prompt
-	// on the provider, but this is where the LLM's behavior is specified to be
-	// in accordance with the code (i.e., requiring a particular format for the response).
-	prompt := fmt.Sprintf(`%s
-
-Requirements:
-%s
-
-Content (JSON):
-%s
-
-Analyze the content against the requirements and determine if it satisfies them.`, cfg.Prompt, requirementsStr, contentStr)
+	// Construct the final prompt using the format string from the configuration.
+	// It's expected to have two %s placeholders: one for requirements and one for content.
+	prompt := fmt.Sprintf(cfg.CheckContentRequirementsPrompt, requirementsStr, contentStr)
 
 	// Log estimated token count
 	estimatedTokens := len(prompt) / 4
@@ -145,29 +134,9 @@ func (a *Activities) ValidatePayoutWallet(ctx context.Context, payoutWallet stri
 		return ValidateWalletResult{Satisfies: false, Reason: reason}, nil
 	}
 
-	// Construct the specific prompt for wallet validation.
-	// The base prompt (cfg.Prompt) might be generic for content checking, so we create a more targeted one here.
-	// We use a default base if cfg.Prompt is empty or too generic.
-	promptBase := cfg.Prompt
-	if promptBase == "" || strings.Contains(promptBase, "content verification system") { // Check if it's the default content prompt
-		promptBase = "You are a Payout Wallet Policy Enforcer. Your task is to determine if the provided Payout Wallet is explicitly allowed or not disallowed based on the given Bounty Requirements."
-	}
-
-	prompt := fmt.Sprintf(`%s
-
-Bounty Requirements:
----
-%s
----
-
-Candidate Payout Wallet: %s
-
-Based *only* on the requirements pertaining to payout wallet restrictions (ignore all other types of requirements like content quality, topics, etc.):
-- If the requirements specify allowed wallet(s) and the Candidate Payout Wallet is one of them, it satisfies.
-- If the requirements specify disallowed wallet(s) and the Candidate Payout Wallet is one of them, it does NOT satisfy.
-- If the requirements mention a general rule for payout wallets (e.g., "must be a Solana address on devnet") and the candidate wallet adheres to it, it satisfies.
-- If no specific wallet restrictions are mentioned, or if the restrictions are too vague to make a definitive judgment about *this specific wallet address*, assume it satisfies.
-`, promptBase, requirementsStr, payoutWallet)
+	// Construct the prompt for wallet validation using the format string from the configuration.
+	// It's expected to have two %s placeholders: one for requirements and one for the wallet address.
+	prompt := fmt.Sprintf(cfg.ValidatePayoutWalletPrompt, requirementsStr, payoutWallet)
 
 	// Log estimated token count
 	estimatedTokens := len(prompt) / 4 // Simple approximation
@@ -327,17 +296,9 @@ func (a *Activities) ShouldPerformImageAnalysisActivity(ctx context.Context, req
 		return ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "Requirements string too long to reliably analyze for image criteria."}, nil
 	}
 
-	// Use the new default prompt for this specific task.
-	// The LLMConfig.BasePrompt might be the generic one for CheckContentRequirements or AnalyzeImageURL.
-	// We need a targeted prompt here.
-	promptBase := DefaultShouldPerformImageAnalysisPromptBase // Defined in abb/activity.go
-
-	prompt := fmt.Sprintf(`%s
-
-Requirements:
----
-%s
----`, promptBase, requirementsStr)
+	// Construct the prompt using the format string from the configuration.
+	// It's expected to have one %s placeholder for the requirements.
+	prompt := fmt.Sprintf(cfg.ShouldPerformImageAnalysisPrompt, requirementsStr)
 
 	logger.Info("Sending prompt to LLM for ShouldPerformImageAnalysisActivity", "estimated_tokens", len(prompt)/4)
 
@@ -405,7 +366,7 @@ func (a *Activities) DetectMaliciousContent(ctx context.Context, content []byte)
 		contentStr = contentStr[:MaxContentCharsForLLMCheck]
 	}
 
-	prompt := fmt.Sprintf(DefaultLLMMaliciousContentPromptBase, contentStr)
+	prompt := fmt.Sprintf(cfg.MaliciousContentPrompt, contentStr)
 
 	logger.Info("Sending prompt to LLM for malicious content detection", "estimated_tokens", len(prompt)/4)
 
@@ -424,7 +385,8 @@ func (a *Activities) DetectMaliciousContent(ctx context.Context, content []byte)
 					"description": "A brief explanation for the decision.",
 				},
 			},
-			"required": []string{"is_malicious", "reason"},
+			"required":             []string{"is_malicious", "reason"},
+			"additionalProperties": false,
 		},
 	}
 

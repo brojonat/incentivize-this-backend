@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -41,7 +42,170 @@ const (
 	EnvSolanaTreasuryWallet              = "SOLANA_TREASURY_WALLET"
 	EnvAbbDatabaseURL                    = "ABB_DATABASE_URL"
 	EnvLLMEmbeddingModelName             = "LLM_EMBEDDING_MODEL"
+	EnvLLMProvider                       = "LLM_PROVIDER"
+	EnvLLMModel                          = "LLM_MODEL"
+	EnvLLMAPIKey                         = "LLM_API_KEY"
+	EnvLLMMaxTokens                      = "LLM_MAX_TOKENS"
+	EnvLLMInferBountyTitlePrompt         = "LLM_PROMPT_INFER_BOUNTY_TITLE_B64"
+	EnvLLMInferContentParamsPrompt       = "LLM_PROMPT_INFER_CONTENT_PARAMS_B64"
+
+	DefaultLLMMaxTokens = 10000 // Default max tokens if not set
 )
+
+// Config holds all the configuration for the HTTP server, loaded from environment variables.
+type Config struct {
+	SecretKey           string
+	Environment         string
+	TaskQueue           string
+	UserRevenueSharePct float64
+	DatabaseURL         string
+	Solana              struct {
+		RPCEndpoint     string
+		EscrowWallet    solanago.PublicKey
+		USDCMintAddress solanago.PublicKey
+	}
+	LLM struct {
+		Provider       string
+		Model          string
+		APIKey         string
+		MaxTokens      int
+		EmbeddingModel string
+	}
+	Prompts struct {
+		InferBountyTitle   string
+		InferContentParams string
+	}
+	CORS struct {
+		AllowedOrigins []string
+		AllowedMethods []string
+		AllowedHeaders []string
+	}
+}
+
+// NewConfigFromEnv creates a new Config struct populated from environment variables.
+func NewConfigFromEnv(logger *slog.Logger) (*Config, error) {
+	cfg := &Config{}
+
+	// Core Config
+	cfg.SecretKey = os.Getenv(EnvServerSecretKey)
+	if cfg.SecretKey == "" {
+		return nil, fmt.Errorf("server startup error: %s not set", EnvServerSecretKey)
+	}
+	cfg.Environment = os.Getenv(EnvServerEnv)
+	if cfg.Environment == "" {
+		return nil, fmt.Errorf("server startup error: %s not set", EnvServerEnv)
+	}
+	cfg.TaskQueue = os.Getenv(EnvTaskQueue)
+	if cfg.TaskQueue == "" {
+		return nil, fmt.Errorf("server startup error: %s not set", EnvTaskQueue)
+	}
+	cfg.DatabaseURL = os.Getenv(EnvAbbDatabaseURL)
+	if cfg.DatabaseURL == "" {
+		return nil, fmt.Errorf("server startup error: %s not set", EnvAbbDatabaseURL)
+	}
+
+	// Payout Config
+	pctStr := os.Getenv(EnvUserRevenueSharePct)
+	if pctStr == "" {
+		return nil, fmt.Errorf("server startup error: %s not set", EnvUserRevenueSharePct)
+	}
+	pct, err := strconv.ParseFloat(pctStr, 64)
+	if err != nil || pct < 0 || pct > 100 {
+		return nil, fmt.Errorf("server startup error: invalid value for %s: '%s'", EnvUserRevenueSharePct, pctStr)
+	}
+	cfg.UserRevenueSharePct = pct
+
+	// Solana Config
+	cfg.Solana.RPCEndpoint = os.Getenv(EnvSolanaRPCEndpoint)
+	if cfg.Solana.RPCEndpoint == "" {
+		return nil, fmt.Errorf("server startup error: %s not set", EnvSolanaRPCEndpoint)
+	}
+	escrowWalletStr := os.Getenv(EnvSolanaEscrowWallet)
+	if escrowWalletStr == "" {
+		return nil, fmt.Errorf("server startup error: %s not set", EnvSolanaEscrowWallet)
+	}
+	escrowWallet, err := solanago.PublicKeyFromBase58(escrowWalletStr)
+	if err != nil {
+		return nil, fmt.Errorf("server startup error: failed to parse escrow wallet public key '%s': %w", escrowWalletStr, err)
+	}
+	cfg.Solana.EscrowWallet = escrowWallet
+
+	usdcMintAddressStr := os.Getenv(EnvSolanaUSDCMintAddress)
+	if usdcMintAddressStr == "" {
+		return nil, fmt.Errorf("server startup error: %s not set", EnvSolanaUSDCMintAddress)
+	}
+	usdcMintAddress, err := solanago.PublicKeyFromBase58(usdcMintAddressStr)
+	if err != nil {
+		return nil, fmt.Errorf("server startup error: failed to parse USDC mint address '%s': %w", usdcMintAddressStr, err)
+	}
+	cfg.Solana.USDCMintAddress = usdcMintAddress
+
+	// LLM Config
+	cfg.LLM.Provider = os.Getenv(EnvLLMProvider)
+	cfg.LLM.Model = os.Getenv(EnvLLMModel)
+	cfg.LLM.APIKey = os.Getenv(EnvLLMAPIKey)
+	cfg.LLM.EmbeddingModel = os.Getenv(EnvLLMEmbeddingModelName)
+	if cfg.LLM.Provider == "" || cfg.LLM.Model == "" || cfg.LLM.APIKey == "" || cfg.LLM.EmbeddingModel == "" {
+		return nil, fmt.Errorf("server startup error: LLM configuration (Provider, Model, APIKey, EmbeddingModel) not fully set")
+	}
+
+	maxTokensStr := os.Getenv(EnvLLMMaxTokens)
+	if maxTokensStr == "" {
+		return nil, fmt.Errorf("server startup error: %s not set", EnvLLMMaxTokens)
+	}
+	maxTokens, errAtoi := strconv.Atoi(maxTokensStr)
+	if errAtoi != nil || maxTokens <= 0 {
+		return nil, fmt.Errorf("server startup error: invalid value for %s: '%s'", EnvLLMMaxTokens, maxTokensStr)
+	}
+	cfg.LLM.MaxTokens = maxTokens
+
+	// Prompts
+	inferTitlePrompt, err := decodeBase64(os.Getenv(EnvLLMInferBountyTitlePrompt))
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode %s: %w", EnvLLMInferBountyTitlePrompt, err)
+	}
+	cfg.Prompts.InferBountyTitle = inferTitlePrompt
+
+	inferParamsPrompt, err := decodeBase64(os.Getenv(EnvLLMInferContentParamsPrompt))
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode %s: %w", EnvLLMInferContentParamsPrompt, err)
+	}
+	cfg.Prompts.InferContentParams = inferParamsPrompt
+
+	// CORS Config
+	allowedOriginsEnv := os.Getenv("CORS_ORIGINS")
+	if allowedOriginsEnv == "" {
+		return nil, fmt.Errorf("server startup error: CORS_ORIGINS not set")
+	}
+	if allowedOriginsEnv == "*" {
+		cfg.CORS.AllowedOrigins = []string{"*"}
+		logger.Warn("CORS configured to allow all origins (*)")
+	} else if allowedOriginsEnv != "" {
+		cfg.CORS.AllowedOrigins = strings.Split(allowedOriginsEnv, ",")
+		logger.Info("CORS configured with specific origins", "origins", cfg.CORS.AllowedOrigins)
+	} else {
+		// This case is now covered by the check above, but we keep the block for clarity
+		// on what happens with an empty but present variable if needed in the future.
+		// For now, it's effectively dead code.
+		cfg.CORS.AllowedOrigins = []string{}
+	}
+
+	allowedMethodsEnv := os.Getenv("CORS_METHODS")
+	if allowedMethodsEnv != "" {
+		cfg.CORS.AllowedMethods = strings.Split(allowedMethodsEnv, ",")
+	} else {
+		cfg.CORS.AllowedMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"} // Default
+	}
+
+	allowedHeadersEnv := os.Getenv("CORS_HEADERS")
+	if allowedHeadersEnv != "" {
+		cfg.CORS.AllowedHeaders = strings.Split(allowedHeadersEnv, ",")
+	} else {
+		cfg.CORS.AllowedHeaders = []string{"Authorization", "Content-Type", "X-Requested-With"} // Default
+	}
+
+	return cfg, nil
+}
 
 type corsConfigKey struct{}
 
@@ -72,18 +236,7 @@ func WithCORSConfig(ctx context.Context, headers, methods, origins []string) con
 type PayoutCalculator func(totalAmount float64) float64
 
 // DefaultPayoutCalculator creates a calculator that applies a percentage-based revenue share
-func DefaultPayoutCalculator() PayoutCalculator {
-	// Parse user revenue share percentage from environment variable (default to 50%)
-	userRevSharePct := 50.0
-	if pctStr := os.Getenv(EnvUserRevenueSharePct); pctStr != "" {
-		if pct, err := strconv.ParseFloat(pctStr, 64); err == nil {
-			// Ensure the percentage is within bounds
-			if pct >= 0 && pct <= 100 {
-				userRevSharePct = pct
-			}
-		}
-	}
-
+func DefaultPayoutCalculator(userRevSharePct float64) PayoutCalculator {
 	// Return a calculator function that applies the percentage
 	return func(totalAmount float64) float64 {
 		totalMoney := money.NewFromFloat(totalAmount, money.USD)
@@ -184,155 +337,55 @@ func getConnPool(ctx context.Context, dbURL string, logger *slog.Logger, maxRetr
 
 // RunServer starts the HTTP server with the given configuration
 func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port string) error {
+	cfg, err := NewConfigFromEnv(logger)
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
+	}
+
 	mux := http.NewServeMux()
 
-	// --- Read and Apply CORS Configuration from Env Vars ---
-	allowedOriginsEnv := os.Getenv("CORS_ORIGINS")
-	var allowedOrigins []string
-	if allowedOriginsEnv == "*" {
-		allowedOrigins = []string{"*"}
-		logger.Warn("CORS configured to allow all origins (*)")
-	} else if allowedOriginsEnv != "" {
-		allowedOrigins = strings.Split(allowedOriginsEnv, ",")
-		logger.Info("CORS configured with specific origins", "origins", allowedOrigins)
-	} else {
-		logger.Warn("CORS_ORIGINS not set, CORS might not function correctly")
-		// Default to empty list, effectively disabling CORS unless middleware handles nil gracefully
-		allowedOrigins = []string{}
-	}
+	ctx = WithCORSConfig(ctx, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins)
 
-	// Read CORS Methods
-	allowedMethodsEnv := os.Getenv("CORS_METHODS")
-	var allowedMethods []string
-	if allowedMethodsEnv != "" {
-		allowedMethods = strings.Split(allowedMethodsEnv, ",")
-		logger.Info("CORS configured with specific methods", "methods", allowedMethods)
-	} else {
-		logger.Warn("CORS_METHODS not set, using default methods")
-		allowedMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"} // Default if not set
-	}
-
-	// Read CORS Headers
-	allowedHeadersEnv := os.Getenv("CORS_HEADERS")
-	var allowedHeaders []string
-	if allowedHeadersEnv != "" {
-		allowedHeaders = strings.Split(allowedHeadersEnv, ",")
-		logger.Info("CORS configured with specific headers", "headers", allowedHeaders)
-	} else {
-		logger.Warn("CORS_HEADERS not set, using default headers")
-		allowedHeaders = []string{"Authorization", "Content-Type", "X-Requested-With"} // Default if not set
-	}
-
-	ctx = WithCORSConfig(ctx, allowedHeaders, allowedMethods, allowedOrigins)
-	// --- End CORS Configuration ---
-
-	// Now retrieve the config from context (it should be populated now)
-	// headers, methods, origins := GetCORSConfig(ctx) // No longer needed here
-
-	rpcEndpoint := os.Getenv(EnvSolanaRPCEndpoint)
-	if rpcEndpoint == "" {
-		return fmt.Errorf("server startup error: %s not set", EnvSolanaRPCEndpoint)
-	}
-	escrowWalletStr := os.Getenv(EnvSolanaEscrowWallet)
-	if escrowWalletStr == "" {
-		return fmt.Errorf("server startup error: %s not set", EnvSolanaEscrowWallet)
-	}
-	escrowWallet, err := solanago.PublicKeyFromBase58(escrowWalletStr)
-	if err != nil {
-		return fmt.Errorf("server startup error: failed to parse escrow wallet public key '%s': %w", escrowWalletStr, err)
-	}
-	usdcMintAddressStr := os.Getenv(EnvSolanaUSDCMintAddress)
-	if usdcMintAddressStr == "" {
-		return fmt.Errorf("server startup error: %s not set", EnvSolanaUSDCMintAddress)
-	}
-	usdcMintAddress, err := solanago.PublicKeyFromBase58(usdcMintAddressStr)
-	if err != nil {
-		return fmt.Errorf("server startup error: failed to parse USDC mint address '%s': %w", usdcMintAddressStr, err)
-	}
-
-	rpcClient := solanarpc.New(rpcEndpoint)
+	rpcClient := solanarpc.New(cfg.Solana.RPCEndpoint)
 	_, err = rpcClient.GetHealth(ctx)
 	if err != nil {
-		return fmt.Errorf("server startup error: Solana RPC health check failed for %s: %w", rpcEndpoint, err)
+		return fmt.Errorf("server startup error: Solana RPC health check failed for %s: %w", cfg.Solana.RPCEndpoint, err)
 	}
-	logger.Debug("Successfully connected to Solana RPC", "endpoint", rpcEndpoint)
+	logger.Debug("Successfully connected to Solana RPC", "endpoint", cfg.Solana.RPCEndpoint)
 
-	// Get current environment (e.g., "dev", "prod")
-	currentEnv := os.Getenv(EnvServerEnv) // Read the ENV variable
-	if currentEnv == "" {
-		currentEnv = "dev" // Default to "dev" if not set
-		logger.Warn("ENV environment variable not set, defaulting to 'dev'")
-	}
-
-	// --- Setup Temporal Schedule for Periodic Publisher ---
-	if err := setupPeriodicPublisherSchedule(ctx, logger, tc, currentEnv); err != nil {
-		// Log the error but don't necessarily fail server startup if one schedule fails
+	// --- Setup Temporal Schedules ---
+	if err := setupPeriodicPublisherSchedule(ctx, logger, tc, cfg.Environment); err != nil {
 		logger.Error("Failed to set up periodic publisher schedule", "error", err)
 	}
-	// --- End Schedule Setup ---
-
-	// --- Setup Temporal Schedule for Pruning Stale Embeddings ---
-	if err := setupPruneStaleEmbeddingsSchedule(ctx, logger, tc, currentEnv); err != nil {
+	if err := setupPruneStaleEmbeddingsSchedule(ctx, logger, tc, cfg.Environment); err != nil {
 		logger.Error("Failed to set up prune stale embeddings schedule", "error", err)
 	}
-	// --- End Prune Schedule Setup ---
-
-	// --- Setup Temporal Schedule for Gumroad Notify ---
-	if err := setupGumroadNotifySchedule(ctx, logger, tc, currentEnv); err != nil {
+	if err := setupGumroadNotifySchedule(ctx, logger, tc, cfg.Environment); err != nil {
 		logger.Error("Failed to set up Gumroad notify schedule", "error", err)
 	}
-	// --- End Gumroad Notify Setup ---
 
 	// Create Rate Limiter for JWT-based assessment endpoint
 	jwtAssessLimiter := NewRateLimiter(1*time.Hour, 10) // 10 requests per hour per JWT
 
 	// --- Database Connection ---
-	dbURL := os.Getenv(EnvAbbDatabaseURL)
 	var querier dbgen.Querier // Define querier, to be initialized if dbURL is set
 	var dbPool *pgxpool.Pool
 
-	if dbURL == "" {
-		return fmt.Errorf("server startup error: %s not set", EnvAbbDatabaseURL)
-	}
-	var errDb error
-	dbPool, errDb = getConnPool(ctx, dbURL, logger, 5, 5*time.Second)
+	dbPool, errDb := getConnPool(ctx, cfg.DatabaseURL, logger, 5, 5*time.Second)
 	if errDb != nil {
-		// Depending on criticality, you might want to return errDb here and fail server startup
-		logger.Error("Failed to connect to database, semantic search features will be unavailable", "error", errDb)
-	} else {
-		querier = dbgen.New(dbPool) // Initialize querier with the pool
-		defer dbPool.Close()
-		logger.Info("Database connection established for semantic search.")
+		return fmt.Errorf("failed to connect to database: %w", errDb)
 	}
+	querier = dbgen.New(dbPool) // Initialize querier with the pool
+	defer dbPool.Close()
+	logger.Info("Database connection established.")
 
 	// --- Initialize LLMProviders ---
-	llmProviderName := os.Getenv(abb.EnvLLMProvider)
-	llmModel := os.Getenv(abb.EnvLLMModel)
-	llmEmbeddingModel := os.Getenv(abb.EnvLLMEmbeddingModel)
-	llmAPIKey := os.Getenv(abb.EnvLLMAPIKey)
-
-	if llmProviderName == "" || llmModel == "" || llmEmbeddingModel == "" || llmAPIKey == "" {
-		return fmt.Errorf("server startup error: LLM configuration (Provider, Model, EmbeddingModel, APIKey) not fully set")
-	}
-
-	// Read MaxTokens for LLMConfig, similar to how it's done in getConfiguration
-	maxTokensStr := os.Getenv(abb.EnvLLMMaxTokens)
-	maxTokens := abb.DefaultLLMMaxTokens // Default from abb package
-	if maxTokensStr != "" {
-		parsedMaxTokens, errAtoi := strconv.Atoi(maxTokensStr)
-		if errAtoi == nil && parsedMaxTokens > 0 {
-			maxTokens = parsedMaxTokens
-		} else {
-			logger.Warn("Invalid LLM_MAX_TOKENS value in http/http.go, using default", "value", maxTokensStr, "default", abb.DefaultLLMMaxTokens, "error", errAtoi)
-		}
-	}
-
 	// standard provider
 	llmProvider, err := abb.NewLLMProvider(abb.LLMConfig{
-		Provider:  llmProviderName,
-		APIKey:    llmAPIKey,
-		Model:     llmModel,
-		MaxTokens: maxTokens,
+		Provider:  cfg.LLM.Provider,
+		APIKey:    cfg.LLM.APIKey,
+		Model:     cfg.LLM.Model,
+		MaxTokens: cfg.LLM.MaxTokens,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize LLM Provider: %w", err)
@@ -340,9 +393,9 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 
 	// embedding provider
 	llmEmbedProvider, err := abb.NewLLMEmbeddingProvider(abb.EmbeddingConfig{
-		Provider: llmProviderName,
-		APIKey:   llmAPIKey,
-		Model:    llmEmbeddingModel,
+		Provider: cfg.LLM.Provider,
+		APIKey:   cfg.LLM.APIKey,
+		Model:    cfg.LLM.EmbeddingModel,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize LLM Embedding Provider: %w", err)
@@ -368,12 +421,12 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 
 	// listing bounties routes
 	mux.HandleFunc("GET /bounties", stools.AdaptHandler(
-		handleListBounties(logger, tc, currentEnv),
+		handleListBounties(logger, tc, cfg.Environment),
 		withLogging(logger),
 	))
 
 	mux.HandleFunc("GET /bounties/paid", stools.AdaptHandler(
-		handleListPaidBounties(logger, rpcClient, escrowWallet, usdcMintAddress, 10*time.Minute),
+		handleListPaidBounties(logger, rpcClient, cfg.Solana.EscrowWallet, cfg.Solana.USDCMintAddress, 10*time.Minute),
 		withLogging(logger),
 	))
 
@@ -385,7 +438,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 
 	// create bounty routes
 	mux.HandleFunc("POST /bounties", stools.AdaptHandler(
-		handleCreateBounty(logger, tc, llmProvider, llmEmbedProvider, DefaultPayoutCalculator(), currentEnv),
+		handleCreateBounty(logger, tc, llmProvider, llmEmbedProvider, DefaultPayoutCalculator(cfg.UserRevenueSharePct), cfg.Environment, cfg.Prompts),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
 		requireStatus(UserStatusSudo),
@@ -422,7 +475,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	))
 
 	mux.HandleFunc("GET /bounties/search", stools.AdaptHandler(
-		handleSearchBounties(logger, querier, tc, llmEmbedProvider, currentEnv),
+		handleSearchBounties(logger, querier, tc, llmEmbedProvider, cfg.Environment),
 		withLogging(logger),
 	))
 
@@ -480,9 +533,9 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 
 	// Apply CORS globally
 	corsHandler := handlers.CORS(
-		handlers.AllowedHeaders(allowedHeaders),
-		handlers.AllowedMethods(allowedMethods),
-		handlers.AllowedOrigins(allowedOrigins),
+		handlers.AllowedHeaders(cfg.CORS.AllowedHeaders),
+		handlers.AllowedMethods(cfg.CORS.AllowedMethods),
+		handlers.AllowedOrigins(cfg.CORS.AllowedOrigins),
 		handlers.AllowCredentials(),
 	)(mux)
 
@@ -682,4 +735,12 @@ func setupGumroadNotifySchedule(ctx context.Context, logger *slog.Logger, tc cli
 
 	logger.Info("Successfully created Gumroad Notify schedule", "scheduleID", scheduleID)
 	return nil
+}
+
+func decodeBase64(s string) (string, error) {
+	data, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
