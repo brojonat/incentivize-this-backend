@@ -725,6 +725,12 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 	case PlatformBluesky:
 		// --- Start Bluesky Logic (incorporating ResolveBlueskyURLToATURI and PullBlueskyContent) ---
 		logger.Debug("Executing Bluesky pull logic within PullContentActivity")
+
+		// Determine the PDS host, strip any scheme, and set a default if not provided.
+		pdsHost := cfg.BlueskyDeps.PDS
+		pdsHost = strings.TrimPrefix(pdsHost, "https://")
+		pdsHost = strings.TrimPrefix(pdsHost, "http://")
+
 		contentIdToUse := input.ContentID
 		isURL := strings.HasPrefix(input.ContentID, "http://") || strings.HasPrefix(input.ContentID, "https://")
 
@@ -746,11 +752,6 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 			}
 
 			// Resolve handle to DID
-			// Use the PDS from dependencies, defaulting to public.api.bsky.app if not set
-			pdsHost := cfg.BlueskyDeps.PDS
-			if pdsHost == "" {
-				pdsHost = "public.api.bsky.app" // Default PDS for public queries
-			}
 			resolveHandleURL := fmt.Sprintf("https://%s/xrpc/com.atproto.identity.resolveHandle?handle=%s", pdsHost, url.QueryEscape(handle))
 			resolveReq, resolveReqErr := http.NewRequestWithContext(ctx, "GET", resolveHandleURL, nil)
 			if resolveReqErr != nil {
@@ -784,11 +785,6 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 		}
 
 		// 2. Pull content using AT URI
-		pdsHost := cfg.BlueskyDeps.PDS
-		if pdsHost == "" {
-			pdsHost = "public.api.bsky.app" // Default PDS for public queries
-		}
-
 		getPostsURL := fmt.Sprintf("https://%s/xrpc/app.bsky.feed.getPosts?uris=%s", pdsHost, url.QueryEscape(contentIdToUse))
 		req, reqErr := http.NewRequestWithContext(ctx, "GET", getPostsURL, nil)
 		if reqErr != nil {
