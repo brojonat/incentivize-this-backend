@@ -407,6 +407,11 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		withLogging(logger),
 	))
 
+	mux.HandleFunc("GET /config", stools.AdaptHandler(
+		handleGetConfig(cfg.Solana.USDCMintAddress.String(), cfg.Solana.EscrowWallet.String()),
+		withLogging(logger),
+	))
+
 	mux.HandleFunc("POST /token", stools.AdaptHandler(
 		handleIssueSudoToken(logger),
 		withLogging(logger),

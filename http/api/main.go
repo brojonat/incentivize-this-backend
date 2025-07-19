@@ -32,6 +32,13 @@ type BountyListItem struct {
 }
 
 type CreateBountySuccessResponse struct {
-	Message  string `json:"message"`
-	BountyID string `json:"bounty_id"`
+	Message                 string    `json:"message"`
+	BountyID                string    `json:"bounty_id"`
+	TotalCharged            float64   `json:"total_charged"`
+	PaymentTimeoutExpiresAt time.Time `json:"payment_timeout_expires_at"`
+}
+
+type ConfigResponse struct {
+	USDCMintAddress string `json:"usdc_mint_address"`
+	EscrowWallet    string `json:"escrow_wallet"`
 }

@@ -502,7 +502,8 @@ func handleCreateBounty(
 
 		// if the request specifies a fee percentage, use it to allocate the bounty
 		// otherwise, use the default payout calculator
-		if req.FeePercentage >= 0 {
+		claims, ok := r.Context().Value(ctxKeyJWT).(*authJWTClaims)
+		if ok && claims.Status >= UserStatusSudo && req.FeePercentage >= 0 {
 			totalMoney := money.NewFromFloat(req.TotalBounty, money.USD)
 			feePercentage := int(req.FeePercentage)
 			userPercentage := 100 - feePercentage
@@ -596,8 +597,10 @@ func handleCreateBounty(
 		}
 
 		writeJSONResponse(w, api.CreateBountySuccessResponse{
-			Message:  "Bounty creation initiated and workflow started.",
-			BountyID: workflowID,
+			Message:                 "Bounty creation initiated and workflow started.",
+			BountyID:                workflowID,
+			TotalCharged:            input.TotalCharged.ToUSDC(),
+			PaymentTimeoutExpiresAt: now.Add(input.PaymentTimeout),
 		}, http.StatusOK)
 	}
 }
