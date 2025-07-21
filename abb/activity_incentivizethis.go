@@ -61,21 +61,6 @@ type TargetBountyDetails struct {
 	ContentKind          ContentKind  `json:"content_kind"`
 	EndTime              time.Time    `json:"end_time,omitempty"`
 	RemainingBountyValue float64      `json:"remaining_bounty_value"`
-	BountyOwnerWallet    string       `json:"bounty_owner_wallet"` // Added from typical bounty details
-	Status               string       `json:"status"`              // Added from typical bounty details
-}
-
-// FetchedBountyData is a simplified struct to unmarshal the response from GET /bounties/{id}
-// It should match the relevant fields from http.BountyListItem for this activity's purpose.
-type FetchedBountyData struct {
-	BountyID             string       `json:"bounty_id"`
-	Requirements         []string     `json:"requirements"`
-	BountyPerPost        float64      `json:"bounty_per_post"`
-	TotalBounty          float64      `json:"total_bounty"`
-	PlatformType         PlatformKind `json:"platform_kind"`
-	ContentKind          ContentKind  `json:"content_kind"`
-	EndTime              time.Time    `json:"end_time,omitempty"`
-	RemainingBountyValue float64      `json:"remaining_bounty_value"`
 	BountyOwnerWallet    string       `json:"bounty_owner_wallet"`
 	Status               string       `json:"status"`
 }

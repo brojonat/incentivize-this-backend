@@ -2,3 +2,5 @@ infer-bounty-title: |
   Secret sauce for inferring bounty titles.
 infer-content-params: |
   Secret sauce for inferring content parameters.
+content-moderation: |
+  Secret sauces for content moderation.

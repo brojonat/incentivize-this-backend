@@ -27,7 +27,6 @@ type PayoutDetail struct {
 // Search Attribute Keys
 var (
 	EnvironmentKey          = temporal.NewSearchAttributeKeyString("Environment")
-	BountyOwnerWalletKey    = temporal.NewSearchAttributeKeyString("BountyOwnerWallet")
 	BountyFunderWalletKey   = temporal.NewSearchAttributeKeyString("BountyFunderWallet")
 	BountyPlatformKey       = temporal.NewSearchAttributeKeyString("BountyPlatform")
 	BountyContentKindKey    = temporal.NewSearchAttributeKeyString("BountyContentKind")
@@ -98,20 +97,18 @@ type CancelBountySignal struct {
 
 // BountyAssessmentWorkflowInput represents the input parameters for the workflow
 type BountyAssessmentWorkflowInput struct {
-	Title              string             `json:"title"`
-	Requirements       []string           `json:"requirements"`
-	BountyPerPost      *solana.USDCAmount `json:"bounty_per_post"`
-	TotalBounty        *solana.USDCAmount `json:"total_bounty"`
-	TotalCharged       *solana.USDCAmount `json:"total_charged"`
-	BountyOwnerWallet  string             `json:"bounty_owner_wallet"`
-	BountyFunderWallet string             `json:"bounty_funder_wallet"`
-	Platform           PlatformKind       `json:"platform"`
-	ContentKind        ContentKind        `json:"content_kind"`
-	Tier               BountyTier         `json:"tier"`
-	PaymentTimeout     time.Duration      `json:"payment_timeout"`
-	Timeout            time.Duration      `json:"timeout"`
-	TreasuryWallet     string             `json:"treasury_wallet"`
-	EscrowWallet       string             `json:"escrow_wallet"`
+	Title          string             `json:"title"`
+	Requirements   []string           `json:"requirements"`
+	BountyPerPost  *solana.USDCAmount `json:"bounty_per_post"`
+	TotalBounty    *solana.USDCAmount `json:"total_bounty"`
+	TotalCharged   *solana.USDCAmount `json:"total_charged"`
+	Platform       PlatformKind       `json:"platform"`
+	ContentKind    ContentKind        `json:"content_kind"`
+	Tier           BountyTier         `json:"tier"`
+	PaymentTimeout time.Duration      `json:"payment_timeout"`
+	Timeout        time.Duration      `json:"timeout"`
+	TreasuryWallet string             `json:"treasury_wallet"`
+	EscrowWallet   string             `json:"escrow_wallet"`
 }
 
 // BountyAssessmentWorkflow represents the workflow that manages bounty assessment
@@ -127,6 +124,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	var finalStatus BountyCompletionStatus
 	amountRefunded := solana.Zero()
 	totalAmountPaid := solana.Zero()
+	var funderWallet string // To store the inferred funder wallet
 	// --- End Summary Data Initialization ---
 
 	defer func() {
@@ -163,8 +161,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 			Platform:             input.Platform,
 			ContentKind:          input.ContentKind,
 			Tier:                 input.Tier,
-			BountyOwnerWallet:    input.BountyOwnerWallet,
-			BountyFunderWallet:   input.BountyFunderWallet,
+			BountyFunderWallet:   funderWallet, // Use inferred value
 			OriginalTotalBounty:  input.TotalCharged,
 			EffectiveTotalBounty: input.TotalBounty,
 			BountyPerPost:        input.BountyPerPost,
@@ -299,20 +296,6 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	}
 	// Add other critical input validations as needed (e.g., wallet address formats, platform supported)
 	// For wallet addresses, parsing them early can also act as validation:
-	if _, err := solanago.PublicKeyFromBase58(input.BountyOwnerWallet); err != nil {
-		errMsg := fmt.Sprintf("Invalid BountyOwnerWallet address: %s", input.BountyOwnerWallet)
-		logger.Error(errMsg, "error", err)
-		finalStatus = BountyFailedInternalError // Set specific final status
-		workflowErr = temporal.NewApplicationError(errMsg, "INVALID_OWNER_WALLET", err)
-		return workflowErr
-	}
-	if _, err := solanago.PublicKeyFromBase58(input.BountyFunderWallet); err != nil {
-		errMsg := fmt.Sprintf("Invalid BountyFunderWallet address: %s", input.BountyFunderWallet)
-		logger.Error(errMsg, "error", err)
-		finalStatus = BountyFailedInternalError // Set specific final status
-		workflowErr = temporal.NewApplicationError(errMsg, "INVALID_FUNDER_WALLET", err)
-		return workflowErr
-	}
 	if _, err := solanago.PublicKeyFromBase58(input.EscrowWallet); err != nil {
 		errMsg := fmt.Sprintf("Invalid EscrowWallet address: %s", input.EscrowWallet)
 		logger.Error(errMsg, "error", err)
@@ -345,12 +328,13 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	// await the bounty payment from the funder
-	_, err = awaitBountyFund(ctx, input)
+	paymentResult, err := awaitBountyFund(ctx, input)
 	if err != nil {
 		finalStatus = BountyFailedAwaitingFunding // Set specific final status
 		workflowErr = err                         // Store the error
 		return workflowErr                        // Return the error to trigger deferred summary
 	}
+	funderWallet = paymentResult.FunderWallet // Store the inferred funder wallet
 
 	// --- Execute Fee Transfer (Escrow -> Treasury) ---
 	logger.Info("Executing fee transfer")
@@ -406,6 +390,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 		BountyPerPostAmountKey.ValueSet(input.BountyPerPost.ToUSDC()),
 		BountyValueRemainingKey.ValueSet(input.TotalBounty.ToUSDC()),
 		BountyTierKey.ValueSet(int64(input.Tier)),
+		BountyFunderWalletKey.ValueSet(funderWallet), // Set the inferred funder wallet
 	); err != nil {
 		logger.Error("Failed to upsert initial bounty value search attributes", "error", err)
 		// Decide if this should be fatal or just a warning
@@ -423,7 +408,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	}
 
 	// loop to process content submissions
-	workflowErr = awaitLoopUntilEmptyOrTimeout(ctx, input, successfullyPaidIDs, &finalStatus, amountRefunded, totalAmountPaid)
+	workflowErr = awaitLoopUntilEmptyOrTimeout(ctx, input, successfullyPaidIDs, &finalStatus, amountRefunded, totalAmountPaid, funderWallet)
 	// workflowErr from awaitLoopUntilEmptyOrTimeout will be handled by the defer block if not nil.
 	// If it's nil, the finalStatus should have been set correctly within the loop.
 	return workflowErr
@@ -516,10 +501,6 @@ func awaitBountyFund(
 	ctx workflow.Context,
 	input BountyAssessmentWorkflowInput,
 ) (*VerifyPaymentResult, error) {
-	funderAccount, err := solanago.PublicKeyFromBase58(input.BountyFunderWallet)
-	if err != nil {
-		return nil, fmt.Errorf("invalid funder wallet address: %w", err)
-	}
 	escrowAccount, err := solanago.PublicKeyFromBase58(input.EscrowWallet)
 	if err != nil {
 		return nil, fmt.Errorf("invalid escrow wallet address from input: %w", err)
@@ -545,7 +526,6 @@ func awaitBountyFund(
 	err = workflow.ExecuteActivity(
 		verifyPaymentCtx,
 		(*Activities).VerifyPayment,
-		funderAccount,
 		escrowAccount,
 		input.TotalCharged,
 		fundingMemo,
@@ -570,6 +550,7 @@ func awaitLoopUntilEmptyOrTimeout(
 	finalStatus *BountyCompletionStatus, // Pointer to update final status
 	amountRefunded *solana.USDCAmount, // Pointer to update amount refunded
 	totalAmountPaid *solana.USDCAmount, // Pointer to update total amount paid
+	funderWallet string, // The inferred funder wallet
 ) error {
 	logger := workflow.GetLogger(ctx)
 	workflowID := workflow.GetInfo(ctx).WorkflowExecution.ID
@@ -623,10 +604,10 @@ func awaitLoopUntilEmptyOrTimeout(
 			}
 			memoString := string(memoBytes)
 
-			refundErr := workflow.ExecuteActivity(refundCtx, (*Activities).TransferUSDC, input.BountyOwnerWallet, amountToRefund.ToUSDC(), memoString).Get(refundCtx, nil)
+			refundErr := workflow.ExecuteActivity(refundCtx, (*Activities).TransferUSDC, funderWallet, amountToRefund.ToUSDC(), memoString).Get(refundCtx, nil)
 
 			if refundErr != nil {
-				logger.Error("Failed to return remaining bounty to owner", "owner_wallet", input.BountyOwnerWallet, "amount", amountToRefund.ToUSDC(), "error", refundErr)
+				logger.Error("Failed to return remaining bounty to owner", "owner_wallet", funderWallet, "amount", amountToRefund.ToUSDC(), "error", refundErr)
 			} else {
 				logger.Info("Successfully returned remaining bounty to owner")
 				*amountRefunded = *remainingBounty
@@ -659,7 +640,7 @@ func awaitLoopUntilEmptyOrTimeout(
 			// Implement refund logic similar to cancel signal
 			if !remainingBounty.IsZero() {
 				amountToRefund := remainingBounty
-				logger.Info("Attempting to return remaining bounty to owner due to timeout", "owner_wallet", input.BountyOwnerWallet, "amount", amountToRefund.ToUSDC())
+				logger.Info("Attempting to return remaining bounty to owner due to timeout", "owner_wallet", funderWallet, "amount", amountToRefund.ToUSDC())
 				// Use a context that won't be immediately cancelled by the timer completing
 				refundCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{StartToCloseTimeout: DefaultPayoutTimeout})
 
@@ -677,10 +658,10 @@ func awaitLoopUntilEmptyOrTimeout(
 				// --- End Memo Creation --- //
 
 				// Call TransferUSDC activity with memo
-				refundErr := workflow.ExecuteActivity(refundCtx, (*Activities).TransferUSDC, input.BountyOwnerWallet, amountToRefund.ToUSDC(), memoString).Get(refundCtx, nil)
+				refundErr := workflow.ExecuteActivity(refundCtx, (*Activities).TransferUSDC, funderWallet, amountToRefund.ToUSDC(), memoString).Get(refundCtx, nil)
 				if refundErr != nil {
 					// Log error but don't fail the workflow, timeout already happened
-					logger.Error("Failed to return remaining bounty to owner on timeout", "owner_wallet", input.BountyOwnerWallet, "amount", amountToRefund.ToUSDC(), "error", refundErr)
+					logger.Error("Failed to return remaining bounty to owner on timeout", "owner_wallet", funderWallet, "amount", amountToRefund.ToUSDC(), "error", refundErr)
 					// finalStatus remains BountyTimedOutRefunded but refund failed. The summary will reflect actual amountRefunded.
 				} else {
 					logger.Info("Successfully returned remaining bounty to owner on timeout")
@@ -1084,8 +1065,8 @@ func awaitLoopUntilEmptyOrTimeout(
 			logger.Info("Received custom cancel signal", "BountyOwnerWallet", cancelSignal.BountyOwnerWallet)
 			cancelTimer()
 
-			if cancelSignal.BountyOwnerWallet != input.BountyOwnerWallet {
-				logger.Warn("Received custom cancel signal from incorrect owner", "received_owner", cancelSignal.BountyOwnerWallet, "expected_owner", input.BountyOwnerWallet)
+			if cancelSignal.BountyOwnerWallet != funderWallet {
+				logger.Warn("Received custom cancel signal from incorrect owner", "received_owner", cancelSignal.BountyOwnerWallet, "expected_owner", funderWallet)
 				return
 			}
 
@@ -1097,7 +1078,7 @@ func awaitLoopUntilEmptyOrTimeout(
 
 			if !remainingBounty.IsZero() {
 				amountToRefund := remainingBounty
-				logger.Info("Attempting to return remaining bounty to owner due to custom cancel signal", "owner_wallet", input.BountyOwnerWallet, "amount", amountToRefund.ToUSDC())
+				logger.Info("Attempting to return remaining bounty to owner due to custom cancel signal", "owner_wallet", funderWallet, "amount", amountToRefund.ToUSDC())
 				cancelOpts := workflow.ActivityOptions{StartToCloseTimeout: DefaultPayoutTimeout}
 				// --- Create Memo for Cancellation Refund --- //
 				type CancelRefundMemo struct {
@@ -1111,9 +1092,9 @@ func awaitLoopUntilEmptyOrTimeout(
 				}
 				memoString := string(memoBytes)
 				// --- End Memo Creation --- //
-				refundErr := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, cancelOpts), (*Activities).TransferUSDC, input.BountyOwnerWallet, amountToRefund.ToUSDC(), memoString).Get(ctx, nil)
+				refundErr := workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, cancelOpts), (*Activities).TransferUSDC, funderWallet, amountToRefund.ToUSDC(), memoString).Get(ctx, nil)
 				if refundErr != nil {
-					logger.Error("Failed to return remaining bounty to owner (custom signal)", "owner_wallet", input.BountyOwnerWallet, "amount", amountToRefund.ToUSDC(), "error", refundErr)
+					logger.Error("Failed to return remaining bounty to owner (custom signal)", "owner_wallet", funderWallet, "amount", amountToRefund.ToUSDC(), "error", refundErr)
 					// finalStatus will be set based on whether refund happened or not for summary
 					*finalStatus = BountyCompletedCancelled // Even if refund fails, it was intended.
 				} else {
@@ -1147,7 +1128,7 @@ func awaitLoopUntilEmptyOrTimeout(
 
 			if !remainingBounty.IsZero() {
 				amountToRefund := remainingBounty
-				logger.Info("Attempting to return remaining bounty to owner due to context cancellation", "owner_wallet", input.BountyOwnerWallet, "amount", amountToRefund.ToUSDC())
+				logger.Info("Attempting to return remaining bounty to owner due to context cancellation", "owner_wallet", funderWallet, "amount", amountToRefund.ToUSDC())
 				// Use a disconnected context for refund activity if main context is already cancelled
 				disconnectedRefundCtx, _ := workflow.NewDisconnectedContext(ctx)
 				refundActivityOpts := workflow.ActivityOptions{StartToCloseTimeout: DefaultPayoutTimeout}
@@ -1166,9 +1147,9 @@ func awaitLoopUntilEmptyOrTimeout(
 				memoString := string(memoBytes)
 				// --- End Memo Creation --- //
 
-				refundErr := workflow.ExecuteActivity(activityCtx, (*Activities).TransferUSDC, input.BountyOwnerWallet, amountToRefund.ToUSDC(), memoString).Get(activityCtx, nil)
+				refundErr := workflow.ExecuteActivity(activityCtx, (*Activities).TransferUSDC, funderWallet, amountToRefund.ToUSDC(), memoString).Get(activityCtx, nil)
 				if refundErr != nil {
-					logger.Error("Failed to return remaining bounty to owner (context cancellation)", "owner_wallet", input.BountyOwnerWallet, "amount", amountToRefund.ToUSDC(), "error", refundErr)
+					logger.Error("Failed to return remaining bounty to owner (context cancellation)", "owner_wallet", funderWallet, "amount", amountToRefund.ToUSDC(), "error", refundErr)
 					*finalStatus = BountyCompletedCancelled // Still mark as intended for refund
 				} else {
 					logger.Info("Successfully returned remaining bounty to owner (context cancellation)")

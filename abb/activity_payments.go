@@ -121,9 +121,10 @@ func (a *Activities) TransferUSDC(ctx context.Context, recipientWallet string, a
 
 // VerifyPaymentResult represents the result of verifying a payment
 type VerifyPaymentResult struct {
-	Verified bool
-	Amount   *solanautil.USDCAmount
-	Error    string
+	Verified     bool
+	Amount       *solanautil.USDCAmount
+	Error        string
+	FunderWallet string // The wallet that funded the bounty
 }
 
 // VerifyPayment verifies that a specific payment transaction has been received. More specifically,
@@ -131,7 +132,6 @@ type VerifyPaymentResult struct {
 // associated token account with the expected amount of USDC.
 func (a *Activities) VerifyPayment(
 	ctx context.Context,
-	expectedSender solanago.PublicKey,
 	expectedRecipient solanago.PublicKey,
 	expectedAmount *solanautil.USDCAmount,
 	expectedMemo string,
@@ -149,7 +149,6 @@ func (a *Activities) VerifyPayment(
 	expectedAmountUint64 := expectedAmount.ToSmallestUnit().Uint64()
 	logger.Info("VerifyPayment started",
 		"workflow_id", expectedMemo,
-		"expected_sender", expectedSender.String(),
 		"expected_recipient", expectedRecipient.String(),
 		"expected_amount_lamports", expectedAmountUint64,
 		"timeout", timeout,
@@ -189,7 +188,7 @@ func (a *Activities) VerifyPayment(
 	for {
 		select {
 		case <-timeoutCtx.Done():
-			logger.Warn("Payment verification timed out", "expected_sender", expectedSender.String(), "expected_recipient_ata", expectedRecipientATA.String())
+			logger.Warn("Payment verification timed out", "expected_recipient_ata", expectedRecipientATA.String())
 			return &VerifyPaymentResult{
 				Verified: false,
 				Error:    "payment verification timed out",
@@ -418,12 +417,11 @@ func (a *Activities) VerifyPayment(
 					}
 
 					// --- Check 2: Verify Token Balances ---
-					balancesMatch, err := checkTokenBalancesForTransfer(
+					balancesMatch, funderWallet, err := checkTokenBalancesForTransfer(
 						logger,
 						txResult.Meta.PreTokenBalances,
 						txResult.Meta.PostTokenBalances,
 						accountKeys,
-						expectedSender,
 						expectedRecipientATA,
 						usdcMint,
 						expectedAmountUint64,
@@ -437,13 +435,14 @@ func (a *Activities) VerifyPayment(
 					if balancesMatch && memoMatches {
 						logger.Info("Matching payment transaction found (balances and memo match)",
 							"signature", sig.String(),
-							"from_owner", expectedSender.String(),
+							"inferred_funder", funderWallet.String(),
 							"to_ata", expectedRecipientATA.String(),
 							"amount_lamports", expectedAmountUint64)
 						// We found the specific transaction we were looking for.
 						return &VerifyPaymentResult{
-							Verified: true,
-							Amount:   expectedAmount, // Return the amount we were looking for
+							Verified:     true,
+							Amount:       expectedAmount, // Return the amount we were looking for
+							FunderWallet: funderWallet.String(),
 						}, nil
 					}
 				} else {
@@ -463,14 +462,12 @@ func checkTokenBalancesForTransfer(
 	preBalances []rpc.TokenBalance,
 	postBalances []rpc.TokenBalance,
 	accountKeys []solanago.PublicKey, // Added: List of accounts from the transaction message
-	expectedSourceOwner solanago.PublicKey,
 	expectedDestATA solanago.PublicKey,
 	expectedMint solanago.PublicKey,
 	expectedAmountLamports uint64,
-) (bool, error) {
+) (bool, solanago.PublicKey, error) {
 
 	logger.Debug("checkTokenBalances: Input",
-		"expectedSourceOwner", expectedSourceOwner.String(),
 		"expectedDestATA", expectedDestATA.String(),
 		"expectedMint", expectedMint.String(),
 		"expectedAmountLamports", expectedAmountLamports)
@@ -500,11 +497,11 @@ func checkTokenBalancesForTransfer(
 	postDestBal, destExists := postBalanceMap[expectedDestATA]
 	if !destExists {
 		logger.Debug("checkTokenBalances: Expected destination ATA not found in post balances", "dest_ata", expectedDestATA.String())
-		return false, nil
+		return false, solanago.PublicKey{}, nil
 	}
 	if !postDestBal.Mint.Equals(expectedMint) {
 		logger.Debug("checkTokenBalances: Destination ATA mint mismatch", "dest_ata", expectedDestATA.String(), "found_mint", postDestBal.Mint.String(), "expected_mint", expectedMint.String())
-		return false, nil
+		return false, solanago.PublicKey{}, nil
 	}
 	preDestBal, ok := preBalanceMap[expectedDestATA] // Okay if it didn't exist before
 
@@ -522,23 +519,24 @@ func checkTokenBalancesForTransfer(
 	postDestAmountLamports, err := strconv.ParseUint(postDestBal.UiTokenAmount.Amount, 10, 64)
 	if err != nil {
 		logger.Error("checkTokenBalances: Failed to parse postDestAmountLamports", "value", postDestBal.UiTokenAmount.Amount, "error", err)
-		return false, fmt.Errorf("failed to parse post-destination balance: %w", err) // Critical parsing failure
+		return false, solanago.PublicKey{}, fmt.Errorf("failed to parse post-destination balance: %w", err) // Critical parsing failure
 	}
 
 	destIncrease := postDestAmountLamports - preDestAmountLamports
 	logger.Debug("checkTokenBalances: Destination balance check", "dest_ata", expectedDestATA.String(), "pre", preDestAmountLamports, "post", postDestAmountLamports, "increase", destIncrease, "expected", expectedAmountLamports)
 	if destIncrease != expectedAmountLamports {
 		logger.Debug("checkTokenBalances: Destination ATA balance did not increase by expected amount")
-		return false, nil // Didn't receive the right amount
+		return false, solanago.PublicKey{}, nil // Didn't receive the right amount
 	}
 	logger.Debug("Destination ATA balance increase matches expected amount", "dest_ata", expectedDestATA.String(), "increase", expectedAmountLamports)
 
 	// Check Source Account
+	var funderWallet solanago.PublicKey
 	foundSourceMatch := false
 	for sourceAta, preSourceBal := range preBalanceMap {
 		// Check mint and owner match
-		logger.Debug("checkTokenBalances: Checking potential source account", "source_ata", sourceAta.String(), "owner", preSourceBal.Owner.String(), "expected_owner", expectedSourceOwner.String(), "mint", preSourceBal.Mint.String(), "expected_mint", expectedMint.String())
-		if preSourceBal.Mint.Equals(expectedMint) && preSourceBal.Owner.Equals(expectedSourceOwner) {
+		logger.Debug("checkTokenBalances: Checking potential source account", "source_ata", sourceAta.String(), "owner", preSourceBal.Owner.String(), "mint", preSourceBal.Mint.String(), "expected_mint", expectedMint.String())
+		if preSourceBal.Mint.Equals(expectedMint) {
 			postSourceBal, sourcePostExists := postBalanceMap[sourceAta]
 			if !sourcePostExists { // Source account might have been closed, check balance went to 0
 				logger.Warn("checkTokenBalances: Source ATA not found in post balances, potentially closed?", "ata", sourceAta.String())
@@ -563,8 +561,9 @@ func checkTokenBalancesForTransfer(
 			if sourceDecrease == expectedAmountLamports {
 				logger.Debug("Source account balance decrease matches expected amount and owner",
 					"source_ata", sourceAta.String(),
-					"source_owner", expectedSourceOwner.String(),
+					"source_owner", preSourceBal.Owner.String(),
 					"decrease", expectedAmountLamports)
+				funderWallet = *preSourceBal.Owner
 				foundSourceMatch = true
 				break // Found the matching source decrease
 			}
@@ -573,9 +572,9 @@ func checkTokenBalancesForTransfer(
 
 	if !foundSourceMatch {
 		logger.Debug("checkTokenBalances: Did not find any source ATA owned by expected owner with matching balance decrease")
-		return false, nil
+		return false, solanago.PublicKey{}, nil
 	}
 
 	// If we passed the destination check AND found a matching source owned by the correct wallet
-	return true, nil
+	return true, funderWallet, nil
 }

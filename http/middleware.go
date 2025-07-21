@@ -32,10 +32,44 @@ type RateLimiter struct {
 
 // NewRateLimiter creates a new rate limiter with the specified window and limit
 func NewRateLimiter(window time.Duration, limit int) *RateLimiter {
-	return &RateLimiter{
+	rl := &RateLimiter{
 		requests: make(map[string][]time.Time),
 		window:   window,
 		limit:    limit,
+	}
+
+	go rl.cleanupWorker()
+
+	return rl
+}
+
+func (rl *RateLimiter) cleanupWorker() {
+	// Periodically sweep the map to remove stale entries.
+	// The interval is set to the rate limit window itself.
+	ticker := time.NewTicker(rl.window)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		rl.mu.Lock()
+		windowStart := time.Now().Add(-rl.window)
+		for ip, requests := range rl.requests {
+			// Filter out old requests for the current IP
+			validRequests := requests[:0]
+			for _, t := range requests {
+				if t.After(windowStart) {
+					validRequests = append(validRequests, t)
+				}
+			}
+
+			if len(validRequests) == 0 {
+				// If there are no recent requests for this IP, remove it from the map.
+				delete(rl.requests, ip)
+			} else {
+				// Otherwise, update the entry with the cleaned list of requests.
+				rl.requests[ip] = validRequests
+			}
+		}
+		rl.mu.Unlock()
 	}
 }
 
@@ -44,31 +78,22 @@ func (rl *RateLimiter) isAllowed(ip string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	now := time.Now()
-	windowStart := now.Add(-rl.window)
-
-	// Clean up old requests
+	// The cleanup is now handled by the background worker,
+	// so we just check the current state.
 	requests := rl.requests[ip]
-	valid := requests[:0]
-	for _, t := range requests {
-		if t.After(windowStart) {
-			valid = append(valid, t)
-		}
-	}
-	rl.requests[ip] = valid
 
 	// Check if we're under the limit
-	if len(valid) >= rl.limit {
+	if len(requests) >= rl.limit {
 		return false
 	}
 
 	// Add current request
-	rl.requests[ip] = append(rl.requests[ip], now)
+	rl.requests[ip] = append(rl.requests[ip], time.Now())
 	return true
 }
 
 // rateLimitMiddleware creates a middleware that applies rate limiting
-func rateLimitMiddleware(rl *RateLimiter) func(http.HandlerFunc) http.HandlerFunc {
+func rateLimitMiddleware(rl *RateLimiter, logger *slog.Logger) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			// Get client IP
@@ -76,9 +101,14 @@ func rateLimitMiddleware(rl *RateLimiter) func(http.HandlerFunc) http.HandlerFun
 			if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
 				ip = strings.Split(forwardedFor, ",")[0]
 			}
-
 			// Check if request is allowed
 			if !rl.isAllowed(ip) {
+				logger.Warn("Rate limit exceeded",
+					"ip", ip,
+					"method", r.Method,
+					"path", r.URL.Path,
+					"user_agent", r.Header.Get("User-Agent"),
+				)
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Retry-After", fmt.Sprintf("%d", int(rl.window.Seconds())))
 				w.WriteHeader(http.StatusTooManyRequests)
@@ -97,23 +127,23 @@ func rateLimitMiddleware(rl *RateLimiter) func(http.HandlerFunc) http.HandlerFun
 // handler. This will make the handler gracefully handle panics, sets the
 // content type to application/json, limits the body size that clients can send,
 // wraps the handler with the usual CORS settings.
-func apiMode(l *slog.Logger, maxBytes int64, headers, methods, origins []string) func(http.HandlerFunc) http.HandlerFunc {
-	// Create rate limiter with reasonable defaults
-	rl := NewRateLimiter(1*time.Minute, 100) // 100 requests per minute
-
+func apiMode(l *slog.Logger, rl *RateLimiter, maxBytes int64, headers, methods, origins []string) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			next = makeGraceful(l)(next)
-			next = setMaxBytesReader(maxBytes)(next)
-			next = setContentType("application/json")(next)
-			next = rateLimitMiddleware(rl)(next) // Uncommented IP rate limiter
+		// Properly chain the middleware instead of calling ServeHTTP directly
+		next = makeGraceful(l)(next)
+		next = setMaxBytesReader(maxBytes)(next)
+		next = setContentType("application/json")(next)
+		next = rateLimitMiddleware(rl, l)(next)
 
-			// Apply CORS middleware
-			handlers.CORS(
-				handlers.AllowedHeaders(headers),
-				handlers.AllowedMethods(methods),
-				handlers.AllowedOrigins(origins),
-			)(next).ServeHTTP(w, r)
+		// Apply CORS middleware properly in the chain
+		corsHandler := handlers.CORS(
+			handlers.AllowedHeaders(headers),
+			handlers.AllowedMethods(methods),
+			handlers.AllowedOrigins(origins),
+		)(next)
+
+		return func(w http.ResponseWriter, r *http.Request) {
+			corsHandler.ServeHTTP(w, r)
 		}
 	}
 }

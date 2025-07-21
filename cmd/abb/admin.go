@@ -44,8 +44,6 @@ type BountyDefinition struct {
 	Requirements  string  `yaml:"requirements"`
 	TotalAmount   float64 `yaml:"total_amount"`
 	PerPostAmount float64 `yaml:"per_post_amount"`
-	OwnerWallet   string  `yaml:"owner_wallet,omitempty"`
-	FunderWallet  string  `yaml:"funder_wallet,omitempty"`
 	Duration      string  `yaml:"duration,omitempty"`
 	FeePercentage float64 `yaml:"fee_percentage,omitempty"`
 }
@@ -149,32 +147,68 @@ func getAuthToken(ctx *cli.Context) error {
 	return printServerResponse(resp)
 }
 
+func getUserToken(ctx *cli.Context) error {
+	serverAddr := ctx.String("endpoint")
+	if serverAddr == "" {
+		return fmt.Errorf("server address not provided")
+	}
+
+	// Prepare form data
+	formData := url.Values{}
+	formData.Set("username", ctx.String("email"))
+	formData.Set("password", ctx.String("secret-key"))
+
+	r, err := http.NewRequest(
+		http.MethodPost,
+		serverAddr+"/token/user",
+		bytes.NewBufferString(formData.Encode()), // Use encoded form data
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create token request: %w", err)
+	}
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := http.DefaultClient.Do(r)
+	if err != nil {
+		return fmt.Errorf("failed to get token: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read the body to be used for multiple purposes (decoding, error display)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to get token, status code: %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var tokenResp api.TokenResponse
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return fmt.Errorf("failed to decode token response: %w, body: %s", err, string(body))
+	}
+
+	if tokenResp.AccessToken == "" {
+		return fmt.Errorf("received empty access token from server. Body: %s", string(body))
+	}
+
+	// For printing the successful response, re-create the response body reader
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	return printServerResponse(resp)
+}
+
 func createBounty(ctx *cli.Context) error {
-	bountyOwnerWallet := ctx.String("bounty-owner-wallet")
-	bountyFunderWallet := ctx.String("bounty-funder-wallet")
-
-	// Validate bounty-owner-wallet is a valid Base58 address
-	if _, err := solanago.PublicKeyFromBase58(bountyOwnerWallet); err != nil {
-		return fmt.Errorf("invalid --bounty-owner-wallet: %w", err)
-	}
-
-	// Validate bounty-funder-wallet is provided and valid
-	if bountyFunderWallet == "" {
-		return fmt.Errorf("must provide --bounty-funder-wallet")
-	}
-	if _, err := solanago.PublicKeyFromBase58(bountyFunderWallet); err != nil {
-		return fmt.Errorf("invalid --bounty-funder-wallet: %w", err)
-	}
-
 	// Create a map for the request to avoid type conversion issues
 	req := map[string]interface{}{
-		"requirements":         []string{ctx.String("requirements")},
-		"bounty_per_post":      ctx.Float64("per-post"),
-		"total_bounty":         ctx.Float64("total"),
-		"bounty_owner_wallet":  bountyOwnerWallet,
-		"bounty_funder_wallet": bountyFunderWallet,
-		"fee_percentage":       ctx.Float64("fee-percentage"),
-		"timeout_duration":     ctx.String("duration"),
+		"requirements":     []string{ctx.String("requirements")},
+		"bounty_per_post":  ctx.Float64("per-post"),
+		"total_bounty":     ctx.Float64("total"),
+		"timeout_duration": ctx.String("duration"),
+	}
+
+	if ctx.IsSet("fee-percentage") {
+		req["fee_percentage"] = ctx.Float64("fee-percentage")
 	}
 
 	// Marshal to JSON
@@ -889,9 +923,6 @@ func bootstrapBountiesAction(ctx *cli.Context) error {
 
 	logger.Info("Successfully parsed YAML file", "bounties_to_process", len(bootstrapConfig.Bounties))
 
-	defaultBountyOwnerWallet := os.Getenv(EnvSolanaTestOwnerWallet)
-	defaultBountyFunderWallet := os.Getenv(EnvSolanaTestFunderWallet)
-
 	specifiedBountyNames := ctx.StringSlice("name")
 	bountiesToProcessInLoop := bootstrapConfig.Bounties
 
@@ -941,32 +972,15 @@ func bootstrapBountiesAction(ctx *cli.Context) error {
 
 			bountyLogger.Info("Processing bounty definition", "requirements", bd.Requirements)
 
-			bountyOwnerWallet := bd.OwnerWallet
-			if bountyOwnerWallet == "" {
-				bountyOwnerWallet = defaultBountyOwnerWallet
-			}
-			bountyFunderWallet := bd.FunderWallet
-			if bountyFunderWallet == "" {
-				bountyFunderWallet = defaultBountyFunderWallet
-			}
-
-			if bountyOwnerWallet == "" {
-				bountyLogger.Error("Bounty owner wallet not specified in YAML or env")
-				return // Skip this bounty
-			}
-			if bountyFunderWallet == "" {
-				bountyLogger.Error("Bounty funder wallet not specified in YAML or env")
-				return // Skip this bounty
-			}
-
 			createReqPayload := map[string]interface{}{
-				"requirements":         []string{bd.Requirements},
-				"bounty_per_post":      bd.PerPostAmount,
-				"total_bounty":         bd.TotalAmount,
-				"bounty_owner_wallet":  bountyOwnerWallet,
-				"bounty_funder_wallet": bountyFunderWallet,
-				"fee_percentage":       bd.FeePercentage,
-				"timeout_duration":     bd.Duration,
+				"requirements":     []string{bd.Requirements},
+				"bounty_per_post":  bd.PerPostAmount,
+				"total_bounty":     bd.TotalAmount,
+				"timeout_duration": bd.Duration,
+			}
+
+			if bd.FeePercentage > 0 {
+				createReqPayload["fee_percentage"] = bd.FeePercentage
 			}
 
 			payloadBytes, err := json.Marshal(createReqPayload)
@@ -1171,6 +1185,32 @@ func adminCommands() []*cli.Command {
 					},
 					Action: getAuthToken,
 				},
+				{
+					Name:        "get-user-token",
+					Usage:       "Gets a new auth token for a regular user",
+					Description: "This is a sudo operation and requires the server secret key for basic auth.",
+					Flags: []cli.Flag{
+						&cli.StringFlag{
+							Name:    "endpoint",
+							Aliases: []string{"end", "e"},
+							Value:   "http://localhost:8080",
+							Usage:   "Server endpoint",
+							EnvVars: []string{EnvAPIEndpoint},
+						},
+						&cli.StringFlag{
+							Name:    "secret-key",
+							Aliases: []string{"sk", "s"},
+							Usage:   "Server secret key",
+							EnvVars: []string{EnvServerSecretKey},
+						},
+						&cli.StringFlag{
+							Name:     "email",
+							Required: true,
+							Usage:    "User's email",
+						},
+					},
+					Action: getUserToken,
+				},
 			},
 		},
 		{
@@ -1212,17 +1252,6 @@ func adminCommands() []*cli.Command {
 							Usage:    "Total bounty amount (in USDC)",
 						},
 						&cli.StringFlag{
-							Name:     "bounty-owner-wallet",
-							Required: true,
-							Usage:    "Wallet address of the bounty owner",
-							EnvVars:  []string{EnvSolanaTestOwnerWallet},
-						},
-						&cli.StringFlag{
-							Name:    "bounty-funder-wallet",
-							Usage:   "Solana wallet address providing the initial bounty funds (checked for payment)",
-							EnvVars: []string{EnvSolanaTestFunderWallet},
-						},
-						&cli.StringFlag{
 							Name:    "duration",
 							Aliases: []string{"dur", "d"},
 							Usage:   "Duration for the bounty (e.g., '72h', '7d'). Defaults to server-side default (7 days) if not set.",
@@ -1231,7 +1260,6 @@ func adminCommands() []*cli.Command {
 						&cli.Float64Flag{
 							Name:  "fee-percentage",
 							Usage: "Platform fee percentage to take from the total bounty. Overrides global default if set.",
-							Value: -1,
 						},
 					},
 					Action: createBounty,

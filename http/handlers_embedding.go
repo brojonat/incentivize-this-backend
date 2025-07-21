@@ -196,6 +196,16 @@ func handleSearchBounties(logger *slog.Logger, querier dbgen.Querier, tc client.
 				remainingBountyValue = input.TotalBounty.ToUSDC() // Default if not found
 			}
 
+			var funderWallet string
+			if saPayload, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyFunderWalletKey.GetName()]; ok {
+				err = converter.GetDefaultDataConverter().FromPayload(saPayload, &funderWallet)
+				if err != nil {
+					logger.Warn("Failed to decode BountyFunderWallet search attribute for search result", "workflow_id", id, "error", err)
+				}
+			} else {
+				logger.Warn("BountyFunderWallet search attribute not found for search result", "workflow_id", id)
+			}
+
 			bountyItem := api.BountyListItem{
 				BountyID:             id,
 				Title:                input.Title,
@@ -203,14 +213,21 @@ func handleSearchBounties(logger *slog.Logger, querier dbgen.Querier, tc client.
 				Requirements:         input.Requirements, // May be empty if history fetch failed
 				BountyPerPost:        input.BountyPerPost.ToUSDC(),
 				TotalBounty:          input.TotalBounty.ToUSDC(),
+				TotalCharged:         input.TotalCharged.ToUSDC(),
 				RemainingBountyValue: remainingBountyValue,
-				BountyOwnerWallet:    input.BountyOwnerWallet,
+				BountyFunderWallet:   funderWallet,
 				PlatformKind:         string(input.Platform),
 				ContentKind:          string(input.ContentKind),
 				Tier:                 int(tier),
 				CreatedAt:            descResp.WorkflowExecutionInfo.StartTime.AsTime(),
 				EndAt:                endTime,
 			}
+
+			if bountyItem.Status == string(abb.BountyStatusAwaitingFunding) {
+				expiresAt := descResp.WorkflowExecutionInfo.StartTime.AsTime().Add(input.PaymentTimeout)
+				bountyItem.PaymentTimeoutExpiresAt = &expiresAt
+			}
+
 			detailedBounties = append(detailedBounties, bountyItem)
 		}
 

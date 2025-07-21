@@ -194,31 +194,29 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 
 	bountyPerPost, _ := solana.NewUSDCAmount(1.0)
 
-	ownerWallet := solanago.NewWallet()
 	funderWallet := solanago.NewWallet()
 	payoutWallet := solanago.NewWallet()
 	escrowWallet := solanago.NewWallet()   // This is for the input to the workflow, distinct from the one used internally by activities
 	treasuryWallet := solanago.NewWallet() // This is for the input to the workflow
 
 	input := BountyAssessmentWorkflowInput{
-		Requirements:       []string{"Test requirement"},
-		BountyPerPost:      bountyPerPost,
-		TotalBounty:        totalBounty,
-		TotalCharged:       originalTotalBounty,
-		BountyOwnerWallet:  ownerWallet.PublicKey().String(),
-		BountyFunderWallet: funderWallet.PublicKey().String(),
-		EscrowWallet:       escrowWallet.PublicKey().String(),   // Passed to workflow
-		TreasuryWallet:     treasuryWallet.PublicKey().String(), // Passed to workflow
-		Platform:           PlatformReddit,
-		ContentKind:        ContentKindPost,
-		Timeout:            300 * time.Second,
-		PaymentTimeout:     30 * time.Second,
+		Requirements:   []string{"Test requirement"},
+		BountyPerPost:  bountyPerPost,
+		TotalBounty:    totalBounty,
+		TotalCharged:   originalTotalBounty,
+		EscrowWallet:   escrowWallet.PublicKey().String(),   // Passed to workflow
+		TreasuryWallet: treasuryWallet.PublicKey().String(), // Passed to workflow
+		Platform:       PlatformReddit,
+		ContentKind:    ContentKindPost,
+		Timeout:        300 * time.Second,
+		PaymentTimeout: 30 * time.Second,
 	}
 
-	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).
+	env.OnActivity(activities.VerifyPayment, mock.Anything, escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).
 		Return(&VerifyPaymentResult{
-			Verified: true,
-			Amount:   originalTotalBounty,
+			Verified:     true,
+			Amount:       originalTotalBounty,
+			FunderWallet: funderWallet.PublicKey().String(),
 		}, nil).Once()
 
 	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: true, Reason: "mocked-should-analyze"}, nil).Once()
@@ -275,7 +273,7 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 	env.OnActivity(
 		activities.TransferUSDC,
 		mock.Anything,
-		ownerWallet.PublicKey().String(),
+		funderWallet.PublicKey().String(),
 		amountToRefundAfterPayout.ToUSDC(), // Use the corrected amount
 		expectedOwnerRefundMemo,
 	).
@@ -327,28 +325,25 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	require.NoError(t, err)
 	feeAmount := originalTotalBounty.Sub(totalBounty)
 
-	ownerWallet := solanago.NewWallet()
 	funderWallet := solanago.NewWallet()
 	escrowWallet := solanago.NewWallet()
 	treasuryWallet := solanago.NewWallet()
 
 	input := BountyAssessmentWorkflowInput{
-		Requirements:       []string{"Test requirement"},
-		BountyPerPost:      bountyPerPost,
-		TotalBounty:        totalBounty,
-		TotalCharged:       originalTotalBounty,
-		BountyOwnerWallet:  ownerWallet.PublicKey().String(),
-		BountyFunderWallet: funderWallet.PublicKey().String(),
-		EscrowWallet:       escrowWallet.PublicKey().String(),
-		TreasuryWallet:     treasuryWallet.PublicKey().String(),
-		Platform:           PlatformReddit,
-		ContentKind:        ContentKindPost,
-		Timeout:            30 * time.Second,
-		PaymentTimeout:     5 * time.Second,
+		Requirements:   []string{"Test requirement"},
+		BountyPerPost:  bountyPerPost,
+		TotalBounty:    totalBounty,
+		TotalCharged:   originalTotalBounty,
+		EscrowWallet:   escrowWallet.PublicKey().String(),
+		TreasuryWallet: treasuryWallet.PublicKey().String(),
+		Platform:       PlatformReddit,
+		ContentKind:    ContentKindPost,
+		Timeout:        30 * time.Second,
+		PaymentTimeout: 5 * time.Second,
 	}
 
-	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).
-		Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty}, nil).Maybe()
+	env.OnActivity(activities.VerifyPayment, mock.Anything, escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).
+		Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty, FunderWallet: funderWallet.PublicKey().String()}, nil).Maybe()
 
 	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "mocked-no-analysis"}, nil).Maybe()
 
@@ -367,7 +362,7 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 	expectedTimeoutRefundMemo := fmt.Sprintf("{\"bounty_id\":\"%s\"}", "default-test-workflow-id")
 	env.OnActivity(activities.TransferUSDC,
 		mock.Anything,
-		ownerWallet.PublicKey().String(),
+		funderWallet.PublicKey().String(),
 		originalTotalBounty.Sub(feeAmount).ToUSDC(),
 		expectedTimeoutRefundMemo,
 	).Return(nil).Once()
@@ -410,27 +405,24 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 	feeAmount := originalTotalBounty.Sub(totalBounty)
 
 	funderWallet := solanago.NewWallet()
-	ownerWallet := solanago.NewWallet()
 	payoutWallet := solanago.NewWallet()
 	escrowWallet := solanago.NewWallet()
 	treasuryWallet := solanago.NewWallet()
 	contentID := "idempotent-content"
 
 	input := BountyAssessmentWorkflowInput{
-		Requirements:       []string{"Idempotency Test"},
-		BountyPerPost:      bountyPerPost,
-		TotalBounty:        totalBounty,
-		TotalCharged:       originalTotalBounty,
-		BountyOwnerWallet:  ownerWallet.PublicKey().String(),
-		BountyFunderWallet: funderWallet.PublicKey().String(),
-		EscrowWallet:       escrowWallet.PublicKey().String(),
-		TreasuryWallet:     treasuryWallet.PublicKey().String(),
-		Platform:           PlatformReddit,
-		Timeout:            30 * time.Second,
-		PaymentTimeout:     5 * time.Second,
+		Requirements:   []string{"Idempotency Test"},
+		BountyPerPost:  bountyPerPost,
+		TotalBounty:    totalBounty,
+		TotalCharged:   originalTotalBounty,
+		EscrowWallet:   escrowWallet.PublicKey().String(),
+		TreasuryWallet: treasuryWallet.PublicKey().String(),
+		Platform:       PlatformReddit,
+		Timeout:        30 * time.Second,
+		PaymentTimeout: 5 * time.Second,
 	}
 
-	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty}, nil).Once()
+	env.OnActivity(activities.VerifyPayment, mock.Anything, escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty, FunderWallet: funderWallet.PublicKey().String()}, nil).Once()
 
 	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "mocked-no-analysis"}, nil).Maybe()
 
@@ -456,7 +448,7 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 
 	cancelRefundAmount := totalBounty.Sub(bountyPerPost)
 	expectedOwnerRefundMemoIdempotency := fmt.Sprintf("{\"bounty_id\":\"%s\"}", "default-test-workflow-id")
-	env.OnActivity(activities.TransferUSDC, mock.Anything, ownerWallet.PublicKey().String(), cancelRefundAmount.ToUSDC(), expectedOwnerRefundMemoIdempotency).Return(nil).Once()
+	env.OnActivity(activities.TransferUSDC, mock.Anything, funderWallet.PublicKey().String(), cancelRefundAmount.ToUSDC(), expectedOwnerRefundMemoIdempotency).Return(nil).Once()
 
 	// Mock GenerateAndStoreBountyEmbeddingActivity
 	env.OnActivity(activities.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.AnythingOfType("abb.GenerateAndStoreBountyEmbeddingActivityInput")).Return(nil).Once()
@@ -510,7 +502,6 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 	feeAmount := originalTotalBounty.Sub(totalBounty)
 
 	funderWallet := solanago.NewWallet()
-	ownerWallet := solanago.NewWallet()
 	payoutWallet := solanago.NewWallet()
 	escrowWallet := solanago.NewWallet()
 	treasuryWallet := solanago.NewWallet()
@@ -519,7 +510,7 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 
 	refundCalled := make(chan struct{}, 1)
 
-	env.OnActivity(activities.VerifyPayment, mock.Anything, funderWallet.PublicKey(), escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty}, nil).Once()
+	env.OnActivity(activities.VerifyPayment, mock.Anything, escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty, FunderWallet: funderWallet.PublicKey().String()}, nil).Once()
 
 	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "mocked-no-analysis"}, nil).Maybe()
 
@@ -543,7 +534,7 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 	expectedCancellationRefundMemo := fmt.Sprintf("{\"bounty_id\":\"%s\"}", "default-test-workflow-id")
 	env.OnActivity(activities.TransferUSDC,
 		mock.Anything,
-		ownerWallet.PublicKey().String(),
+		funderWallet.PublicKey().String(),
 		totalBounty.ToUSDC(),
 		expectedCancellationRefundMemo,
 	).Run(func(args mock.Arguments) {
@@ -559,17 +550,15 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 	env.OnActivity(activities.SummarizeAndStoreBountyActivity, mock.Anything, mock.AnythingOfType("SummarizeAndStoreBountyActivityInput")).Return(nil).Maybe()
 
 	input := BountyAssessmentWorkflowInput{
-		Requirements:       []string{"Failure Test"},
-		BountyPerPost:      bountyPerPost,
-		TotalBounty:        totalBounty,
-		TotalCharged:       originalTotalBounty,
-		BountyOwnerWallet:  ownerWallet.PublicKey().String(),
-		BountyFunderWallet: funderWallet.PublicKey().String(),
-		EscrowWallet:       escrowWallet.PublicKey().String(),
-		TreasuryWallet:     treasuryWallet.PublicKey().String(),
-		Platform:           PlatformReddit,
-		Timeout:            30 * time.Second,
-		PaymentTimeout:     5 * time.Second,
+		Requirements:   []string{"Failure Test"},
+		BountyPerPost:  bountyPerPost,
+		TotalBounty:    totalBounty,
+		TotalCharged:   originalTotalBounty,
+		EscrowWallet:   escrowWallet.PublicKey().String(),
+		TreasuryWallet: treasuryWallet.PublicKey().String(),
+		Platform:       PlatformReddit,
+		Timeout:        30 * time.Second,
+		PaymentTimeout: 5 * time.Second,
 	}
 
 	failSignal := AssessContentSignal{
@@ -579,7 +568,7 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 		ContentKind:  ContentKindComment,
 	}
 	cancelSignal := CancelBountySignal{
-		BountyOwnerWallet: ownerWallet.PublicKey().String(),
+		BountyOwnerWallet: funderWallet.PublicKey().String(),
 	}
 
 	env.RegisterDelayedCallback(func() {

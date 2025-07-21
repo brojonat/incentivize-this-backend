@@ -48,7 +48,7 @@ func TestHandleListBounties(t *testing.T) {
 						SearchAttributes: &commonpb.SearchAttributes{
 							IndexedFields: map[string]*commonpb.Payload{
 								"BountyStatus":         mustPayload(converter.GetDefaultDataConverter(), string(abb.BountyStatusListening)),
-								"BountyOwnerWallet":    mustPayload(converter.GetDefaultDataConverter(), "test-owner"),
+								"BountyFunderWallet":   mustPayload(converter.GetDefaultDataConverter(), "test-funder"),
 								"BountyPlatform":       mustPayload(converter.GetDefaultDataConverter(), string(abb.PlatformReddit)),
 								"BountyValueRemaining": mustPayload(converter.GetDefaultDataConverter(), 0.0),
 								"BountyTier":           mustPayload(converter.GetDefaultDataConverter(), int64(abb.DefaultBountyTier)),
@@ -67,11 +67,10 @@ func TestHandleListBounties(t *testing.T) {
 				bountyPerPost, _ := solana.NewUSDCAmount(10.0)
 				totalBounty, _ := solana.NewUSDCAmount(100.0)
 				expectedInput := abb.BountyAssessmentWorkflowInput{
-					Requirements:      []string{"Test requirement 1", "Test requirement 2"},
-					BountyPerPost:     bountyPerPost,
-					TotalBounty:       totalBounty,
-					BountyOwnerWallet: "test-owner",
-					Platform:          abb.PlatformReddit,
+					Requirements:  []string{"Test requirement 1", "Test requirement 2"},
+					BountyPerPost: bountyPerPost,
+					TotalBounty:   totalBounty,
+					Platform:      abb.PlatformReddit,
 					// Add other fields matching the expected input in the handler
 				}
 				inputPayload, err := converter.GetDefaultDataConverter().ToPayload(expectedInput)
@@ -118,7 +117,7 @@ func TestHandleListBounties(t *testing.T) {
 					Requirements:         []string{"Test requirement 1", "Test requirement 2"},
 					BountyPerPost:        10.0,
 					TotalBounty:          100.0,
-					BountyOwnerWallet:    "test-owner",
+					BountyFunderWallet:   "test-funder",
 					PlatformKind:         string(abb.PlatformReddit),
 					ContentKind:          "",
 					Tier:                 int(abb.DefaultBountyTier),

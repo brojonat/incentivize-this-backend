@@ -48,6 +48,9 @@ const (
 	EnvLLMMaxTokens                      = "LLM_MAX_TOKENS"
 	EnvLLMInferBountyTitlePrompt         = "LLM_PROMPT_INFER_BOUNTY_TITLE_B64"
 	EnvLLMInferContentParamsPrompt       = "LLM_PROMPT_INFER_CONTENT_PARAMS_B64"
+	EnvLLMContentModerationPrompt        = "LLM_PROMPT_CONTENT_MODERATION_B64"
+	EnvDefaultRateLimitPerMinute         = "RATE_LIMIT_DEFAULT_PER_MINUTE"
+	EnvLLMRateLimitPerMinute             = "RATE_LIMIT_LLM_PER_MINUTE"
 
 	DefaultLLMMaxTokens = 10000 // Default max tokens if not set
 )
@@ -74,11 +77,16 @@ type Config struct {
 	Prompts struct {
 		InferBountyTitle   string
 		InferContentParams string
+		ContentModeration  string
 	}
 	CORS struct {
 		AllowedOrigins []string
 		AllowedMethods []string
 		AllowedHeaders []string
+	}
+	RateLimit struct {
+		DefaultPerMinute int
+		LLMPerMinute     int
 	}
 }
 
@@ -171,6 +179,33 @@ func NewConfigFromEnv(logger *slog.Logger) (*Config, error) {
 		return nil, fmt.Errorf("failed to decode %s: %w", EnvLLMInferContentParamsPrompt, err)
 	}
 	cfg.Prompts.InferContentParams = inferParamsPrompt
+
+	contentModerationPrompt, err := decodeBase64(os.Getenv(EnvLLMContentModerationPrompt))
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode %s: %w", EnvLLMContentModerationPrompt, err)
+	}
+	cfg.Prompts.ContentModeration = contentModerationPrompt
+
+	// Rate Limiting Config
+	defaultRateLimitStr := os.Getenv(EnvDefaultRateLimitPerMinute)
+	if defaultRateLimitStr == "" {
+		defaultRateLimitStr = "100" // Default to 100 requests per minute
+	}
+	defaultRateLimit, err := strconv.Atoi(defaultRateLimitStr)
+	if err != nil || defaultRateLimit < 0 {
+		return nil, fmt.Errorf("invalid value for %s: '%s'", EnvDefaultRateLimitPerMinute, defaultRateLimitStr)
+	}
+	cfg.RateLimit.DefaultPerMinute = defaultRateLimit
+
+	llmRateLimitStr := os.Getenv(EnvLLMRateLimitPerMinute)
+	if llmRateLimitStr == "" {
+		llmRateLimitStr = "20" // Default to 20 requests per minute for expensive routes
+	}
+	llmRateLimit, err := strconv.Atoi(llmRateLimitStr)
+	if err != nil || llmRateLimit < 0 {
+		return nil, fmt.Errorf("invalid value for %s: '%s'", EnvLLMRateLimitPerMinute, llmRateLimitStr)
+	}
+	cfg.RateLimit.LLMPerMinute = llmRateLimit
 
 	// CORS Config
 	allowedOriginsEnv := os.Getenv("CORS_ORIGINS")
@@ -379,6 +414,10 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	defer dbPool.Close()
 	logger.Info("Database connection established.")
 
+	// --- Create shared rate limiters ---
+	defaultRateLimiter := NewRateLimiter(1*time.Minute, cfg.RateLimit.DefaultPerMinute)
+	llmRateLimiter := NewRateLimiter(1*time.Minute, cfg.RateLimit.LLMPerMinute)
+
 	// --- Initialize LLMProviders ---
 	// standard provider
 	llmProvider, err := abb.NewLLMProvider(abb.LLMConfig{
@@ -409,6 +448,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 
 	mux.HandleFunc("GET /config", stools.AdaptHandler(
 		handleGetConfig(cfg.Solana.USDCMintAddress.String(), cfg.Solana.EscrowWallet.String()),
+		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
 
@@ -418,35 +458,46 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		atLeastOneAuth(oauthAuthorizerForm(getSecretKey)),
 	))
 
+	mux.HandleFunc("POST /token/user", stools.AdaptHandler(
+		handleIssueUserToken(logger),
+		withLogging(logger),
+		atLeastOneAuth(oauthAuthorizerForm(getSecretKey)),
+	))
+
 	// Route for getting a specific bounty by ID
 	mux.HandleFunc("GET /bounties/{id}", stools.AdaptHandler(
 		handleGetBountyByID(logger, tc),
+		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
 
 	// listing bounties routes
 	mux.HandleFunc("GET /bounties", stools.AdaptHandler(
 		handleListBounties(logger, tc, cfg.Environment),
+		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
 
 	mux.HandleFunc("GET /bounties/paid", stools.AdaptHandler(
 		handleListPaidBounties(logger, rpcClient, cfg.Solana.EscrowWallet, cfg.Solana.USDCMintAddress, 10*time.Minute),
+		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
 
 	// Route for getting paid bounties for a specific workflow
 	mux.HandleFunc("GET /bounties/{bounty_id}/paid", stools.AdaptHandler(
 		handleListPaidBountiesForWorkflow(logger, tc),
+		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
 
 	// create bounty routes
 	mux.HandleFunc("POST /bounties", stools.AdaptHandler(
 		handleCreateBounty(logger, tc, llmProvider, llmEmbedProvider, DefaultPayoutCalculator(cfg.UserRevenueSharePct), cfg.Environment, cfg.Prompts),
+		apiMode(logger, llmRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-		requireStatus(UserStatusSudo),
+		requireStatus(UserStatusDefault),
 	))
 
 	// pay/funding/transactional bounty routes
@@ -459,6 +510,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 
 	mux.HandleFunc("POST /bounties/assess", stools.AdaptHandler(
 		handleAssessContent(logger, tc),
+		apiMode(logger, llmRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 		jwtRateLimitMiddleware(jwtAssessLimiter, "email"),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
@@ -481,6 +533,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 
 	mux.HandleFunc("GET /bounties/search", stools.AdaptHandler(
 		handleSearchBounties(logger, querier, tc, llmEmbedProvider, cfg.Environment),
+		apiMode(logger, llmRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
 
@@ -526,6 +579,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 
 	mux.HandleFunc("POST /contact-us", stools.AdaptHandler(
 		handleContactUs(logger, querier, tc),
+		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
 

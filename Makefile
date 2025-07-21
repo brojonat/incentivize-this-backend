@@ -330,9 +330,7 @@ create-reddit-post-bounty: build-cli ## Create a test Reddit Post bounty
 		-r "$(REDDIT_POST_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)" \
-		--duration "24h" \
-		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
-		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
+		--duration "24h"`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
@@ -358,9 +356,7 @@ create-reddit-comment-bounty: build-cli ## Create a test Reddit Comment bounty
 		-r "$(REDDIT_COMMENT_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)" \
-		--duration "24h" \
-		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
-		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
+		--duration "24h"`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
@@ -386,9 +382,7 @@ create-youtube-bounty: build-cli ## Create a test YouTube bounty
 		-r "$(YOUTUBE_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)" \
-		--duration "24h" \
-		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
-		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
+		--duration "24h"`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
@@ -414,9 +408,7 @@ create-twitch-bounty: build-cli ## Create a test Twitch bounty
 		-r "$(TWITCH_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)" \
-		--duration "24h" \
-		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
-		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
+		--duration "24h"`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
@@ -442,9 +434,7 @@ create-bluesky-bounty: build-cli ## Create a test Bluesky bounty
 		-r "$(BLUESKY_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)" \
-		--duration "24h" \
-		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
-		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
+		--duration "24h"`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
@@ -470,9 +460,7 @@ create-hackernews-comment-bounty: build-cli ## Create a test Hacker News Comment
 		-r "$(HACKERNEWS_COMMENT_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)" \
-		--duration "24h" \
-		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
-		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
+		--duration "24h"`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
@@ -498,9 +486,7 @@ create-hackernews-post-bounty: build-cli ## Create a simple test Hacker News pos
 		-r "$(HACKERNEWS_POST_REQ)" \
 		--per-post $(PER_POST_AMOUNT) \
 		--total $(TOTAL_AMOUNT) \
-		--duration "24h" \
-		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
-		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
+		--duration "24h"`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \
@@ -526,9 +512,7 @@ create-instagram-post-bounty: build-cli ## Create a test Instagram Post bounty f
 		-r "$(INSTAGRAM_POST_REQ)" \
 		--per-post "$(PER_POST_AMOUNT)" \
 		--total "$(TOTAL_AMOUNT)" \
-		--duration "24h" \
-		--bounty-owner-wallet "$$SOLANA_TEST_OWNER_WALLET" \
-		--bounty-funder-wallet "$$SOLANA_TEST_FUNDER_WALLET"`; \
+		--duration "24h"`; \
 	echo "Create Output: $$OUTPUT"; \
 	WORKFLOW_ID=`echo $$OUTPUT | jq -r '.body.bounty_id'`; \
 	echo "Extracted Workflow ID: '$$WORKFLOW_ID'"; \

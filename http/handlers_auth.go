@@ -81,3 +81,25 @@ func handleIssueSudoToken(l *slog.Logger) http.HandlerFunc {
 		writeJSONResponse(w, resp, http.StatusOK)
 	}
 }
+
+func handleIssueUserToken(l *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		email, ok := r.Context().Value(ctxKeyEmail).(string)
+		if !ok {
+			writeInternalError(l, w, fmt.Errorf("missing context key for basic auth email"))
+			return
+		}
+		// Use a 2-week expiration for consistency with sudo token
+		expiresAt := time.Now().Add(2 * 7 * 24 * time.Hour)
+		token, err := createUserToken(email, expiresAt)
+		if err != nil {
+			writeInternalError(l, w, fmt.Errorf("failed to generate user token: %w", err))
+			return
+		}
+		resp := api.TokenResponse{
+			AccessToken: token,
+			TokenType:   "Bearer",
+		}
+		writeJSONResponse(w, resp, http.StatusOK)
+	}
+}

@@ -50,15 +50,13 @@ type ReturnBountyToOwnerRequest struct {
 
 // CreateBountyRequest represents the request body for creating a new bounty
 type CreateBountyRequest struct {
-	Title              string   `json:"title"`
-	Requirements       []string `json:"requirements"`
-	BountyPerPost      float64  `json:"bounty_per_post"`
-	TotalBounty        float64  `json:"total_bounty"`
-	FeePercentage      float64  `json:"fee_percentage,omitempty"`
-	BountyOwnerWallet  string   `json:"bounty_owner_wallet"`
-	BountyFunderWallet string   `json:"bounty_funder_wallet"`
-	TimeoutDuration    string   `json:"timeout_duration"`
-	Tier               string   `json:"tier,omitempty"`
+	Title           string   `json:"title"`
+	Requirements    []string `json:"requirements"`
+	BountyPerPost   float64  `json:"bounty_per_post"`
+	TotalBounty     float64  `json:"total_bounty"`
+	FeePercentage   *float64 `json:"fee_percentage,omitempty"`
+	TimeoutDuration string   `json:"timeout_duration"`
+	Tier            string   `json:"tier,omitempty"`
 }
 
 // PaidBountyItem represents a single paid bounty in the list response
@@ -189,6 +187,7 @@ func handleCreateBounty(
 	prompts struct {
 		InferBountyTitle   string
 		InferContentParams string
+		ContentModeration  string
 	},
 ) http.HandlerFunc {
 	// Define a local struct for parsing the LLM's JSON response for content parameters
@@ -219,14 +218,60 @@ func handleCreateBounty(
 			writeBadRequestError(w, fmt.Errorf("total_bounty must be greater than 0"))
 			return
 		}
-		if req.BountyOwnerWallet == "" {
-			writeBadRequestError(w, fmt.Errorf("bounty_owner_wallet is required"))
-			return
+
+		// --- Content Moderation for non-sudo users ---
+		claims, isAuthed := r.Context().Value(ctxKeyJWT).(*authJWTClaims)
+		if isAuthed && claims.Status < UserStatusSudo {
+			type contentModerationResponse struct {
+				IsAcceptable bool   `json:"is_acceptable"`
+				Reason       string `json:"reason,omitempty"`
+				Error        string `json:"error,omitempty"`
+			}
+			schema := map[string]interface{}{
+				"name":   "content_moderation",
+				"strict": true,
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"is_acceptable": map[string]interface{}{
+							"type":        "boolean",
+							"description": "Whether the content is acceptable or not.",
+						},
+						"reason": map[string]interface{}{
+							"type":        "string",
+							"description": "The reason why the content is not acceptable. Leave blank if it is acceptable.",
+						},
+						"error": map[string]interface{}{
+							"type":        "string",
+							"description": "An optional error message if moderation cannot be determined. Leave blank if content is acceptable.",
+						},
+					},
+					"required":             []string{"is_acceptable", "reason", "error"},
+					"additionalProperties": false,
+				},
+			}
+			prompt := fmt.Sprintf(prompts.ContentModeration, requirementsStr)
+			resp, err := llmProvider.Complete(r.Context(), prompt, schema)
+			if err != nil {
+				writeInternalError(logger, w, fmt.Errorf("failed to moderate content: %w", err))
+				return
+			}
+			var moderationResp contentModerationResponse
+			if err := json.Unmarshal([]byte(resp), &moderationResp); err != nil {
+				writeInternalError(logger, w, fmt.Errorf("failed to parse moderation response: %w", err))
+				return
+			}
+			if moderationResp.Error != "" {
+				logger.Warn("Could not moderate content", "error", moderationResp.Error)
+				writeBadRequestError(w, fmt.Errorf("could not moderate content: %s", moderationResp.Error))
+				return
+			}
+			if !moderationResp.IsAcceptable {
+				writeBadRequestError(w, fmt.Errorf("content is not acceptable: %s", moderationResp.Reason))
+				return
+			}
 		}
-		if req.BountyFunderWallet == "" {
-			writeBadRequestError(w, fmt.Errorf("bounty_funder_wallet is required"))
-			return
-		}
+		// --- End Content Moderation ---
 
 		// --- Tier Processing ---
 		var bountyTier abb.BountyTier
@@ -500,12 +545,13 @@ func handleCreateBounty(
 		userBountyPerPost := req.BountyPerPost
 		userTotalBounty := req.TotalBounty
 
+		// FIXME: we should use the payoutcalculator here consistently
 		// if the request specifies a fee percentage, use it to allocate the bounty
 		// otherwise, use the default payout calculator
 		claims, ok := r.Context().Value(ctxKeyJWT).(*authJWTClaims)
-		if ok && claims.Status >= UserStatusSudo && req.FeePercentage >= 0 {
+		if ok && claims.Status >= UserStatusSudo && req.FeePercentage != nil && *req.FeePercentage >= 0 {
 			totalMoney := money.NewFromFloat(req.TotalBounty, money.USD)
-			feePercentage := int(req.FeePercentage)
+			feePercentage := int(*req.FeePercentage)
 			userPercentage := 100 - feePercentage
 
 			parties, err := totalMoney.Allocate(userPercentage, feePercentage)
@@ -548,20 +594,18 @@ func handleCreateBounty(
 
 		// Create workflow input
 		input := abb.BountyAssessmentWorkflowInput{
-			Title:              bountyTitle,
-			Requirements:       req.Requirements,
-			BountyPerPost:      bountyPerPost,
-			TotalBounty:        totalBounty,
-			TotalCharged:       totalCharged,
-			BountyOwnerWallet:  req.BountyOwnerWallet,
-			BountyFunderWallet: req.BountyFunderWallet,
-			Platform:           normalizedPlatform,
-			ContentKind:        normalizedContentKind,
-			Tier:               bountyTier,
-			Timeout:            bountyTimeoutDuration,
-			PaymentTimeout:     10 * time.Minute,
-			TreasuryWallet:     os.Getenv(EnvSolanaTreasuryWallet),
-			EscrowWallet:       os.Getenv(EnvSolanaEscrowWallet),
+			Title:          bountyTitle,
+			Requirements:   req.Requirements,
+			BountyPerPost:  bountyPerPost,
+			TotalBounty:    totalBounty,
+			TotalCharged:   totalCharged,
+			Platform:       normalizedPlatform,
+			ContentKind:    normalizedContentKind,
+			Tier:           bountyTier,
+			Timeout:        bountyTimeoutDuration,
+			PaymentTimeout: 10 * time.Minute,
+			TreasuryWallet: os.Getenv(EnvSolanaTreasuryWallet),
+			EscrowWallet:   os.Getenv(EnvSolanaEscrowWallet),
 		}
 
 		// Execute workflow
@@ -571,8 +615,6 @@ func handleCreateBounty(
 		// Create typed search attributes using defined keys
 		saMap := temporal.NewSearchAttributes(
 			abb.EnvironmentKey.ValueSet(env),
-			abb.BountyOwnerWalletKey.ValueSet(input.BountyOwnerWallet),
-			abb.BountyFunderWalletKey.ValueSet(input.BountyFunderWallet),
 			abb.BountyPlatformKey.ValueSet(string(input.Platform)),
 			abb.BountyContentKindKey.ValueSet(string(input.ContentKind)),
 			abb.BountyTierKey.ValueSet(int64(input.Tier)),
@@ -621,9 +663,25 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 			userTier = int(abb.BountyTierAltruist)
 		}
 
-		// Combine WorkflowType, ExecutionStatus, and Environment for the query
-		query := fmt.Sprintf(`WorkflowType = '%s' AND ExecutionStatus = 'Running' AND %s = '%s' AND %s >= %d`,
-			"BountyAssessmentWorkflow", abb.EnvironmentKey.GetName(), env, abb.BountyTierKey.GetName(), userTier)
+		// --- Build Query ---
+		queryParts := []string{
+			fmt.Sprintf("WorkflowType = '%s'", "BountyAssessmentWorkflow"),
+			"ExecutionStatus = 'Running'",
+			fmt.Sprintf("%s = '%s'", abb.EnvironmentKey.GetName(), env),
+			fmt.Sprintf("%s >= %d", abb.BountyTierKey.GetName(), userTier),
+		}
+
+		funderWallet := r.URL.Query().Get("funder_wallet")
+		if funderWallet != "" {
+			// Validate that funderWallet is a valid Solana address
+			if _, err := solanago.PublicKeyFromBase58(funderWallet); err != nil {
+				writeBadRequestError(w, fmt.Errorf("invalid funder_wallet address '%s': %w", funderWallet, err))
+				return
+			}
+			queryParts = append(queryParts, fmt.Sprintf("%s = '%s'", abb.BountyFunderWalletKey.GetName(), funderWallet))
+		}
+
+		query := strings.Join(queryParts, " AND ")
 		executions, err := tc.ListWorkflow(listCtx, &workflowservice.ListWorkflowExecutionsRequest{
 			Query: query,
 		})
@@ -746,7 +804,17 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 				remainingBountyValue = input.TotalBounty.ToUSDC()
 			}
 
-			bounties = append(bounties, api.BountyListItem{
+			var funderWallet string
+			if saPayload, ok := execution.SearchAttributes.GetIndexedFields()[abb.BountyFunderWalletKey.GetName()]; ok {
+				err = converter.GetDefaultDataConverter().FromPayload(saPayload, &funderWallet)
+				if err != nil {
+					l.Warn("Failed to decode BountyFunderWallet search attribute for list item", "workflow_id", execution.Execution.WorkflowId, "error", err)
+				}
+			} else {
+				l.Warn("BountyFunderWallet search attribute not found for list item", "workflow_id", execution.Execution.WorkflowId)
+			}
+
+			bounty := api.BountyListItem{
 				BountyID:             execution.Execution.WorkflowId,
 				Title:                input.Title,
 				Status:               status,
@@ -754,13 +822,20 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 				BountyPerPost:        input.BountyPerPost.ToUSDC(),
 				TotalBounty:          input.TotalBounty.ToUSDC(),
 				RemainingBountyValue: remainingBountyValue,
-				BountyOwnerWallet:    input.BountyOwnerWallet,
+				BountyFunderWallet:   funderWallet,
 				PlatformKind:         string(input.Platform),
 				ContentKind:          string(input.ContentKind),
 				Tier:                 int(tier),
 				CreatedAt:            execution.StartTime.AsTime(),
 				EndAt:                endTime,
-			})
+			}
+
+			if status == string(abb.BountyStatusAwaitingFunding) {
+				expiresAt := execution.StartTime.AsTime().Add(input.PaymentTimeout)
+				bounty.PaymentTimeoutExpiresAt = &expiresAt
+			}
+
+			bounties = append(bounties, bounty)
 		}
 
 		writeJSONResponse(w, bounties, http.StatusOK)
@@ -1318,6 +1393,18 @@ func handleGetBountyByID(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			remainingBountyValue = 0.0 // Default to 0 if search attributes are missing
 		}
 
+		var funderWallet string
+		if descResp.WorkflowExecutionInfo != nil && descResp.WorkflowExecutionInfo.SearchAttributes != nil {
+			if saPayload, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyFunderWalletKey.GetName()]; ok {
+				err = converter.GetDefaultDataConverter().FromPayload(saPayload, &funderWallet)
+				if err != nil {
+					l.Warn("Failed to decode BountyFunderWallet search attribute", "workflow_id", workflowID, "error", err)
+				}
+			} else {
+				l.Warn("BountyFunderWallet search attribute not found", "workflow_id", workflowID)
+			}
+		}
+
 		bountyDetail := api.BountyListItem{
 			BountyID:             workflowID,
 			Title:                input.Title,
@@ -1326,12 +1413,17 @@ func handleGetBountyByID(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			BountyPerPost:        input.BountyPerPost.ToUSDC(),
 			TotalBounty:          input.TotalBounty.ToUSDC(),
 			RemainingBountyValue: remainingBountyValue,
-			BountyOwnerWallet:    input.BountyOwnerWallet,
+			BountyFunderWallet:   funderWallet,
 			PlatformKind:         string(input.Platform),
 			ContentKind:          string(input.ContentKind),
 			Tier:                 int(tier),
 			CreatedAt:            descResp.WorkflowExecutionInfo.StartTime.AsTime(),
 			EndAt:                endTime,
+		}
+
+		if status == string(abb.BountyStatusAwaitingFunding) {
+			expiresAt := descResp.WorkflowExecutionInfo.StartTime.AsTime().Add(input.PaymentTimeout)
+			bountyDetail.PaymentTimeoutExpiresAt = &expiresAt
 		}
 
 		writeJSONResponse(w, bountyDetail, http.StatusOK)
