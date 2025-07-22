@@ -1181,32 +1181,45 @@ func awaitLoopUntilEmptyOrTimeout(
 	}
 }
 
-// PublishBountiesWorkflow is a workflow that fetches bounties and publishes them.
-func PublishBountiesWorkflow(ctx workflow.Context) error {
-	logger := workflow.GetLogger(ctx)
-	logger.Info("PublishBountiesWorkflow started")
+// PublishNewBountyWorkflowInput defines the input for publishing a newly created bounty
+type PublishNewBountyWorkflowInput struct {
+	BountyID string `json:"bounty_id"`
+}
 
-	// Set activity options with a reasonable timeout for the whole publish process
+// PublishNewBountyWorkflow publishes a newly created bounty to notification channels
+func PublishNewBountyWorkflow(ctx workflow.Context, input PublishNewBountyWorkflowInput) error {
+	logger := workflow.GetLogger(ctx)
+	logger.Info("PublishNewBountyWorkflow started", "bounty_id", input.BountyID)
+
+	// Set activity options with a reasonable timeout
 	ao := workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute, // Timeout for the entire activity
+		StartToCloseTimeout: 3 * time.Minute, // Shorter timeout for single bounty
 		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval:    5 * time.Second,
+			InitialInterval:    2 * time.Second,
 			BackoffCoefficient: 2.0,
-			MaximumInterval:    time.Minute,
+			MaximumInterval:    30 * time.Second,
 			MaximumAttempts:    3,
 		},
 	}
 	ctx = workflow.WithActivityOptions(ctx, ao)
 
-	// Execute the activity to publish bounties to Reddit
-	redditErr := workflow.ExecuteActivity(ctx, (*Activities).PublishBountiesReddit).Get(ctx, nil)
-	// Execute the activity to publish bounties to Discord
-	discordErr := workflow.ExecuteActivity(ctx, (*Activities).PublishBountiesDiscord).Get(ctx, nil)
+	// Execute activities to publish the new bounty
+	redditErr := workflow.ExecuteActivity(ctx, (*Activities).PublishNewBountyReddit, input.BountyID).Get(ctx, nil)
+	discordErr := workflow.ExecuteActivity(ctx, (*Activities).PublishNewBountyDiscord, input.BountyID).Get(ctx, nil)
 
 	if redditErr != nil || discordErr != nil {
-		return fmt.Errorf("failed to publish at least one bounty:\nReddit error: %v\nDiscord error: %v", redditErr, discordErr)
+		// Log individual errors but don't fail the workflow - notification is not critical
+		if redditErr != nil {
+			logger.Error("Failed to publish new bounty to Reddit", "bounty_id", input.BountyID, "error", redditErr)
+		}
+		if discordErr != nil {
+			logger.Error("Failed to publish new bounty to Discord", "bounty_id", input.BountyID, "error", discordErr)
+		}
+		// Return error to trigger retry, but this is non-critical so we could also just log and continue
+		return fmt.Errorf("failed to publish new bounty to notification channels: Reddit error: %v, Discord error: %v", redditErr, discordErr)
 	}
-	logger.Info("PublishBountiesWorkflow completed successfully")
+
+	logger.Info("PublishNewBountyWorkflow completed successfully", "bounty_id", input.BountyID)
 	return nil
 }
 

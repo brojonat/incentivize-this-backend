@@ -638,6 +638,29 @@ func handleCreateBounty(
 			return
 		}
 
+		// Start the new bounty publishing workflow asynchronously (non-blocking)
+		// This will publish the bounty to Discord/Reddit notification channels
+		publishWorkflowID := fmt.Sprintf("publish-new-bounty-%s", uuid.New().String())
+		publishWorkflowOptions := client.StartWorkflowOptions{
+			ID:        publishWorkflowID,
+			TaskQueue: os.Getenv(EnvTaskQueue),
+			TypedSearchAttributes: temporal.NewSearchAttributes(
+				abb.EnvironmentKey.ValueSet(env),
+			),
+		}
+		publishInput := abb.PublishNewBountyWorkflowInput{
+			BountyID: workflowID,
+		}
+
+		// Start the publish workflow without waiting for it to complete
+		_, publishErr := tc.ExecuteWorkflow(r.Context(), publishWorkflowOptions, abb.PublishNewBountyWorkflow, publishInput)
+		if publishErr != nil {
+			// Log the error but don't fail the main request - publishing is not critical
+			logger.Error("Failed to start bounty publishing workflow", "bounty_id", workflowID, "error", publishErr)
+		} else {
+			logger.Info("Started bounty publishing workflow", "bounty_id", workflowID, "publish_workflow_id", publishWorkflowID)
+		}
+
 		writeJSONResponse(w, api.CreateBountySuccessResponse{
 			Message:                 "Bounty creation initiated and workflow started.",
 			BountyID:                workflowID,

@@ -389,9 +389,6 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	logger.Debug("Successfully connected to Solana RPC", "endpoint", cfg.Solana.RPCEndpoint)
 
 	// --- Setup Temporal Schedules ---
-	if err := setupPeriodicPublisherSchedule(ctx, logger, tc, cfg.Environment); err != nil {
-		logger.Error("Failed to set up periodic publisher schedule", "error", err)
-	}
 	if err := setupPruneStaleEmbeddingsSchedule(ctx, logger, tc, cfg.Environment); err != nil {
 		logger.Error("Failed to set up prune stale embeddings schedule", "error", err)
 	}
@@ -639,62 +636,6 @@ func handlePing() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSONResponse(w, api.DefaultJSONResponse{Message: "pong"}, http.StatusOK)
 	}
-}
-
-// setupPeriodicPublisherSchedule sets up a Temporal schedule for periodic publisher
-func setupPeriodicPublisherSchedule(ctx context.Context, logger *slog.Logger, tc client.Client, env string) error {
-	scheduleClient := tc.ScheduleClient()
-
-	// Construct environment-specific schedule ID
-	scheduleID := fmt.Sprintf("bounty-publisher-%s", env)
-
-	// Try to get a handle to the schedule to check if it exists
-	// Getting a handle doesn't guarantee existence, but Describe seems unavailable directly
-	// We'll rely on the Create call to fail if it already exists.
-	// Let's remove the explicit check for now and handle the error during Create.
-
-	// Schedule does not exist (or we assume it doesn't), proceed to create it
-	taskQueue := os.Getenv(EnvTaskQueue)
-	if taskQueue == "" {
-		return fmt.Errorf("cannot create schedule: %s env var not set", EnvTaskQueue)
-	}
-
-	logger.Info("Attempting to create periodic publisher schedule", "schedule_id", scheduleID)
-
-	// Attempt to Create the schedule
-	_, err := scheduleClient.Create(ctx, client.ScheduleOptions{
-		ID: scheduleID,
-		Spec: client.ScheduleSpec{
-			Intervals: []client.ScheduleIntervalSpec{
-				{
-					Every: 8 * time.Hour,
-				},
-			},
-		},
-		Action: &client.ScheduleWorkflowAction{
-			Workflow:  abb.PublishBountiesWorkflow,
-			ID:        fmt.Sprintf("bounty-publisher-%s", env),
-			TaskQueue: taskQueue,
-			TypedSearchAttributes: temporal.NewSearchAttributes(
-				abb.EnvironmentKey.ValueSet(env),
-			),
-		},
-	})
-
-	if err != nil {
-		// Check if the error is specifically that the schedule already exists
-		if strings.Contains(err.Error(), "schedule already exists") {
-			logger.Info("Periodic publisher schedule already exists, no action taken.", "schedule_id", scheduleID)
-			return nil // Not an error in this context
-		}
-		// For any other error, return it
-		return fmt.Errorf("failed to create schedule %s: %w", scheduleID, err)
-	}
-
-	// If err is nil, creation was successful
-	logger.Info("Successfully created periodic publisher schedule", "schedule_id", scheduleID)
-
-	return nil
 }
 
 // setupPruneStaleEmbeddingsSchedule sets up a Temporal schedule for pruning stale embeddings.

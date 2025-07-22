@@ -282,10 +282,10 @@ func getRedditAuthTokenForPull(client *http.Client, deps RedditDependencies) (st
 
 // --- Bounty Publisher Activities (Reddit Specific) ---
 
-// PublishBountiesReddit fetches bounties from the ABB server and posts them to Reddit.
-func (a *Activities) PublishBountiesReddit(ctx context.Context) error {
+// PublishNewBountyReddit fetches a specific bounty and posts it to Reddit as a new bounty announcement.
+func (a *Activities) PublishNewBountyReddit(ctx context.Context, bountyID string) error {
 	logger := activity.GetLogger(ctx)
-	logger.Info("Running PublishBountiesReddit activity...")
+	logger.Info("Running PublishNewBountyReddit activity...", "bounty_id", bountyID)
 
 	cfg, err := getConfiguration(ctx)
 	if err != nil {
@@ -301,25 +301,22 @@ func (a *Activities) PublishBountiesReddit(ctx context.Context) error {
 	}
 	logger.Debug("Obtained ABB auth token")
 
-	bounties, err := a.fetchBounties(ctx, logger, cfg, client, abbToken)
+	// Fetch the specific bounty by ID
+	bounty, err := a.fetchSingleBounty(ctx, logger, cfg, client, abbToken, bountyID)
 	if err != nil {
-		logger.Error("Failed to fetch bounties", "error", err)
+		logger.Error("Failed to fetch bounty", "bounty_id", bountyID, "error", err)
 		return err
 	}
-	if len(bounties) == 0 {
-		logger.Info("No active bounties found to post.")
-		return nil
-	}
-	logger.Info("Fetched bounties", "count", len(bounties))
+	logger.Info("Fetched bounty for Reddit announcement", "bounty_id", bountyID)
 
-	postTitle, postBody, err := a.formatBountiesForReddit(bounties, cfg.ABBServerConfig.PublicBaseURL)
+	postTitle, postBody, err := a.formatNewBountyForReddit(bounty, cfg.ABBServerConfig.PublicBaseURL)
 	if err != nil {
-		logger.Error("Failed to format bounties", "error", err)
-		return fmt.Errorf("internal error formatting bounties: %w", err)
+		logger.Error("Failed to format bounty", "bounty_id", bountyID, "error", err)
+		return fmt.Errorf("internal error formatting bounty: %w", err)
 	}
-	logger.Debug("Formatted bounties for Reddit post")
+	logger.Debug("Formatted bounty for Reddit post")
 
-	redditToken, err := a.getRedditToken(ctx, logger, cfg, client) // This is the method (a *Activities) getRedditToken
+	redditToken, err := a.getRedditToken(ctx, logger, cfg, client)
 	if err != nil {
 		logger.Error("Failed to get Reddit auth token", "error", err)
 		return err
@@ -328,42 +325,12 @@ func (a *Activities) PublishBountiesReddit(ctx context.Context) error {
 
 	err = a.postToReddit(ctx, logger, cfg, client, redditToken, postTitle, postBody, cfg.RedditFlairID)
 	if err != nil {
-		logger.Error("Failed to post to Reddit", "error", err)
+		logger.Error("Failed to post to Reddit", "bounty_id", bountyID, "error", err)
 		return err
 	}
 
-	logger.Info("Successfully posted bounties to Reddit", "subreddit", cfg.PublishTargetSubreddit)
+	logger.Info("Successfully posted new bounty to Reddit", "subreddit", cfg.PublishTargetSubreddit, "bounty_id", bountyID)
 	return nil
-}
-
-// --- Helper methods for PublishBountiesReddit ---
-
-// formatBountiesForReddit formats the list of bounties into a Reddit post title and body (Markdown)
-func (a *Activities) formatBountiesForReddit(bounties []api.BountyListItem, publicBaseURL string) (string, string, error) {
-	title := fmt.Sprintf("📢 Active Bounties (%s)", time.Now().Format("2006-01-02"))
-
-	var body strings.Builder
-	body.WriteString(fmt.Sprintf("Here are the currently active bounties available:\n\n"))
-	body.WriteString("| Bounty ID | Platform | Reward/Post | Total Reward | Requirements |\n")
-	body.WriteString("|---|---|---|---|---|\n")
-
-	for _, b := range bounties {
-		reqSummary := strings.Join(b.Requirements, " ")
-		if len(reqSummary) > 2048 {
-			reqSummary = reqSummary[:2045] + "..."
-		}
-		line := fmt.Sprintf("| [%s](%s/bounties/%s) | %s | $%.2f | $%.2f | %s |\n",
-			b.BountyID,
-			publicBaseURL,
-			b.BountyID,
-			b.PlatformKind,
-			b.BountyPerPost,
-			b.TotalBounty,
-			reqSummary,
-		)
-		body.WriteString(line)
-	}
-	return title, body.String(), nil
 }
 
 // getRedditToken (method for publisher) gets an OAuth2 token from Reddit
@@ -478,4 +445,62 @@ func (a *Activities) postToReddit(ctx context.Context, logger temporal_log.Logge
 	}
 
 	return nil
+}
+
+// fetchSingleBounty fetches a specific bounty by ID from the ABB server
+func (a *Activities) fetchSingleBounty(ctx context.Context, logger temporal_log.Logger, cfg *Configuration, client *http.Client, token, bountyID string) (*api.BountyListItem, error) {
+	bountyURL := fmt.Sprintf("%s/bounties/%s", strings.TrimSuffix(cfg.ABBServerConfig.APIEndpoint, "/"), bountyID)
+	req, err := http.NewRequestWithContext(ctx, "GET", bountyURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create bounty request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("bounty request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("bounty request returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var bounty api.BountyListItem
+	if err := json.NewDecoder(resp.Body).Decode(&bounty); err != nil {
+		return nil, fmt.Errorf("failed to decode bounty response: %w", err)
+	}
+
+	return &bounty, nil
+}
+
+// formatNewBountyForReddit formats a single bounty into a Reddit post announcement
+func (a *Activities) formatNewBountyForReddit(bounty *api.BountyListItem, publicBaseURL string) (string, string, error) {
+	title := fmt.Sprintf("🆕 New Bounty Available: %s", bounty.Title)
+	if title == "" || bounty.Title == "" {
+		title = fmt.Sprintf("🆕 New %s Bounty Available on %s", bounty.ContentKind, bounty.PlatformKind)
+	}
+
+	var body strings.Builder
+	body.WriteString(fmt.Sprintf("A new bounty has just been posted and is now available for claims:\n\n"))
+
+	bountyURL := fmt.Sprintf("%s/bounties/%s", strings.TrimSuffix(publicBaseURL, "/"), bounty.BountyID)
+	body.WriteString(fmt.Sprintf("**🎯 [%s](%s)**\n\n", bounty.BountyID, bountyURL))
+
+	body.WriteString(fmt.Sprintf("- **Platform**: %s (%s)\n", bounty.PlatformKind, bounty.ContentKind))
+	body.WriteString(fmt.Sprintf("- **Reward per Post**: $%.2f\n", bounty.BountyPerPost))
+	body.WriteString(fmt.Sprintf("- **Total Bounty Pool**: $%.2f\n", bounty.TotalBounty))
+	if !bounty.EndAt.IsZero() {
+		body.WriteString(fmt.Sprintf("- **Expires**: %s\n", bounty.EndAt.Format("January 2, 2006 at 15:04 MST")))
+	}
+	body.WriteString("\n**Requirements:**\n")
+	for i, req := range bounty.Requirements {
+		body.WriteString(fmt.Sprintf("%d. %s\n", i+1, req))
+	}
+
+	body.WriteString("\n---\n\n")
+	body.WriteString("Get started by visiting the bounty page above!")
+
+	return title, body.String(), nil
 }

@@ -15,10 +15,10 @@ import (
 	temporal_log "go.temporal.io/sdk/log"
 )
 
-// PublishBountiesDiscord fetches bounties from the ABB server and posts them to Discord.
-func (a *Activities) PublishBountiesDiscord(ctx context.Context) error {
+// PublishNewBountyDiscord fetches a specific bounty and posts it to Discord as a new bounty announcement.
+func (a *Activities) PublishNewBountyDiscord(ctx context.Context, bountyID string) error {
 	logger := activity.GetLogger(ctx)
-	logger.Info("Running PublishBountiesDiscord activity...")
+	logger.Info("Running PublishNewBountyDiscord activity...", "bounty_id", bountyID)
 
 	cfg, err := getConfiguration(ctx)
 	if err != nil {
@@ -30,7 +30,7 @@ func (a *Activities) PublishBountiesDiscord(ctx context.Context) error {
 		return nil // Not an error, just skipping if not configured
 	}
 
-	client := a.httpClient // Use the shared httpClient from Activities
+	client := a.httpClient
 
 	abbToken, err := a.getABBAuthToken(ctx, logger, cfg, client)
 	if err != nil {
@@ -39,74 +39,66 @@ func (a *Activities) PublishBountiesDiscord(ctx context.Context) error {
 	}
 	logger.Debug("Obtained ABB auth token for Discord publisher")
 
-	bounties, err := a.fetchBounties(ctx, logger, cfg, client, abbToken)
+	// Fetch the specific bounty by ID using the helper from Reddit activity
+	bounty, err := a.fetchSingleBountyForDiscord(ctx, logger, cfg, client, abbToken, bountyID)
 	if err != nil {
-		logger.Error("Failed to fetch bounties for Discord publisher", "error", err)
+		logger.Error("Failed to fetch bounty for Discord publisher", "bounty_id", bountyID, "error", err)
 		return err
 	}
-	if len(bounties) == 0 {
-		logger.Info("No active bounties found to post to Discord.")
-		return nil
-	}
-	logger.Info("Fetched bounties for Discord", "count", len(bounties))
+	logger.Info("Fetched bounty for Discord announcement", "bounty_id", bountyID)
 
-	discordMessage, err := a.formatBountiesForDiscord(bounties, cfg.ABBServerConfig.PublicBaseURL, cfg.Environment)
+	discordMessage, err := a.formatNewBountyForDiscord(bounty, cfg.ABBServerConfig.PublicBaseURL, cfg.Environment)
 	if err != nil {
-		logger.Error("Failed to format bounties for Discord", "error", err)
-		return fmt.Errorf("internal error formatting bounties for Discord: %w", err)
+		logger.Error("Failed to format bounty for Discord", "bounty_id", bountyID, "error", err)
+		return fmt.Errorf("internal error formatting bounty for Discord: %w", err)
 	}
-	logger.Debug("Formatted bounties for Discord message")
+	logger.Debug("Formatted bounty for Discord message")
 
-	// Discord messages have a character limit (typically 2000 or 4000 for embeds).
-	// We'll split the message if it's too long.
-	const discordMessageLimit = 1900 // Be conservative
-	messagesToSend := splitMessage(discordMessage, discordMessageLimit)
-
-	for i, msgChunk := range messagesToSend {
-		err = a.postToDiscord(ctx, logger, cfg, client, msgChunk, cfg.Environment)
-		if err != nil {
-			logger.Error("Failed to post message chunk to Discord", "chunk_index", i, "error", err)
-			// Decide if we should continue trying other chunks or return the error
-			return fmt.Errorf("failed to post message chunk %d to Discord: %w", i, err)
-		}
-		logger.Info("Successfully posted message chunk to Discord", "chunk_index", i, "channel_id", cfg.DiscordConfig.ChannelID)
-		// Discord has rate limits, a small delay might be prudent if sending many chunks
-		if i < len(messagesToSend)-1 {
-			activity.RecordHeartbeat(ctx, "Pausing between Discord message chunks")
-			time.Sleep(1 * time.Second) // Small delay
-		}
+	err = a.postToDiscord(ctx, logger, cfg, client, discordMessage, cfg.Environment)
+	if err != nil {
+		logger.Error("Failed to post new bounty to Discord", "bounty_id", bountyID, "error", err)
+		return err
 	}
 
-	logger.Info("Successfully posted all bounty message chunks to Discord")
+	logger.Info("Successfully posted new bounty to Discord", "channel_id", cfg.DiscordConfig.ChannelID, "bounty_id", bountyID)
 	return nil
 }
 
-// formatBountiesForDiscord formats the list of bounties into a Discord message (Markdown)
-func (a *Activities) formatBountiesForDiscord(bounties []api.BountyListItem, publicBaseURL string, env string) (string, error) {
+// formatNewBountyForDiscord formats a single bounty into a Discord message announcement
+func (a *Activities) formatNewBountyForDiscord(bounty *api.BountyListItem, publicBaseURL string, env string) (string, error) {
 	var sb strings.Builder
 	envPrefix := ""
 	if env != "" {
 		envPrefix = fmt.Sprintf("[%s] ", strings.ToUpper(env))
 	}
-	sb.WriteString(fmt.Sprintf("%s**📢 Active Bounties (%s)**\n\n", envPrefix, time.Now().Format("2006-01-02")))
 
-	for _, b := range bounties {
-		// Shorten requirements for Discord, as it's less suited for long texts than Reddit.
-		reqSummary := strings.Join(b.Requirements, ", ")
-		if len(reqSummary) > 100 { // Much shorter summary for Discord
-			reqSummary = reqSummary[:97] + "..."
-		}
+	// Use a different emoji and format for new bounty announcements
+	sb.WriteString(fmt.Sprintf("%s🆕 **New Bounty Available!**\n\n", envPrefix))
 
-		// Constructing a direct link to the bounty details page
-		bountyURL := fmt.Sprintf("%s/bounties/%s", strings.TrimSuffix(publicBaseURL, "/"), b.BountyID)
-
-		sb.WriteString(fmt.Sprintf("### [%s](%s)\n", b.BountyID, bountyURL)) // Title as link
-		sb.WriteString(fmt.Sprintf("- **Platform**: %s (%s)\n", b.PlatformKind, b.ContentKind))
-		sb.WriteString(fmt.Sprintf("- **Reward/Post**: $%.2f\n", b.BountyPerPost))
-		sb.WriteString(fmt.Sprintf("- **Total Bounty Pool**: $%.2f\n", b.TotalBounty))
-		sb.WriteString(fmt.Sprintf("- **Key Requirements**: %s\n", reqSummary))
-		sb.WriteString("\n---\n\n") // Separator
+	// Shorten requirements for Discord
+	reqSummary := strings.Join(bounty.Requirements, ", ")
+	if len(reqSummary) > 150 { // Slightly longer for new bounty announcements
+		reqSummary = reqSummary[:147] + "..."
 	}
+
+	// Constructing a direct link to the bounty details page
+	bountyURL := fmt.Sprintf("%s/bounties/%s", strings.TrimSuffix(publicBaseURL, "/"), bounty.BountyID)
+
+	title := bounty.Title
+	if title == "" {
+		title = bounty.BountyID
+	}
+
+	sb.WriteString(fmt.Sprintf("### [%s](%s)\n", title, bountyURL))
+	sb.WriteString(fmt.Sprintf("- **Platform**: %s (%s)\n", bounty.PlatformKind, bounty.ContentKind))
+	sb.WriteString(fmt.Sprintf("- **Reward/Post**: $%.2f\n", bounty.BountyPerPost))
+	sb.WriteString(fmt.Sprintf("- **Total Bounty Pool**: $%.2f\n", bounty.TotalBounty))
+	if !bounty.EndAt.IsZero() {
+		sb.WriteString(fmt.Sprintf("- **Expires**: %s\n", bounty.EndAt.Format("Jan 2, 2006 15:04 MST")))
+	}
+	sb.WriteString(fmt.Sprintf("- **Requirements**: %s\n", reqSummary))
+	sb.WriteString("\n🎯 **Get started now by clicking the link above!**")
+
 	return sb.String(), nil
 }
 
@@ -171,6 +163,34 @@ func (a *Activities) postToDiscord(ctx context.Context, logger temporal_log.Logg
 
 	logger.Debug("Discord API message post successful", "status_code", resp.StatusCode, "response_body", string(bodyBytes))
 	return nil
+}
+
+// fetchSingleBountyForDiscord fetches a specific bounty by ID from the ABB server (Discord version)
+func (a *Activities) fetchSingleBountyForDiscord(ctx context.Context, logger temporal_log.Logger, cfg *Configuration, client *http.Client, token, bountyID string) (*api.BountyListItem, error) {
+	bountyURL := fmt.Sprintf("%s/bounties/%s", strings.TrimSuffix(cfg.ABBServerConfig.APIEndpoint, "/"), bountyID)
+	req, err := http.NewRequestWithContext(ctx, "GET", bountyURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create bounty request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("bounty request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("bounty request returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var bounty api.BountyListItem
+	if err := json.NewDecoder(resp.Body).Decode(&bounty); err != nil {
+		return nil, fmt.Errorf("failed to decode bounty response: %w", err)
+	}
+
+	return &bounty, nil
 }
 
 // splitMessage splits a long message into chunks that respect a given limit.
