@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/http/api"
 	"go.temporal.io/sdk/activity"
