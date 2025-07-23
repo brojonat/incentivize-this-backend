@@ -212,7 +212,7 @@ func TestBountyAssessmentWorkflow(t *testing.T) {
 		PaymentTimeout: 30 * time.Second,
 	}
 
-	env.OnActivity(activities.VerifyPayment, mock.Anything, escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).
+	env.OnActivity(activities.VerifyPayment, mock.Anything, escrowWallet.PublicKey(), originalTotalBounty, "default-test-workflow-id", mock.Anything).
 		Return(&VerifyPaymentResult{
 			Verified:     true,
 			Amount:       originalTotalBounty,
@@ -342,7 +342,7 @@ func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
 		PaymentTimeout: 5 * time.Second,
 	}
 
-	env.OnActivity(activities.VerifyPayment, mock.Anything, escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).
+	env.OnActivity(activities.VerifyPayment, mock.Anything, escrowWallet.PublicKey(), originalTotalBounty, "default-test-workflow-id", mock.Anything).
 		Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty, FunderWallet: funderWallet.PublicKey().String()}, nil).Maybe()
 
 	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "mocked-no-analysis"}, nil).Maybe()
@@ -422,7 +422,7 @@ func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
 		PaymentTimeout: 5 * time.Second,
 	}
 
-	env.OnActivity(activities.VerifyPayment, mock.Anything, escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty, FunderWallet: funderWallet.PublicKey().String()}, nil).Once()
+	env.OnActivity(activities.VerifyPayment, mock.Anything, escrowWallet.PublicKey(), originalTotalBounty, "default-test-workflow-id", mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty, FunderWallet: funderWallet.PublicKey().String()}, nil).Once()
 
 	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "mocked-no-analysis"}, nil).Maybe()
 
@@ -510,7 +510,7 @@ func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
 
 	refundCalled := make(chan struct{}, 1)
 
-	env.OnActivity(activities.VerifyPayment, mock.Anything, escrowWallet.PublicKey(), originalTotalBounty, mock.AnythingOfType("string"), mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty, FunderWallet: funderWallet.PublicKey().String()}, nil).Once()
+	env.OnActivity(activities.VerifyPayment, mock.Anything, escrowWallet.PublicKey(), originalTotalBounty, "default-test-workflow-id", mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty, FunderWallet: funderWallet.PublicKey().String()}, nil).Once()
 
 	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "mocked-no-analysis"}, nil).Maybe()
 

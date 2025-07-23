@@ -50,6 +50,8 @@ func TestHandleListBounties(t *testing.T) {
 								"BountyStatus":         mustPayload(converter.GetDefaultDataConverter(), string(abb.BountyStatusListening)),
 								"BountyFunderWallet":   mustPayload(converter.GetDefaultDataConverter(), "test-funder"),
 								"BountyPlatform":       mustPayload(converter.GetDefaultDataConverter(), string(abb.PlatformReddit)),
+								"BountyTotalAmount":    mustPayload(converter.GetDefaultDataConverter(), 100.0),
+								"BountyPerPostAmount":  mustPayload(converter.GetDefaultDataConverter(), 10.0),
 								"BountyValueRemaining": mustPayload(converter.GetDefaultDataConverter(), 0.0),
 								"BountyTier":           mustPayload(converter.GetDefaultDataConverter(), int64(abb.DefaultBountyTier)),
 							},
@@ -66,10 +68,13 @@ func TestHandleListBounties(t *testing.T) {
 				// Define the input payload for the workflow
 				bountyPerPost, _ := solana.NewUSDCAmount(10.0)
 				totalBounty, _ := solana.NewUSDCAmount(100.0)
+				totalCharged, _ := solana.NewUSDCAmount(110.0)
 				expectedInput := abb.BountyAssessmentWorkflowInput{
+					Title:         "Test Bounty Title",
 					Requirements:  []string{"Test requirement 1", "Test requirement 2"},
 					BountyPerPost: bountyPerPost,
 					TotalBounty:   totalBounty,
+					TotalCharged:  totalCharged,
 					Platform:      abb.PlatformReddit,
 					// Add other fields matching the expected input in the handler
 				}
@@ -113,10 +118,12 @@ func TestHandleListBounties(t *testing.T) {
 			expectedBody: []api.BountyListItem{
 				{
 					BountyID:             "test-workflow-1",
+					Title:                "Test Bounty Title",
 					Status:               "Listening",
 					Requirements:         []string{"Test requirement 1", "Test requirement 2"},
 					BountyPerPost:        10.0,
 					TotalBounty:          100.0,
+					TotalCharged:         110.0,
 					BountyFunderWallet:   "test-funder",
 					PlatformKind:         string(abb.PlatformReddit),
 					ContentKind:          "",
