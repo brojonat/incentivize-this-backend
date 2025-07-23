@@ -508,7 +508,6 @@ func awaitBountyFund(
 
 	// Use workflow ID as the base for the memo
 	workflowID := workflow.GetInfo(ctx).WorkflowExecution.ID
-	fundingMemo := workflowID
 
 	verifyPaymentActivityOptions := workflow.ActivityOptions{
 		StartToCloseTimeout: input.PaymentTimeout + (10 * time.Second), // Add buffer to internal timeout
@@ -528,7 +527,7 @@ func awaitBountyFund(
 		(*Activities).VerifyPayment,
 		escrowAccount,
 		input.TotalCharged,
-		fundingMemo,
+		workflowID,
 		input.PaymentTimeout,
 	).Get(ctx, &verifyResult)
 	if err != nil {

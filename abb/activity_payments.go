@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	solanautil "github.com/brojonat/affiliate-bounty-board/solana"
@@ -134,7 +135,7 @@ func (a *Activities) VerifyPayment(
 	ctx context.Context,
 	expectedRecipient solanago.PublicKey,
 	expectedAmount *solanautil.USDCAmount,
-	expectedMemo string,
+	bountyID string,
 	timeout time.Duration,
 ) (*VerifyPaymentResult, error) {
 	logger := activity.GetLogger(ctx)
@@ -148,7 +149,7 @@ func (a *Activities) VerifyPayment(
 
 	expectedAmountUint64 := expectedAmount.ToSmallestUnit().Uint64()
 	logger.Info("VerifyPayment started",
-		"workflow_id", expectedMemo,
+		"bounty_id", bountyID,
 		"expected_recipient", expectedRecipient.String(),
 		"expected_amount_lamports", expectedAmountUint64,
 		"timeout", timeout,
@@ -402,17 +403,17 @@ func (a *Activities) VerifyPayment(
 						}
 						if progKey.Equals(memo.ProgramID) {
 							memoContent = string(ix.Data)
-							if memoContent == expectedMemo {
+							if strings.Contains(memoContent, bountyID) {
 								memoMatches = true
 								break // Found matching memo
 							}
 						}
 					}
-					logger.Debug("Memo check result", "signature", sig.String(), "found_memo", memoContent, "expected_memo", expectedMemo, "match", memoMatches)
+					logger.Debug("Memo check result", "signature", sig.String(), "found_memo", memoContent, "expected_bounty_id", bountyID, "match", memoMatches)
 
 					// if memo does not match, we don't need to check the balances
 					if !memoMatches {
-						logger.Debug("Memo does not match, skipping balance check", "signature", sig.String(), "expected_memo", expectedMemo, "found_memo", memoContent)
+						logger.Debug("Memo does not match, skipping balance check", "signature", sig.String(), "expected_bounty_id", bountyID, "found_memo", memoContent)
 						continue
 					}
 
@@ -533,14 +534,22 @@ func checkTokenBalancesForTransfer(
 	// Check Source Account
 	var funderWallet solanago.PublicKey
 	foundSourceMatch := false
-	for sourceAta, preSourceBal := range preBalanceMap {
-		// Check mint and owner match
-		logger.Debug("checkTokenBalances: Checking potential source account", "source_ata", sourceAta.String(), "owner", preSourceBal.Owner.String(), "mint", preSourceBal.Mint.String(), "expected_mint", expectedMint.String())
-		if preSourceBal.Mint.Equals(expectedMint) {
-			postSourceBal, sourcePostExists := postBalanceMap[sourceAta]
-			if !sourcePostExists { // Source account might have been closed, check balance went to 0
-				logger.Warn("checkTokenBalances: Source ATA not found in post balances, potentially closed?", "ata", sourceAta.String())
-				continue // Cannot verify decrease if post balance is missing
+	for sourceAta, postSourceBal := range postBalanceMap {
+		// Check mint and owner match. We iterate post-balances as the source account
+		// is guaranteed to be there (unless it was closed, which is an edge case we can ignore for now).
+		logger.Debug("checkTokenBalances: Checking potential source account", "source_ata", sourceAta.String(), "owner", postSourceBal.Owner.String(), "mint", postSourceBal.Mint.String(), "expected_mint", expectedMint.String())
+		if postSourceBal.Mint.Equals(expectedMint) {
+			// Skip the destination account, it can't be the source
+			if sourceAta.Equals(expectedDestATA) {
+				continue
+			}
+
+			preSourceBal, sourcePreExists := preBalanceMap[sourceAta]
+			if !sourcePreExists {
+				// If the account did not exist before, we cannot calculate the decrease.
+				// This could happen but it's unlikely to be the main funder's account.
+				logger.Debug("checkTokenBalances: Potential source ATA not found in pre balances", "ata", sourceAta.String())
+				continue
 			}
 
 			preSourceAmountLamports, err := strconv.ParseUint(preSourceBal.UiTokenAmount.Amount, 10, 64)
