@@ -182,7 +182,7 @@ func handleCreateBounty(
 	tc client.Client,
 	llmProvider abb.LLMProvider,
 	llmEmbedProvider abb.LLMEmbeddingProvider,
-	payoutCalculator PayoutCalculator,
+	defaultFeePercentage float64,
 	env string,
 	prompts struct {
 		InferBountyTitle   string
@@ -547,26 +547,29 @@ func handleCreateBounty(
 
 		// Apply revenue sharing using the calculator function
 		userBountyPerPost := req.BountyPerPost
-		userTotalBounty := req.TotalBounty
+		var userTotalBounty float64
 
-		// FIXME: we should use the payoutcalculator here consistently
-		// if the request specifies a fee percentage, use it to allocate the bounty
-		// otherwise, use the default payout calculator
+		// Determine fee percentage to use
+		var feePercentage float64
 		claims, ok := r.Context().Value(ctxKeyJWT).(*authJWTClaims)
 		if ok && claims.Status >= UserStatusSudo && req.FeePercentage != nil && *req.FeePercentage >= 0 {
-			totalMoney := money.NewFromFloat(req.TotalBounty, money.USD)
-			feePercentage := int(*req.FeePercentage)
-			userPercentage := 100 - feePercentage
-
-			parties, err := totalMoney.Allocate(userPercentage, feePercentage)
-			if err != nil {
-				writeInternalError(logger, w, fmt.Errorf("failed to allocate bounty amount: %w", err))
-				return
-			}
-			userTotalBounty = parties[0].AsMajorUnits()
+			feePercentage = *req.FeePercentage
 		} else {
-			userTotalBounty = payoutCalculator(req.TotalBounty)
+			feePercentage = defaultFeePercentage
 		}
+
+		// Calculate the final bounty amount for the user after platform fees.
+		// This uses go-money for safe currency allocation.
+		totalMoney := money.NewFromFloat(req.TotalBounty, money.USD)
+		feeIntPercentage := int(feePercentage)
+		userIntPercentage := 100 - feeIntPercentage
+
+		parties, err := totalMoney.Allocate(userIntPercentage, feeIntPercentage)
+		if err != nil {
+			writeInternalError(logger, w, fmt.Errorf("failed to allocate bounty amount: %w", err))
+			return
+		}
+		userTotalBounty = parties[0].AsMajorUnits()
 
 		// --- START: Validate BountyPerPost against effective TotalBounty ---
 		if userBountyPerPost > userTotalBounty {
