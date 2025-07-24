@@ -210,6 +210,10 @@ func handleCreateBounty(
 			return
 		}
 		requirementsStr := strings.Join(req.Requirements, "\n")
+		if requirementsStr == "" {
+			writeBadRequestError(w, fmt.Errorf("requirements cannot be empty"))
+			return
+		}
 		if req.BountyPerPost <= 0 {
 			writeBadRequestError(w, fmt.Errorf("bounty_per_post must be greater than 0"))
 			return
