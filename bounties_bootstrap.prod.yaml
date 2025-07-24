@@ -25,7 +25,6 @@ bounties:
     fee_percentage: 0
 
   - name: C
-    title: "Encouraging Comment"
     requirements: |
       Write a comment in one of the following subreddits that is an encouraging comment that makes the poster feel good about what they've posted. The comment must have at least 5 upvotes. Here are the valid subreddits:
       - r/houseplants
@@ -139,7 +138,8 @@ bounties:
 
   - name: M
     requirements: |
-      Create a reddit comment about NordVPN. It should have at least 10 upvotes. It should emphasize the benefits of using NordVPN: that it can help you stay safe online by encrypting your traffic. It should also mention that it's a good way to access content that is blocked in your country. The comment must be in one of the following subreddits:
+      Create a Reddit comment about NordVPN. It should have at least 10 upvotes. It should emphasize the benefits of using NordVPN: that it can help you stay safe online by encrypting your traffic. It should also mention that it's a good way to access content that is blocked in your country.
+      The comment must be in one of the following subreddits:
       - r/netflix
       - r/hulu
       - r/disneyplus
@@ -150,10 +150,8 @@ bounties:
       - r/hbo
       - r/homelab
       - r/DIY
-      Content must be created after {{.Date}}.
-      If the content has been edited, the bounty is not fulfilled.
-    total_amount: 5.0
-    per_post_amount: 0.5
+    total_amount: 20.0
+    per_post_amount: 1.0
     duration: 180d
     fee_percentage: 0
 
@@ -291,7 +289,7 @@ bounties:
       - r/sideproject
       - r/sidehustle
       - r/startup_ideas
-    total_amount: 25.0
-    per_post_amount: 5.0
+    total_amount: 50.0
+    per_post_amount: 10.0
     duration: 180d
     fee_percentage: 0
