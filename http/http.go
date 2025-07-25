@@ -21,7 +21,6 @@ import (
 	"github.com/gorilla/handlers"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/temporal"
 )
 
 // Environment Variable Keys
@@ -362,14 +361,6 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	}
 	logger.Debug("Successfully connected to Solana RPC", "endpoint", cfg.Solana.RPCEndpoint)
 
-	// --- Setup Temporal Schedules ---
-	if err := setupPruneStaleEmbeddingsSchedule(ctx, logger, tc, cfg.Environment); err != nil {
-		logger.Error("Failed to set up prune stale embeddings schedule", "error", err)
-	}
-	if err := setupGumroadNotifySchedule(ctx, logger, tc, cfg.Environment); err != nil {
-		logger.Error("Failed to set up Gumroad notify schedule", "error", err)
-	}
-
 	// Create Rate Limiter for JWT-based assessment endpoint
 	jwtAssessLimiter := NewRateLimiter(1*time.Hour, 10) // 10 requests per hour per JWT
 
@@ -472,13 +463,6 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	))
 
 	// pay/funding/transactional bounty routes
-	mux.HandleFunc("POST /bounties/pay", stools.AdaptHandler(
-		handlePayBounty(logger, tc),
-		withLogging(logger),
-		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-		requireStatus(UserStatusSudo),
-	))
-
 	mux.HandleFunc("POST /bounties/assess", stools.AdaptHandler(
 		handleAssessContent(logger, tc),
 		apiMode(logger, llmRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
@@ -610,105 +594,6 @@ func handlePing() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSONResponse(w, api.DefaultJSONResponse{Message: "pong"}, http.StatusOK)
 	}
-}
-
-// setupPruneStaleEmbeddingsSchedule sets up a Temporal schedule for pruning stale embeddings.
-func setupPruneStaleEmbeddingsSchedule(ctx context.Context, logger *slog.Logger, tc client.Client, env string) error {
-	scheduleClient := tc.ScheduleClient()
-
-	// Construct environment-specific schedule ID
-	scheduleID := fmt.Sprintf("prune-stale-embeddings-%s", env)
-
-	taskQueue := os.Getenv(EnvTaskQueue)
-	if taskQueue == "" {
-		return fmt.Errorf("cannot create prune schedule: %s env var not set", EnvTaskQueue)
-	}
-
-	logger.Info("Attempting to create prune stale embeddings schedule", "schedule_id", scheduleID)
-
-	// this will prune stale embeddings every 20 minutes. Now that we've added the proper
-	// workflow cancellation signal handling, this shouldn't be necessary, but if a workflow
-	// is ever terminated, we'll need to prune the embeddings because the cleanup activities
-	// will not be triggered. As a result, I've opted to leave this in place for now but
-	// we can remove it if we're confident that the workflow cancellation signal handling
-	// is sufficient.
-	_, err := scheduleClient.Create(ctx, client.ScheduleOptions{
-		ID: scheduleID,
-		Spec: client.ScheduleSpec{
-			Intervals: []client.ScheduleIntervalSpec{{Every: 20 * time.Minute}},
-		},
-		Action: &client.ScheduleWorkflowAction{
-			Workflow:  abb.PruneStaleEmbeddingsWorkflow,
-			ID:        fmt.Sprintf("prune-stale-embeddings-workflow-%s", env), // Unique ID for workflow executions started by this schedule
-			TaskQueue: taskQueue,
-			TypedSearchAttributes: temporal.NewSearchAttributes(
-				abb.EnvironmentKey.ValueSet(env),
-			),
-		},
-	})
-
-	if err != nil {
-		// Check if the error is specifically that the schedule already exists
-		if strings.Contains(err.Error(), "schedule already exists") {
-			logger.Info("Prune stale embeddings schedule already exists, no action taken.", "schedule_id", scheduleID)
-			return nil // Not an error in this context
-		}
-		// For any other error, return it
-		return fmt.Errorf("failed to create prune stale embeddings schedule %s: %w", scheduleID, err)
-	}
-
-	logger.Info("Successfully created prune stale embeddings schedule", "schedule_id", scheduleID)
-	return nil
-}
-
-// setupGumroadNotifySchedule sets up a Temporal schedule for Gumroad notify
-func setupGumroadNotifySchedule(ctx context.Context, logger *slog.Logger, tc client.Client, env string) error {
-	scheduleID := fmt.Sprintf("gumroad-notify-schedule-%s", env)
-	taskQueue := os.Getenv(EnvTaskQueue)
-	if taskQueue == "" {
-		return fmt.Errorf("TASK_QUEUE environment variable not set, cannot set up schedule %s", scheduleID)
-	}
-
-	scheduleInput := abb.GumroadNotifyWorkflowInput{
-		LookbackDuration: time.Hour, // Look back 1 hour
-	}
-
-	scheduleOptions := client.ScheduleOptions{
-		ID: scheduleID, // The ID for the schedule itself
-		Spec: client.ScheduleSpec{
-			CronExpressions: []string{"* * * * *"}, // Every minute
-		},
-		Action: &client.ScheduleWorkflowAction{
-			Workflow:  abb.GumroadNotifyWorkflow,
-			Args:      []interface{}{scheduleInput},
-			TaskQueue: taskQueue,
-			// Optionally, provide a base ID for workflow executions started by this schedule
-			ID: fmt.Sprintf("gumroad-notify-workflow-%s", env),
-		},
-		Paused: false,
-		// Other fields like OverlapPolicy, Jitter, etc., can be added if available and needed
-		// For example, if your SDK version supports it:
-		// OverlapPolicy: client.ScheduleOverlapPolicySkip,
-	}
-
-	logger.Info("Attempting to create Gumroad Notify schedule", "scheduleID", scheduleID, "cron", scheduleOptions.Spec.CronExpressions)
-
-	// Use the same pattern as setupPeriodicPublisherSchedule and setupPruneStaleEmbeddingsSchedule
-	_, err := tc.ScheduleClient().Create(ctx, scheduleOptions)
-
-	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
-			logger.Info("Gumroad Notify schedule already exists, no action taken.", "scheduleID", scheduleID)
-			// If update logic is needed and supported by your SDK version, it would go here.
-			// For now, returning nil to avoid failing server startup.
-			return nil
-		}
-		logger.Error("Failed to create Gumroad Notify schedule", "scheduleID", scheduleID, "error", err)
-		return fmt.Errorf("failed to create Gumroad Notify schedule %s: %w", scheduleID, err)
-	}
-
-	logger.Info("Successfully created Gumroad Notify schedule", "scheduleID", scheduleID)
-	return nil
 }
 
 func decodeBase64(s string) (string, error) {

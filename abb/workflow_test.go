@@ -1,768 +1,524 @@
 package abb
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/solana"
-	solanago "github.com/gagliardetto/solana-go"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/workflow"
 )
 
-// --- Helper mockRoundTripper ---
-type mockRoundTripper struct {
-	bodies       []string // Sequence of response bodies to return
-	statusCodes  []int    // Optional corresponding status codes (defaults to 200 OK)
-	requestIndex int      // Tracks which request we are responding to
+type WorkflowTestSuite struct {
+	suite.Suite
+	testsuite.WorkflowTestSuite
+	env *testsuite.TestWorkflowEnvironment
 }
 
-func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	if m.requestIndex >= len(m.bodies) {
-		// Return an error or a default response if more requests are made than bodies provided
-		return nil, fmt.Errorf("mockRoundTripper: received request %d but only %d bodies were provided", m.requestIndex+1, len(m.bodies))
+func (s *WorkflowTestSuite) SetupTest() {
+	s.env = s.NewTestWorkflowEnvironment()
+	// Set test environment to avoid configuration issues
+	s.env.SetTestTimeout(30 * time.Second)
+
+	// Register workflows
+	s.env.RegisterWorkflow(BountyAssessmentWorkflow)
+	s.env.RegisterWorkflow(ContactUsNotifyWorkflow)
+	s.env.RegisterWorkflow(EmailTokenWorkflow)
+
+	// Register activities (required for mocking to work)
+	a := &Activities{}
+	s.env.RegisterActivity(a.GenerateResponse)
+	s.env.RegisterActivity(a.PullContentActivity)
+	s.env.RegisterActivity(a.CheckBountyFundedActivity)
+	s.env.RegisterActivity(a.PayBountyActivity)
+	s.env.RegisterActivity(a.SendContactUsEmail)
+	s.env.RegisterActivity(a.SendTokenEmail)
+	s.env.RegisterActivity(a.MarkGumroadSaleNotifiedActivity)
+}
+
+func (s *WorkflowTestSuite) AfterTest(suiteName, testName string) {
+	s.env.AssertExpectations(s.T())
+}
+
+func TestWorkflowTestSuite(t *testing.T) {
+	suite.Run(t, new(WorkflowTestSuite))
+}
+
+// ORCHESTRATOR WORKFLOW TESTS
+
+func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_NoToolCalls_Success() {
+	// Register the orchestrator workflow
+	s.env.RegisterWorkflow(OrchestratorWorkflow)
+
+	// Test the simple case where LLM responds without needing tools
+	input := OrchestratorWorkflowInput{
+		Goal:  "What is 2+2?",
+		Tools: []Tool{},
 	}
 
-	body := m.bodies[m.requestIndex]
-	statusCode := http.StatusOK // Default status code
-	if m.statusCodes != nil && m.requestIndex < len(m.statusCodes) {
-		statusCode = m.statusCodes[m.requestIndex]
+	// Mock LLM response without tool calls
+	s.env.OnActivity("GenerateResponse", mock.Anything,
+		[]Message{{Role: "user", Content: "What is 2+2?"}},
+		[]Tool{}).
+		Return(&LLMResponse{Content: "The answer is 4."}, nil)
+
+	s.env.ExecuteWorkflow(OrchestratorWorkflow, input)
+
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+
+	var result *OrchestratorWorkflowOutput
+	s.NoError(s.env.GetWorkflowResult(&result))
+	s.True(result.IsApproved)
+	s.Equal("The answer is 4.", result.Reason)
+	s.Nil(result.Payout)
+}
+
+func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Success() {
+	// Register the orchestrator workflow
+	s.env.RegisterWorkflow(OrchestratorWorkflow)
+
+	// Test the case where LLM makes a tool call, then provides final response
+	input := OrchestratorWorkflowInput{
+		Goal:  "Get content details for post 123",
+		Tools: []Tool{GetContentDetailsTool},
 	}
 
-	resp := &http.Response{
-		StatusCode: statusCode,
-		Body:       io.NopCloser(bytes.NewBufferString(body)),
-		Header:     make(http.Header),
+	// First LLM call - requests tool
+	s.env.OnActivity("GenerateResponse", mock.Anything,
+		[]Message{{Role: "user", Content: "Get content details for post 123"}},
+		[]Tool{GetContentDetailsTool}).
+		Return(&LLMResponse{
+			ToolCalls: []ToolCall{{
+				ID:        "call1",
+				Name:      "get_content_details",
+				Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`,
+			}},
+		}, nil)
+
+	// Mock the tool execution
+	s.env.OnActivity("PullContentActivity", mock.Anything,
+		PullContentInput{
+			PlatformType: "reddit",
+			ContentKind:  "post",
+			ContentID:    "123",
+		}).
+		Return([]byte(`{"title":"Test Post","content":"Hello world"}`), nil)
+
+	// Second LLM call - final response with tool result
+	expectedMessages := []Message{
+		{Role: "user", Content: "Get content details for post 123"},
+		{Role: "assistant", ToolCalls: []ToolCall{{
+			ID: "call1", Name: "get_content_details",
+			Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`,
+		}}},
+		{Role: "tool", ToolCallID: "call1", Content: `{"title":"Test Post","content":"Hello world"}`},
 	}
-	m.requestIndex++ // Move to the next response
-	return resp, nil
+	s.env.OnActivity("GenerateResponse", mock.Anything, expectedMessages, []Tool{GetContentDetailsTool}).
+		Return(&LLMResponse{Content: "Content retrieved successfully."}, nil)
+
+	s.env.ExecuteWorkflow(OrchestratorWorkflow, input)
+
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+
+	var result *OrchestratorWorkflowOutput
+	s.NoError(s.env.GetWorkflowResult(&result))
+	s.True(result.IsApproved)
+	s.Equal("Content retrieved successfully.", result.Reason)
 }
 
-// --- End Helper mockRoundTripper ---
+func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Failure() {
+	// Register the orchestrator workflow
+	s.env.RegisterWorkflow(OrchestratorWorkflow)
 
-// mockLLMProvider implements the LLMProvider interface for testing
-type mockLLMProvider struct{}
-
-func (p *mockLLMProvider) Complete(ctx context.Context, prompt string) (string, error) {
-	return `{"satisfies": true, "reason": "Content meets all requirements"}`, nil
-}
-
-// mockTransport implements http.RoundTripper for testing
-type mockTransport struct{}
-
-func (t *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// Create a mock response
-	response := &http.Response{
-		StatusCode: http.StatusOK,
-		Body:       io.NopCloser(bytes.NewBufferString(`{"status": "success"}`)),
-		Header:     make(http.Header),
+	// Test tool execution failure
+	input := OrchestratorWorkflowInput{
+		Goal:  "Get content details for invalid post",
+		Tools: []Tool{GetContentDetailsTool},
 	}
-	return response, nil
+
+	// First LLM call
+	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).
+		Return(&LLMResponse{
+			ToolCalls: []ToolCall{{
+				ID:        "call1",
+				Name:      "get_content_details",
+				Arguments: `{"platform":"reddit","content_kind":"post","content_id":"invalid"}`,
+			}},
+		}, nil).Once()
+
+	// Tool execution fails
+	s.env.OnActivity("PullContentActivity", mock.Anything, mock.Anything).
+		Return(nil, errors.New("content not found")).Once()
+
+	// Second LLM call with error - should provide final response without tool calls
+	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).
+		Return(&LLMResponse{Content: "Content could not be retrieved."}, nil).Once()
+
+	s.env.ExecuteWorkflow(OrchestratorWorkflow, input)
+
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+
+	var result *OrchestratorWorkflowOutput
+	s.NoError(s.env.GetWorkflowResult(&result))
+	s.True(result.IsApproved)
+	s.Equal("Content could not be retrieved.", result.Reason)
 }
 
-func TestWorkflow(t *testing.T) {
-	t.Setenv("ENV", "test")
-	// Test PayBounty workflow
-	t.Run("PayBounty", func(t *testing.T) {
-		testSuite := &testsuite.WorkflowTestSuite{}
-		env := testSuite.NewTestWorkflowEnvironment()
+func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_UnknownTool() {
+	// Register the orchestrator workflow
+	s.env.RegisterWorkflow(OrchestratorWorkflow)
 
-		// dummyEscrowWallet no longer needed here as getConfiguration will handle it for ENV=test
-		// dummyEscrowWallet := solanago.NewWallet()
+	// Test unknown tool handling
+	input := OrchestratorWorkflowInput{
+		Goal:  "Do something",
+		Tools: []Tool{GetContentDetailsTool},
+	}
 
-		// mockedTestConfig no longer needed here
+	// LLM requests unknown tool
+	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).
+		Return(&LLMResponse{
+			ToolCalls: []ToolCall{{
+				ID:        "call1",
+				Name:      "unknown_tool",
+				Arguments: `{}`,
+			}},
+		}, nil).Once()
 
-		activities, err := NewActivities()
-		require.NoError(t, err)
+	// Second call with error response - should provide final response without tool calls
+	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).
+		Return(&LLMResponse{Content: "I cannot use that tool."}, nil).Once()
 
-		// Register activities
-		env.RegisterActivity(activities.TransferUSDC)
+	s.env.ExecuteWorkflow(OrchestratorWorkflow, input)
 
-		amount, err := solana.NewUSDCAmount(1.0)
-		if err != nil {
-			t.Fatalf("Failed to create USDC amount: %v", err)
-		}
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
 
-		toWallet := solanago.NewWallet()
-
-		payInput := PayBountyWorkflowInput{
-			Wallet: toWallet.PublicKey().String(),
-			Amount: amount,
-		}
-
-		env.OnActivity(activities.TransferUSDC, mock.Anything, payInput.Wallet, payInput.Amount.ToUSDC(), mock.AnythingOfType("string")).Return(nil)
-
-		env.ExecuteWorkflow(PayBountyWorkflow, payInput)
-		assert.NoError(t, env.GetWorkflowError())
-	})
-
-	// Test ReturnBountyToOwner workflow
-	t.Run("ReturnBountyToOwner", func(t *testing.T) {
-		testSuite := &testsuite.WorkflowTestSuite{}
-		env := testSuite.NewTestWorkflowEnvironment()
-
-		mockHTTPClient := &http.Client{
-			Transport: &mockTransport{},
-		}
-
-		activities, err := NewActivities()
-		require.NoError(t, err)
-		activities.httpClient = mockHTTPClient
-
-		env.RegisterActivity(activities.VerifyPayment)
-		env.RegisterActivity(activities.TransferUSDC)
-		env.RegisterActivity(activities.PullContentActivity)
-		env.RegisterActivity(activities.CheckContentRequirements)
-
-		initialBalance, err := solana.NewUSDCAmount(10.0)
-		require.NoError(t, err)
-
-		env.OnActivity(activities.VerifyPayment, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-			Return(&VerifyPaymentResult{
-				Verified: true,
-				Amount:   initialBalance,
-			}, nil)
-
-		mockThumbnailURL := "https://example.com/reddit_thumb.jpg"
-		mockedRedditContent := &RedditContent{
-			ID:          "test-content",
-			Title:       "Test Title",
-			Selftext:    "Test Content",
-			URL:         "https://test.com",
-			Author:      "test-author",
-			Subreddit:   "test-subreddit",
-			Score:       100,
-			IsComment:   false,
-			Permalink:   "test-permalink",
-			NumComments: 10,
-			Thumbnail:   mockThumbnailURL,
-		}
-		mockedRedditBytes, err := json.Marshal(mockedRedditContent)
-		require.NoError(t, err, "Failed to marshal mocked Reddit content for activity mock")
-
-		env.OnActivity(activities.PullContentActivity, mock.Anything, mock.MatchedBy(func(input PullContentInput) bool {
-			return input.PlatformType == PlatformReddit && input.ContentID == "test-content" && input.ContentKind == ContentKindPost
-		})).Return(mockedRedditBytes, nil).Once()
-
-		env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.AnythingOfType("[]uint8"), mock.AnythingOfType("[]string")).
-			Return(CheckContentRequirementsResult{
-				Satisfies: true,
-				Reason:    "Content meets requirements",
-			}, nil)
-
-		env.OnActivity(activities.TransferUSDC, mock.Anything, "test-owner", mock.AnythingOfType("float64"), mock.AnythingOfType("string")).Return(nil)
-
-		assert.NoError(t, err)
-	})
+	var result *OrchestratorWorkflowOutput
+	s.NoError(s.env.GetWorkflowResult(&result))
+	s.True(result.IsApproved)
+	s.Equal("I cannot use that tool.", result.Reason)
 }
 
-func TestBountyAssessmentWorkflow(t *testing.T) {
-	t.Setenv("ENV", "test")
-	testSuite := &testsuite.WorkflowTestSuite{}
-	env := testSuite.NewTestWorkflowEnvironment()
+func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_MaxTurnsExceeded() {
+	// Register the orchestrator workflow
+	s.env.RegisterWorkflow(OrchestratorWorkflow)
 
-	// mockedTestConfig and dummy wallets no longer needed here
+	// Test infinite loop protection
+	input := OrchestratorWorkflowInput{
+		Goal:  "Keep calling tools forever",
+		Tools: []Tool{GetContentDetailsTool},
+	}
 
-	activities, err := NewActivities()
-	require.NoError(t, err)
+	// Mock infinite tool calling
+	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).
+		Return(&LLMResponse{
+			ToolCalls: []ToolCall{{
+				ID: "call1", Name: "get_content_details", Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`,
+			}},
+		}, nil)
 
-	env.RegisterActivity(activities.GenerateAndStoreBountyEmbeddingActivity)
-	env.RegisterActivity(activities.VerifyPayment)
-	env.RegisterActivity(activities.TransferUSDC)
-	env.RegisterActivity(activities.PullContentActivity)
-	env.RegisterActivity(activities.CheckContentRequirements)
-	env.RegisterActivity(activities.AnalyzeImageURL)
-	env.RegisterActivity(activities.ValidatePayoutWallet)
-	env.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
-	env.RegisterActivity(activities.SummarizeAndStoreBountyActivity)
+	s.env.OnActivity("PullContentActivity", mock.Anything, mock.Anything).
+		Return([]byte(`{"data":"test"}`), nil)
 
-	originalTotalBounty, err := solana.NewUSDCAmount(10.0)
-	require.NoError(t, err)
-	totalBounty, err := solana.NewUSDCAmount(9.0)
-	require.NoError(t, err)
-	feeAmount := originalTotalBounty.Sub(totalBounty)
+	s.env.ExecuteWorkflow(OrchestratorWorkflow, input)
 
-	bountyPerPost, _ := solana.NewUSDCAmount(1.0)
+	s.True(s.env.IsWorkflowCompleted())
+	err := s.env.GetWorkflowError()
+	s.Error(err)
 
-	funderWallet := solanago.NewWallet()
-	payoutWallet := solanago.NewWallet()
-	escrowWallet := solanago.NewWallet()   // This is for the input to the workflow, distinct from the one used internally by activities
-	treasuryWallet := solanago.NewWallet() // This is for the input to the workflow
+	var applicationError *temporal.ApplicationError
+	s.True(errors.As(err, &applicationError))
+	s.Equal("MaxTurnsExceeded", applicationError.Type())
+}
+
+// BOUNTY ASSESSMENT WORKFLOW TESTS
+
+func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_FundingFailed() {
+	// Test workflow when funding check fails
+	bountyPerPost, _ := solana.NewUSDCAmount(10)
+	totalBounty, _ := solana.NewUSDCAmount(100)
 
 	input := BountyAssessmentWorkflowInput{
-		Requirements:   []string{"Test requirement"},
-		BountyPerPost:  bountyPerPost,
-		TotalBounty:    totalBounty,
-		TotalCharged:   originalTotalBounty,
-		EscrowWallet:   escrowWallet.PublicKey().String(),   // Passed to workflow
-		TreasuryWallet: treasuryWallet.PublicKey().String(), // Passed to workflow
-		Platform:       PlatformReddit,
-		ContentKind:    ContentKindPost,
-		Timeout:        300 * time.Second,
-		PaymentTimeout: 30 * time.Second,
+		BountyPerPost: bountyPerPost,
+		TotalBounty:   totalBounty,
+		Platform:      PlatformReddit,
+		ContentKind:   ContentKindPost,
+		Timeout:       1 * time.Hour,
 	}
 
-	env.OnActivity(activities.VerifyPayment, mock.Anything, escrowWallet.PublicKey(), originalTotalBounty, "default-test-workflow-id", mock.Anything).
-		Return(&VerifyPaymentResult{
-			Verified:     true,
-			Amount:       originalTotalBounty,
-			FunderWallet: funderWallet.PublicKey().String(),
-		}, nil).Once()
+	// Mock funding check failure
+	s.env.OnActivity("CheckBountyFundedActivity", mock.Anything, "default-test-workflow-id").
+		Return(false, nil)
 
-	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: true, Reason: "mocked-should-analyze"}, nil).Once()
+	s.env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
 
-	expectedFeeMemo := fmt.Sprintf("%s-fee-transfer", "default-test-workflow-id")
-	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), expectedFeeMemo).
-		Return(nil).Once()
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+}
 
-	mockThumbnailURL := "https://example.com/reddit_thumb.jpg"
-	mockedRedditContent := &RedditContent{
-		ID:          "test-content",
-		Title:       "Test Title",
-		Selftext:    "Test Content",
-		URL:         "https://test.com",
-		Author:      "test-author",
-		Subreddit:   "test-subreddit",
-		Score:       100,
-		IsComment:   false,
-		Permalink:   "test-permalink",
-		NumComments: 10,
-		Thumbnail:   mockThumbnailURL,
+func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_SuccessfulClaim() {
+	// Test successful claim processing
+	bountyPerPost, _ := solana.NewUSDCAmount(10)
+	totalBounty, _ := solana.NewUSDCAmount(10) // Will be drained after one payout
+
+	input := BountyAssessmentWorkflowInput{
+		Requirements:  []string{"Must be helpful"},
+		BountyPerPost: bountyPerPost,
+		TotalBounty:   totalBounty,
+		Platform:      PlatformReddit,
+		ContentKind:   ContentKindPost,
+		Timeout:       1 * time.Hour, // Long timeout for testing - signal will drain the bounty
 	}
-	mockedRedditBytes, err := json.Marshal(mockedRedditContent)
-	require.NoError(t, err, "Failed to marshal mocked Reddit content for activity mock")
 
-	env.OnActivity(activities.PullContentActivity, mock.Anything, mock.MatchedBy(func(input PullContentInput) bool {
-		return input.PlatformType == PlatformReddit && input.ContentID == "test-content" && input.ContentKind == ContentKindPost
-	})).Return(mockedRedditBytes, nil).Once()
+	// Mock successful funding
+	s.env.OnActivity("CheckBountyFundedActivity", mock.Anything, "default-test-workflow-id").
+		Return(true, nil)
 
-	mockImgAnalysisResult := CheckContentRequirementsResult{Satisfies: true, Reason: "Image visually acceptable"}
-	env.OnActivity(activities.AnalyzeImageURL, mock.Anything, mockThumbnailURL, mock.AnythingOfType("string")).Return(mockImgAnalysisResult, nil).Once()
+	// Register the child workflow to return approved result
+	s.env.RegisterWorkflowWithOptions(func(ctx workflow.Context, input OrchestratorWorkflowInput) (*OrchestratorWorkflowOutput, error) {
+		return &OrchestratorWorkflowOutput{
+			IsApproved: true,
+			Reason:     "Content meets requirements",
+			Payout:     bountyPerPost,
+		}, nil
+	}, workflow.RegisterOptions{Name: "OrchestratorWorkflow"})
 
-	env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.AnythingOfType("[]uint8"), mock.AnythingOfType("[]string")).
-		Return(CheckContentRequirementsResult{
-			Satisfies: true,
-			Reason:    "Content meets requirements",
-		}, nil).Once()
-
-	env.OnActivity(activities.ValidatePayoutWallet, mock.Anything, payoutWallet.PublicKey().String(), input.Requirements).
-		Return(ValidateWalletResult{Satisfies: true, Reason: "Wallet validation passed in test"}, nil).Once()
-
-	// Mock GenerateAndStoreBountyEmbeddingActivity (placed with other activity mocks)
-	env.OnActivity(activities.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.AnythingOfType("abb.GenerateAndStoreBountyEmbeddingActivityInput")).Return(nil).Once()
-	// Mock SummarizeAndStoreBountyActivity
-	env.OnActivity(activities.SummarizeAndStoreBountyActivity, mock.Anything, mock.AnythingOfType("SummarizeAndStoreBountyActivityInput")).Return(nil).Maybe()
-
-	expectedPayoutMemo := fmt.Sprintf("{\"bounty_id\":\"%s\",\"content_id\":\"%s\",\"platform\":\"%s\",\"content_kind\":\"%s\"}", "default-test-workflow-id", "test-content", string(input.Platform), string(ContentKindPost))
-	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), expectedPayoutMemo).Return(nil).Once()
-
-	// After one payout of 'bountyPerPost', if the workflow times out,
-	// the remaining bounty (TotalBounty - BountyPerPost) should be refunded.
-	amountToRefundAfterPayout := input.TotalBounty.Sub(input.BountyPerPost) // e.g., 9.0 - 1.0 = 8.0 USDC
-	expectedOwnerRefundMemo := fmt.Sprintf("{\"bounty_id\":\"%s\"}", "default-test-workflow-id")
-	env.OnActivity(
-		activities.TransferUSDC,
-		mock.Anything,
-		funderWallet.PublicKey().String(),
-		amountToRefundAfterPayout.ToUSDC(), // Use the corrected amount
-		expectedOwnerRefundMemo,
-	).
-		Run(func(args mock.Arguments) {
-			// This Run function can be used for debugging or asserting calls if needed
+	// Mock the payout activity
+	s.env.OnActivity("PayBountyActivity", mock.Anything,
+		PayBountyInput{
+			Recipient: "wallet123",
+			Amount:    bountyPerPost,
 		}).
-		Return(nil).Once()
+		Return(nil)
 
-	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow("assessment", AssessContentSignal{
-			ContentID:    "test-content",
-			PayoutWallet: payoutWallet.PublicKey().String(),
+	// Send signal before executing workflow to ensure it's processed
+	s.env.RegisterDelayedCallback(func() {
+		s.env.SignalWorkflow(AssessmentSignalName, AssessContentSignal{
+			ContentID:    "post123",
+			PayoutWallet: "wallet123",
 			Platform:     PlatformReddit,
 			ContentKind:  ContentKindPost,
 		})
-	}, time.Second)
+	}, 0)
 
-	env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
-	assert.True(t, env.IsWorkflowCompleted())
-	assert.NoError(t, env.GetWorkflowError())
-	env.AssertExpectations(t)
+	s.env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
+
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
 }
 
-func TestBountyAssessmentWorkflowTimeout(t *testing.T) {
-	t.Setenv("ENV", "test")
-	testSuite := &testsuite.WorkflowTestSuite{}
-	env := testSuite.NewTestWorkflowEnvironment()
-
-	// mockedTestConfig and dummy wallets no longer needed here
-
-	activities, err := NewActivities()
-	require.NoError(t, err)
-
-	env.RegisterActivity(activities.VerifyPayment)
-	env.RegisterActivity(activities.TransferUSDC)
-	env.RegisterActivity(activities.PullContentActivity)
-	env.RegisterActivity(activities.CheckContentRequirements)
-	env.RegisterActivity(activities.ValidatePayoutWallet)
-	env.RegisterActivity(activities.AnalyzeImageURL)
-	env.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
-	env.RegisterActivity(activities.GenerateAndStoreBountyEmbeddingActivity)
-	env.RegisterActivity(activities.SummarizeAndStoreBountyActivity)
-
-	bountyPerPost, err := solana.NewUSDCAmount(1.0)
-	require.NoError(t, err)
-	originalTotalBounty, err := solana.NewUSDCAmount(10.0)
-	require.NoError(t, err)
-	totalBounty, err := solana.NewUSDCAmount(9.0)
-	require.NoError(t, err)
-	feeAmount := originalTotalBounty.Sub(totalBounty)
-
-	funderWallet := solanago.NewWallet()
-	escrowWallet := solanago.NewWallet()
-	treasuryWallet := solanago.NewWallet()
+func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_RejectedClaim() {
+	// Test claim rejection
+	bountyPerPost, _ := solana.NewUSDCAmount(10)
+	totalBounty, _ := solana.NewUSDCAmount(100)
 
 	input := BountyAssessmentWorkflowInput{
-		Requirements:   []string{"Test requirement"},
-		BountyPerPost:  bountyPerPost,
-		TotalBounty:    totalBounty,
-		TotalCharged:   originalTotalBounty,
-		EscrowWallet:   escrowWallet.PublicKey().String(),
-		TreasuryWallet: treasuryWallet.PublicKey().String(),
-		Platform:       PlatformReddit,
-		ContentKind:    ContentKindPost,
-		Timeout:        30 * time.Second,
-		PaymentTimeout: 5 * time.Second,
+		BountyPerPost: bountyPerPost,
+		TotalBounty:   totalBounty,
+		Platform:      PlatformReddit,
+		ContentKind:   ContentKindPost,
+		Timeout:       1 * time.Second, // Short timeout - workflow will timeout after processing signal
 	}
 
-	env.OnActivity(activities.VerifyPayment, mock.Anything, escrowWallet.PublicKey(), originalTotalBounty, "default-test-workflow-id", mock.Anything).
-		Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty, FunderWallet: funderWallet.PublicKey().String()}, nil).Maybe()
+	// Mock successful funding
+	s.env.OnActivity("CheckBountyFundedActivity", mock.Anything, "default-test-workflow-id").
+		Return(true, nil)
 
-	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "mocked-no-analysis"}, nil).Maybe()
+	// Register child workflow to reject claim
+	s.env.RegisterWorkflowWithOptions(func(ctx workflow.Context, input OrchestratorWorkflowInput) (*OrchestratorWorkflowOutput, error) {
+		return &OrchestratorWorkflowOutput{
+			IsApproved: false,
+			Reason:     "Content does not meet requirements",
+		}, nil
+	}, workflow.RegisterOptions{Name: "OrchestratorWorkflow"})
 
-	expectedFeeMemoTimeout := fmt.Sprintf("%s-fee-transfer", "default-test-workflow-id")
-	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), expectedFeeMemoTimeout).
-		Return(nil).Maybe()
+	// Send signal before executing workflow
+	s.env.RegisterDelayedCallback(func() {
+		s.env.SignalWorkflow(AssessmentSignalName, AssessContentSignal{
+			ContentID:    "post123",
+			PayoutWallet: "wallet123",
+			Platform:     PlatformReddit,
+			ContentKind:  ContentKindPost,
+		})
+	}, 0)
 
-	env.OnActivity(activities.PullContentActivity, mock.Anything, mock.AnythingOfType("string"), ContentKindPost).
-		Return(&RedditContent{ID: "timeout-test-content"}, nil).Maybe()
-	env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.Anything, mock.Anything).
-		Return(CheckContentRequirementsResult{Satisfies: true}, nil).Maybe()
+	s.env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
 
-	env.OnActivity(activities.ValidatePayoutWallet, mock.Anything, mock.AnythingOfType("string"), input.Requirements).
-		Return(ValidateWalletResult{Satisfies: true, Reason: "Wallet validation passed in test"}, nil).Maybe()
-
-	expectedTimeoutRefundMemo := fmt.Sprintf("{\"bounty_id\":\"%s\"}", "default-test-workflow-id")
-	env.OnActivity(activities.TransferUSDC,
-		mock.Anything,
-		funderWallet.PublicKey().String(),
-		originalTotalBounty.Sub(feeAmount).ToUSDC(),
-		expectedTimeoutRefundMemo,
-	).Return(nil).Once()
-
-	// Mock GenerateAndStoreBountyEmbeddingActivity
-	env.OnActivity(activities.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.AnythingOfType("abb.GenerateAndStoreBountyEmbeddingActivityInput")).Return(nil).Once()
-	// Mock SummarizeAndStoreBountyActivity
-	env.OnActivity(activities.SummarizeAndStoreBountyActivity, mock.Anything, mock.AnythingOfType("SummarizeAndStoreBountyActivityInput")).Return(nil).Maybe()
-
-	env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
-
-	assert.True(t, env.IsWorkflowCompleted())
-	assert.NoError(t, env.GetWorkflowError())
-	env.AssertExpectations(t)
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
 }
 
-func TestBountyAssessmentWorkflow_Idempotency(t *testing.T) {
-	t.Setenv("ENV", "test")
-	testSuite := &testsuite.WorkflowTestSuite{}
-	env := testSuite.NewTestWorkflowEnvironment()
-
-	// mockedTestConfig and dummy wallets no longer needed here
-
-	activities, err := NewActivities()
-	require.NoError(t, err)
-
-	env.RegisterActivity(activities.VerifyPayment)
-	env.RegisterActivity(activities.TransferUSDC)
-	env.RegisterActivity(activities.PullContentActivity)
-	env.RegisterActivity(activities.CheckContentRequirements)
-	env.RegisterActivity(activities.ValidatePayoutWallet)
-	env.RegisterActivity(activities.AnalyzeImageURL)
-	env.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
-	env.RegisterActivity(activities.GenerateAndStoreBountyEmbeddingActivity)
-	env.RegisterActivity(activities.SummarizeAndStoreBountyActivity)
-
-	originalTotalBounty, _ := solana.NewUSDCAmount(10.0)
-	totalBounty, _ := solana.NewUSDCAmount(5.0)
-	bountyPerPost, _ := solana.NewUSDCAmount(1.0)
-	feeAmount := originalTotalBounty.Sub(totalBounty)
-
-	funderWallet := solanago.NewWallet()
-	payoutWallet := solanago.NewWallet()
-	escrowWallet := solanago.NewWallet()
-	treasuryWallet := solanago.NewWallet()
-	contentID := "idempotent-content"
+func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_Timeout() {
+	// Test workflow timeout
+	bountyPerPost, _ := solana.NewUSDCAmount(10)
+	totalBounty, _ := solana.NewUSDCAmount(100)
 
 	input := BountyAssessmentWorkflowInput{
-		Requirements:   []string{"Idempotency Test"},
-		BountyPerPost:  bountyPerPost,
-		TotalBounty:    totalBounty,
-		TotalCharged:   originalTotalBounty,
-		EscrowWallet:   escrowWallet.PublicKey().String(),
-		TreasuryWallet: treasuryWallet.PublicKey().String(),
-		Platform:       PlatformReddit,
-		Timeout:        30 * time.Second,
-		PaymentTimeout: 5 * time.Second,
+		BountyPerPost: bountyPerPost,
+		TotalBounty:   totalBounty,
+		Timeout:       1 * time.Millisecond, // Very short timeout
 	}
 
-	env.OnActivity(activities.VerifyPayment, mock.Anything, escrowWallet.PublicKey(), originalTotalBounty, "default-test-workflow-id", mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty, FunderWallet: funderWallet.PublicKey().String()}, nil).Once()
+	// Mock successful funding
+	s.env.OnActivity("CheckBountyFundedActivity", mock.Anything, "default-test-workflow-id").
+		Return(true, nil)
 
-	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "mocked-no-analysis"}, nil).Maybe()
+	s.env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
 
-	expectedFeeMemoIdempotency := fmt.Sprintf("%s-fee-transfer", "default-test-workflow-id")
-	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), expectedFeeMemoIdempotency).
-		Return(nil).Once()
+	// Don't send any signals, let it timeout
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+}
 
-	mockRedditContent := &RedditContent{ID: contentID, Title: "Idempotent Test"}
-	mockedRedditBytesIdempotency, err := json.Marshal(mockRedditContent)
-	require.NoError(t, err, "Failed to marshal mocked Reddit content for activity mock (idempotency)")
-	env.OnActivity(activities.PullContentActivity, mock.Anything, mock.MatchedBy(func(input PullContentInput) bool {
-		return input.PlatformType == PlatformReddit && input.ContentID == contentID && input.ContentKind == ContentKindPost
-	})).Return(mockedRedditBytesIdempotency, nil).Once()
+func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_ClaimCooldown() {
+	// Test that same content can't be claimed twice within cooldown period
+	bountyPerPost, _ := solana.NewUSDCAmount(10)
+	totalBounty, _ := solana.NewUSDCAmount(100)
 
-	env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.AnythingOfType("[]uint8"), mock.AnythingOfType("[]string")).
-		Return(CheckContentRequirementsResult{Satisfies: true, Reason: "OK"}, nil).Once()
+	input := BountyAssessmentWorkflowInput{
+		BountyPerPost: bountyPerPost,
+		TotalBounty:   totalBounty,
+		Platform:      PlatformReddit,
+		ContentKind:   ContentKindPost,
+		Timeout:       1 * time.Second, // Short timeout - workflow will timeout after processing signals
+	}
 
-	env.OnActivity(activities.ValidatePayoutWallet, mock.Anything, payoutWallet.PublicKey().String(), input.Requirements).
-		Return(ValidateWalletResult{Satisfies: true, Reason: "Wallet validation passed in test"}, nil).Once()
+	s.env.OnActivity("CheckBountyFundedActivity", mock.Anything, "default-test-workflow-id").
+		Return(true, nil)
 
-	expectedPayoutMemoIdempotency := fmt.Sprintf("{\"bounty_id\":\"%s\",\"content_id\":\"%s\",\"platform\":\"%s\",\"content_kind\":\"%s\"}", "default-test-workflow-id", contentID, string(input.Platform), string(ContentKindPost))
-	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), expectedPayoutMemoIdempotency).Return(nil).Once()
+	// Register child workflow to reject first claim
+	callCount := 0
+	s.env.RegisterWorkflowWithOptions(func(ctx workflow.Context, input OrchestratorWorkflowInput) (*OrchestratorWorkflowOutput, error) {
+		callCount++
+		return &OrchestratorWorkflowOutput{
+			IsApproved: false,
+			Reason:     "Content rejected",
+		}, nil
+	}, workflow.RegisterOptions{Name: "OrchestratorWorkflow"})
 
-	cancelRefundAmount := totalBounty.Sub(bountyPerPost)
-	expectedOwnerRefundMemoIdempotency := fmt.Sprintf("{\"bounty_id\":\"%s\"}", "default-test-workflow-id")
-	env.OnActivity(activities.TransferUSDC, mock.Anything, funderWallet.PublicKey().String(), cancelRefundAmount.ToUSDC(), expectedOwnerRefundMemoIdempotency).Return(nil).Once()
-
-	// Mock GenerateAndStoreBountyEmbeddingActivity
-	env.OnActivity(activities.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.AnythingOfType("abb.GenerateAndStoreBountyEmbeddingActivityInput")).Return(nil).Once()
-	// Mock SummarizeAndStoreBountyActivity
-	env.OnActivity(activities.SummarizeAndStoreBountyActivity, mock.Anything, mock.AnythingOfType("SummarizeAndStoreBountyActivityInput")).Return(nil).Maybe()
-
+	// Send signals before executing workflow
 	signal := AssessContentSignal{
-		ContentID:    contentID,
-		PayoutWallet: payoutWallet.PublicKey().String(),
+		ContentID:    "same_content",
+		PayoutWallet: "wallet123",
 		Platform:     PlatformReddit,
 		ContentKind:  ContentKindPost,
 	}
 
-	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(AssessmentSignalName, signal)
-	}, 5*time.Second)
+	s.env.RegisterDelayedCallback(func() {
+		s.env.SignalWorkflow(AssessmentSignalName, signal)
+		s.env.SignalWorkflow(AssessmentSignalName, signal) // Should be ignored due to cooldown
+	}, 0)
 
-	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(AssessmentSignalName, signal)
-	}, 6*time.Second)
+	s.env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
 
-	env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
-	require.True(t, env.IsWorkflowCompleted())
-	require.NoError(t, env.GetWorkflowError())
-	env.AssertExpectations(t)
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+
+	// Child workflow should only be called once
+	s.Equal(1, callCount)
 }
 
-func TestBountyAssessmentWorkflow_RequirementsNotMet(t *testing.T) {
-	t.Setenv("ENV", "test")
-	testSuite := &testsuite.WorkflowTestSuite{}
-	env := testSuite.NewTestWorkflowEnvironment()
+// SIMPLE WORKFLOW TESTS
 
-	// mockedTestConfig and dummy wallets no longer needed here
-
-	activities, err := NewActivities()
-	require.NoError(t, err)
-
-	env.RegisterActivity(activities.VerifyPayment)
-	env.RegisterActivity(activities.TransferUSDC)
-	env.RegisterActivity(activities.CheckContentRequirements)
-	env.RegisterActivity(activities.ValidatePayoutWallet)
-	env.RegisterActivity(activities.AnalyzeImageURL)
-	env.RegisterActivity(activities.PullContentActivity)
-	env.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
-	env.RegisterActivity(activities.GenerateAndStoreBountyEmbeddingActivity)
-	env.RegisterActivity(activities.SummarizeAndStoreBountyActivity)
-
-	originalTotalBounty, _ := solana.NewUSDCAmount(10.0)
-	totalBounty, _ := solana.NewUSDCAmount(5.0)
-	bountyPerPost, _ := solana.NewUSDCAmount(1.0)
-	feeAmount := originalTotalBounty.Sub(totalBounty)
-
-	funderWallet := solanago.NewWallet()
-	payoutWallet := solanago.NewWallet()
-	escrowWallet := solanago.NewWallet()
-	treasuryWallet := solanago.NewWallet()
-	contentID := "failed-content"
-	mockRedditContent := &RedditContent{ID: contentID, Title: "Failed Test"}
-
-	refundCalled := make(chan struct{}, 1)
-
-	env.OnActivity(activities.VerifyPayment, mock.Anything, escrowWallet.PublicKey(), originalTotalBounty, "default-test-workflow-id", mock.Anything).Return(&VerifyPaymentResult{Verified: true, Amount: originalTotalBounty, FunderWallet: funderWallet.PublicKey().String()}, nil).Once()
-
-	env.OnActivity(activities.ShouldPerformImageAnalysisActivity, mock.Anything, mock.AnythingOfType("[]string")).Return(ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "mocked-no-analysis"}, nil).Maybe()
-
-	expectedFeeMemoNotMet := fmt.Sprintf("%s-fee-transfer", "default-test-workflow-id")
-	env.OnActivity(activities.TransferUSDC, mock.Anything, treasuryWallet.PublicKey().String(), feeAmount.ToUSDC(), expectedFeeMemoNotMet).
-		Return(nil).Once()
-
-	mockedRedditBytesFailure, err := json.Marshal(mockRedditContent)
-	require.NoError(t, err, "Failed to marshal mocked Reddit content for activity mock (failure)")
-	env.OnActivity(activities.PullContentActivity, mock.Anything, mock.MatchedBy(func(input PullContentInput) bool {
-		return input.PlatformType == PlatformReddit && input.ContentID == contentID && input.ContentKind == ContentKindComment
-	})).Return(mockedRedditBytesFailure, nil).Once()
-
-	env.OnActivity(activities.CheckContentRequirements, mock.Anything, mock.AnythingOfType("[]uint8"), mock.AnythingOfType("[]string")).Return(CheckContentRequirementsResult{Satisfies: false, Reason: "Did not meet criteria"}, nil).Once()
-
-	env.OnActivity(activities.ValidatePayoutWallet, mock.Anything, mock.AnythingOfType("string"), mock.AnythingOfType("[]string")).
-		Return(ValidateWalletResult{Satisfies: true, Reason: "Should not be called"}, nil).Never()
-
-	env.OnActivity(activities.TransferUSDC, mock.Anything, payoutWallet.PublicKey().String(), bountyPerPost.ToUSDC(), mock.AnythingOfType("string")).Return(nil).Never()
-
-	expectedCancellationRefundMemo := fmt.Sprintf("{\"bounty_id\":\"%s\"}", "default-test-workflow-id")
-	env.OnActivity(activities.TransferUSDC,
-		mock.Anything,
-		funderWallet.PublicKey().String(),
-		totalBounty.ToUSDC(),
-		expectedCancellationRefundMemo,
-	).Run(func(args mock.Arguments) {
-		select {
-		case refundCalled <- struct{}{}:
-		default:
-		}
-	}).Return(nil)
-
-	// Mock GenerateAndStoreBountyEmbeddingActivity
-	env.OnActivity(activities.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.AnythingOfType("abb.GenerateAndStoreBountyEmbeddingActivityInput")).Return(nil).Once()
-	// Mock SummarizeAndStoreBountyActivity
-	env.OnActivity(activities.SummarizeAndStoreBountyActivity, mock.Anything, mock.AnythingOfType("SummarizeAndStoreBountyActivityInput")).Return(nil).Maybe()
-
-	input := BountyAssessmentWorkflowInput{
-		Requirements:   []string{"Failure Test"},
-		BountyPerPost:  bountyPerPost,
-		TotalBounty:    totalBounty,
-		TotalCharged:   originalTotalBounty,
-		EscrowWallet:   escrowWallet.PublicKey().String(),
-		TreasuryWallet: treasuryWallet.PublicKey().String(),
-		Platform:       PlatformReddit,
-		Timeout:        30 * time.Second,
-		PaymentTimeout: 5 * time.Second,
+func (s *WorkflowTestSuite) Test_ContactUsNotifyWorkflow_Success() {
+	input := ContactUsNotifyWorkflowInput{
+		Name:    "John Doe",
+		Email:   "john@example.com",
+		Message: "Hello there",
 	}
 
-	failSignal := AssessContentSignal{
-		ContentID:    contentID,
-		PayoutWallet: payoutWallet.PublicKey().String(),
-		Platform:     PlatformReddit,
-		ContentKind:  ContentKindComment,
-	}
-	cancelSignal := CancelBountySignal{
-		BountyOwnerWallet: funderWallet.PublicKey().String(),
-	}
+	s.env.OnActivity("SendContactUsEmail", mock.Anything, input).
+		Return(nil)
 
-	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(AssessmentSignalName, failSignal)
-		env.RegisterDelayedCallback(func() {
-			env.SignalWorkflow(CancelSignalName, cancelSignal)
-		}, 20*time.Second)
-	}, 10*time.Second)
+	s.env.ExecuteWorkflow(ContactUsNotifyWorkflow, input)
 
-	env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
-
-	require.True(t, env.IsWorkflowCompleted())
-	require.NoError(t, env.GetWorkflowError())
-
-	select {
-	case <-refundCalled:
-	default:
-		t.Fatalf("Refund mock .Run() block was expected to execute and signal channel, but didn't.")
-	}
-
-	env.AssertExpectations(t)
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
 }
 
-func TestPlatformActivities(t *testing.T) {
-	t.Setenv("ENV", "test")
-
-	// mockConfig is no longer needed here as getConfiguration will provide config for ENV=test
-
-	activities := &Activities{}
-
-	testWorkflow := func(ctx workflow.Context, input PullContentInput) ([]byte, error) {
-		options := workflow.ActivityOptions{
-			StartToCloseTimeout: 60 * time.Second,
-			RetryPolicy: &temporal.RetryPolicy{
-				InitialInterval:    20 * time.Second,
-				BackoffCoefficient: 2.0,
-				MaximumInterval:    time.Minute,
-				MaximumAttempts:    3,
-			},
-		}
-		ctx = workflow.WithActivityOptions(ctx, options)
-
-		var result []byte
-		err := workflow.ExecuteActivity(ctx, activities.PullContentActivity, input).Get(ctx, &result)
-		return result, err
+func (s *WorkflowTestSuite) Test_ContactUsNotifyWorkflow_EmailFailure() {
+	input := ContactUsNotifyWorkflowInput{
+		Name:    "John Doe",
+		Email:   "john@example.com",
+		Message: "Hello there",
 	}
 
-	t.Run("PullRedditContent", func(t *testing.T) {
-		testSuite := &testsuite.WorkflowTestSuite{}
-		env := testSuite.NewTestWorkflowEnvironment()
-		env.RegisterActivity(activities.PullContentActivity)
-		env.RegisterWorkflow(testWorkflow)
+	s.env.OnActivity("SendContactUsEmail", mock.Anything, input).
+		Return(errors.New("email service unavailable"))
 
-		env.OnActivity(activities.PullContentActivity, mock.Anything, PullContentInput{
-			PlatformType: PlatformReddit,
-			ContentKind:  ContentKindPost,
-			ContentID:    "test-post",
-		}).Return([]byte(`{"id":"test-post","title":"Test Post","selftext":"Test content"}`), nil)
+	s.env.ExecuteWorkflow(ContactUsNotifyWorkflow, input)
 
-		env.ExecuteWorkflow(testWorkflow, PullContentInput{
-			PlatformType: PlatformReddit,
-			ContentKind:  ContentKindPost,
-			ContentID:    "test-post",
-		})
-
-		require.True(t, env.IsWorkflowCompleted())
-		require.NoError(t, env.GetWorkflowError())
-		var result []byte
-		require.NoError(t, env.GetWorkflowResult(&result))
-		require.NotEmpty(t, result)
-	})
-
-	t.Run("PullYouTubeContent", func(t *testing.T) {
-		testSuite := &testsuite.WorkflowTestSuite{}
-		env := testSuite.NewTestWorkflowEnvironment()
-		env.RegisterActivity(activities.PullContentActivity)
-		env.RegisterWorkflow(testWorkflow)
-
-		env.OnActivity(activities.PullContentActivity, mock.Anything, PullContentInput{
-			PlatformType: PlatformYouTube,
-			ContentKind:  ContentKindVideo,
-			ContentID:    "test-video-id",
-		}).Return([]byte(`{"id":"test-video-id","title":"Test Video","description":"Test description"}`), nil)
-
-		env.ExecuteWorkflow(testWorkflow, PullContentInput{
-			PlatformType: PlatformYouTube,
-			ContentKind:  ContentKindVideo,
-			ContentID:    "test-video-id",
-		})
-
-		require.True(t, env.IsWorkflowCompleted())
-		require.NoError(t, env.GetWorkflowError())
-		var result []byte
-		require.NoError(t, env.GetWorkflowResult(&result))
-		require.NotEmpty(t, result)
-	})
-
-	t.Run("PullTwitchContent_Video", func(t *testing.T) {
-		testSuite := &testsuite.WorkflowTestSuite{}
-		env := testSuite.NewTestWorkflowEnvironment()
-		env.RegisterActivity(activities.PullContentActivity)
-		env.RegisterWorkflow(testWorkflow)
-
-		env.OnActivity(activities.PullContentActivity, mock.Anything, PullContentInput{
-			PlatformType: PlatformTwitch,
-			ContentKind:  ContentKindVideo,
-			ContentID:    "test-video-id",
-		}).Return([]byte(`{"id":"test-video-id","title":"Test Video","description":"Test description"}`), nil)
-
-		env.ExecuteWorkflow(testWorkflow, PullContentInput{
-			PlatformType: PlatformTwitch,
-			ContentKind:  ContentKindVideo,
-			ContentID:    "test-video-id",
-		})
-
-		require.True(t, env.IsWorkflowCompleted())
-		require.NoError(t, env.GetWorkflowError())
-		var result []byte
-		require.NoError(t, env.GetWorkflowResult(&result))
-		require.NotEmpty(t, result)
-	})
-
-	t.Run("PullTwitchContent_Clip", func(t *testing.T) {
-		testSuite := &testsuite.WorkflowTestSuite{}
-		env := testSuite.NewTestWorkflowEnvironment()
-		env.RegisterActivity(activities.PullContentActivity)
-		env.RegisterWorkflow(testWorkflow)
-
-		env.OnActivity(activities.PullContentActivity, mock.Anything, PullContentInput{
-			PlatformType: PlatformTwitch,
-			ContentKind:  ContentKindClip,
-			ContentID:    "test-clip-id",
-		}).Return([]byte(`{"id":"test-clip-id","title":"Test Clip","description":"Test description"}`), nil)
-
-		env.ExecuteWorkflow(testWorkflow, PullContentInput{
-			PlatformType: PlatformTwitch,
-			ContentKind:  ContentKindClip,
-			ContentID:    "test-clip-id",
-		})
-
-		require.True(t, env.IsWorkflowCompleted())
-		require.NoError(t, env.GetWorkflowError())
-		var result []byte
-		require.NoError(t, env.GetWorkflowResult(&result))
-		require.NotEmpty(t, result)
-	})
+	s.True(s.env.IsWorkflowCompleted())
+	err := s.env.GetWorkflowError()
+	s.Error(err)
+	s.Contains(err.Error(), "email service unavailable")
 }
 
-func PullContentWorkflow(ctx workflow.Context, input PullContentInput) ([]byte, error) {
-	options := workflow.ActivityOptions{
-		StartToCloseTimeout: 60 * time.Second,
-		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval:    20 * time.Second,
-			BackoffCoefficient: 2.0,
-			MaximumInterval:    time.Minute,
-			MaximumAttempts:    3,
-		},
+func (s *WorkflowTestSuite) Test_EmailTokenWorkflow_Success() {
+	input := EmailTokenWorkflowInput{
+		SaleID: "sale123",
+		Email:  "buyer@example.com",
+		Token:  "token456",
 	}
-	ctx = workflow.WithActivityOptions(ctx, options)
 
-	var result []byte
-	err := workflow.ExecuteActivity(ctx, (*Activities).PullContentActivity, input).Get(ctx, &result)
-	return result, err
+	s.env.OnActivity("SendTokenEmail", mock.Anything, input.Email, input.Token).
+		Return(nil)
+
+	s.env.OnActivity("MarkGumroadSaleNotifiedActivity", mock.Anything,
+		MarkGumroadSaleNotifiedActivityInput{
+			SaleID: input.SaleID,
+			APIKey: input.Token,
+		}).
+		Return(nil)
+
+	s.env.ExecuteWorkflow(EmailTokenWorkflow, input)
+
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
 }
 
-// --- Test for ScheduledGumroadNotifyWorkflow ---
-func TestScheduledGumroadNotifyWorkflow(t *testing.T) {
-	t.Setenv("ENV", "test") // Ensure test environment for configuration
-	testSuite := &testsuite.WorkflowTestSuite{}
-	env := testSuite.NewTestWorkflowEnvironment()
-
-	activities, err := NewActivities()
-	require.NoError(t, err)
-
-	// Register the new activity
-	env.RegisterActivity(activities.CallGumroadNotifyActivity)
-
-	lookback := time.Hour
-	workflowInput := GumroadNotifyWorkflowInput{
-		LookbackDuration: lookback,
+func (s *WorkflowTestSuite) Test_EmailTokenWorkflow_EmailFailure() {
+	input := EmailTokenWorkflowInput{
+		SaleID: "sale123",
+		Email:  "buyer@example.com",
+		Token:  "token456",
 	}
 
-	activityInput := CallGumroadNotifyActivityInput{
-		LookbackDuration: lookback,
-	}
+	s.env.OnActivity("SendTokenEmail", mock.Anything, input.Email, input.Token).
+		Return(errors.New("email failed"))
 
-	// Mock the CallGumroadNotifyActivity
-	env.OnActivity(activities.CallGumroadNotifyActivity, mock.Anything, activityInput).Return(nil).Once()
+	s.env.ExecuteWorkflow(EmailTokenWorkflow, input)
 
-	env.ExecuteWorkflow(GumroadNotifyWorkflow, workflowInput)
-
-	require.True(t, env.IsWorkflowCompleted())
-	require.NoError(t, env.GetWorkflowError())
-	env.AssertExpectations(t)
+	s.True(s.env.IsWorkflowCompleted())
+	err := s.env.GetWorkflowError()
+	s.Error(err)
+	s.Contains(err.Error(), "email failed")
 }
 
-// --- End Test for ScheduledGumroadNotifyWorkflow ---
+func (s *WorkflowTestSuite) Test_EmailTokenWorkflow_MarkNotifiedFailure() {
+	input := EmailTokenWorkflowInput{
+		SaleID: "sale123",
+		Email:  "buyer@example.com",
+		Token:  "token456",
+	}
+
+	s.env.OnActivity("SendTokenEmail", mock.Anything, input.Email, input.Token).
+		Return(nil)
+
+	s.env.OnActivity("MarkGumroadSaleNotifiedActivity", mock.Anything, mock.Anything).
+		Return(errors.New("database error"))
+
+	s.env.ExecuteWorkflow(EmailTokenWorkflow, input)
+
+	s.True(s.env.IsWorkflowCompleted())
+	err := s.env.GetWorkflowError()
+	s.Error(err)
+	s.Contains(err.Error(), "database error")
+}

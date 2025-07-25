@@ -181,6 +181,32 @@ func NewActivities() (*Activities, error) {
 	}, nil
 }
 
+// GenerateResponse is an activity that wraps the LLM provider's GenerateResponse method.
+func (a *Activities) GenerateResponse(ctx context.Context, messages []Message, tools []Tool) (*LLMResponse, error) {
+	logger := activity.GetLogger(ctx)
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		logger.Error("Failed to get configuration in GenerateResponse activity", "error", err)
+		return nil, fmt.Errorf("failed to get configuration: %w", err)
+	}
+
+	llmProvider, err := NewLLMProvider(cfg.LLMConfig)
+	if err != nil {
+		logger.Error("Failed to create LLM provider in GenerateResponse activity", "error", err)
+		return nil, fmt.Errorf("failed to create LLM provider: %w", err)
+	}
+
+	logger.Info("Calling LLM provider", "message_count", len(messages), "tool_count", len(tools))
+
+	resp, err := llmProvider.GenerateResponse(ctx, messages, tools)
+	if err != nil {
+		logger.Error("LLM provider call failed in GenerateResponse activity", "error", err)
+		return nil, fmt.Errorf("llmprovider.GenerateResponse failed: %w", err)
+	}
+
+	return resp, nil
+}
+
 // getConfiguration reads configuration from environment variables.
 // NOTE: Storing private keys and API keys directly in env vars might not be secure for production.
 // Consider using a secret management system.
@@ -429,9 +455,9 @@ func decodeBase64(s string) (string, error) {
 
 // PullContentInput represents the input for the PullContentActivity
 type PullContentInput struct {
-	PlatformType PlatformKind
-	ContentKind  ContentKind
-	ContentID    string
+	PlatformType PlatformKind `json:"platform"`
+	ContentKind  ContentKind  `json:"content_kind"`
+	ContentID    string       `json:"content_id"`
 }
 
 // PullContentActivity fetches content from various platforms based on input.

@@ -85,97 +85,6 @@ type AssessContentResponse struct {
 
 var ErrRetryNeededAfterRateLimit = errors.New("rate limited, retry needed after wait")
 
-// handlePayBounty handles the payment of a bounty to a user
-func handlePayBounty(l *slog.Logger, tc client.Client) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var req PayBountyRequest
-		if err := stools.DecodeJSONBody(r, &req); err != nil {
-			writeBadRequestError(w, fmt.Errorf("invalid request: %w", err))
-			return
-		}
-
-		// Validate required field: wallet
-		if req.Wallet == "" {
-			writeBadRequestError(w, fmt.Errorf("invalid request: wallet is required"))
-			return
-		}
-		// Also validate Wallet is a valid Solana address
-		if _, err := solanago.PublicKeyFromBase58(req.Wallet); err != nil {
-			writeBadRequestError(w, fmt.Errorf("invalid wallet address '%s': %w", req.Wallet, err))
-			return
-		}
-
-		// Convert amount to USDCAmount
-		amount, err := solana.NewUSDCAmount(req.Amount)
-		if err != nil {
-			writeBadRequestError(w, fmt.Errorf("invalid amount: %w", err))
-			return
-		}
-
-		// Create Solana config (Assuming default escrow account is used for sending)
-		privateKeyStr := os.Getenv(EnvSolanaEscrowPrivateKey)
-		escrowWalletStr := os.Getenv(EnvSolanaEscrowWallet) // Use owner wallet
-
-		if privateKeyStr == "" {
-			writeInternalError(l, w, fmt.Errorf("%s must be set", EnvSolanaEscrowPrivateKey))
-			return
-		}
-		if escrowWalletStr == "" {
-			writeInternalError(l, w, fmt.Errorf("%s must be set", EnvSolanaEscrowWallet))
-			return
-		}
-
-		escrowPrivateKey, err := solanago.PrivateKeyFromBase58(privateKeyStr)
-		if err != nil {
-			writeInternalError(l, w, fmt.Errorf("failed to parse escrow private key: %w", err))
-			return
-		}
-
-		escrowWallet, err := solanago.PublicKeyFromBase58(escrowWalletStr) // Parse owner wallet
-		if err != nil {
-			writeInternalError(l, w, fmt.Errorf("failed to parse escrow wallet: %w", err))
-			return
-		}
-
-		solanaConfig := abb.SolanaConfig{
-			RPCEndpoint:      os.Getenv(EnvSolanaRPCEndpoint),
-			WSEndpoint:       os.Getenv(EnvSolanaWSEndpoint),
-			EscrowPrivateKey: &escrowPrivateKey,
-			EscrowWallet:     escrowWallet, // Assign owner wallet
-			USDCMintAddress:  os.Getenv(EnvSolanaUSDCMintAddress),
-		}
-
-		// Execute workflow
-		workflowID := fmt.Sprintf("pay-bounty-%s", uuid.New().String())
-		workflowOptions := client.StartWorkflowOptions{
-			ID:        workflowID,
-			TaskQueue: os.Getenv(EnvTaskQueue),
-		}
-
-		// Pass req.Wallet to the workflow input field (assuming it's named ToAccount there)
-		we, err := tc.ExecuteWorkflow(r.Context(), workflowOptions, abb.PayBountyWorkflow, abb.PayBountyWorkflowInput{
-			Wallet:       req.Wallet,
-			Amount:       amount,
-			SolanaConfig: solanaConfig,
-		})
-		if err != nil {
-			writeInternalError(l, w, fmt.Errorf("failed to start workflow: %w", err))
-			return
-		}
-
-		// Wait for workflow completion
-		if err := we.Get(r.Context(), nil); err != nil {
-			writeInternalError(l, w, fmt.Errorf("workflow failed: %w", err))
-			return
-		}
-
-		writeJSONResponse(w, DefaultJSONResponse{
-			Message: fmt.Sprintf("Successfully executed payment of %v USDC to %s",
-				amount.ToUSDC(), req.Wallet),
-		}, http.StatusOK)
-	}
-}
-
 // handleCreateBounty handles the creation of a new bounty and starts a workflow
 func handleCreateBounty(
 	logger *slog.Logger,
@@ -255,13 +164,28 @@ func handleCreateBounty(
 				},
 			}
 			prompt := fmt.Sprintf(prompts.ContentModeration, requirementsStr)
-			resp, err := llmProvider.Complete(r.Context(), prompt, schema)
+			messages := []abb.Message{
+				{Role: "user", Content: prompt},
+			}
+			tools := []abb.Tool{
+				{
+					Name:        "content_moderation",
+					Description: "Determines if the content is acceptable based on moderation rules.",
+					Parameters:  schema["schema"].(map[string]interface{}),
+				},
+			}
+			resp, err := llmProvider.GenerateResponse(r.Context(), messages, tools)
 			if err != nil {
 				writeInternalError(logger, w, fmt.Errorf("failed to moderate content: %w", err))
 				return
 			}
+			if len(resp.ToolCalls) == 0 {
+				writeInternalError(logger, w, fmt.Errorf("LLM did not return a tool call for moderation"))
+				return
+			}
+
 			var moderationResp contentModerationResponse
-			if err := json.Unmarshal([]byte(resp), &moderationResp); err != nil {
+			if err := json.Unmarshal([]byte(resp.ToolCalls[0].Arguments), &moderationResp); err != nil {
 				writeInternalError(logger, w, fmt.Errorf("failed to parse moderation response: %w", err))
 				return
 			}
@@ -321,14 +245,29 @@ func handleCreateBounty(
 
 			// Use the prompt from the configuration
 			prompt := fmt.Sprintf(prompts.InferBountyTitle, requirementsStr)
+			messages := []abb.Message{
+				{Role: "user", Content: prompt},
+			}
+			tools := []abb.Tool{
+				{
+					Name:        "infer_bounty_title",
+					Description: "Infers a concise, descriptive title for the bounty based on its requirements.",
+					Parameters:  schema["schema"].(map[string]interface{}),
+				},
+			}
 
-			resp, err := llmProvider.Complete(r.Context(), prompt, schema)
+			resp, err := llmProvider.GenerateResponse(r.Context(), messages, tools)
 			if err != nil {
 				writeInternalError(logger, w, fmt.Errorf("failed to infer bounty title: %w", err))
 				return
 			}
+			if len(resp.ToolCalls) == 0 {
+				writeInternalError(logger, w, fmt.Errorf("LLM did not return a tool call for title inference"))
+				return
+			}
+
 			var inferredTitle inferredTitleRequest
-			if err := json.Unmarshal([]byte(resp), &inferredTitle); err != nil {
+			if err := json.Unmarshal([]byte(resp.ToolCalls[0].Arguments), &inferredTitle); err != nil {
 				writeInternalError(logger, w, fmt.Errorf("failed to parse inferred title response: %w", err))
 				return
 			}
@@ -416,13 +355,27 @@ func handleCreateBounty(
 			},
 		}
 		prompt := fmt.Sprintf(prompts.InferContentParams, requirementsStr)
-		resp, err := llmProvider.Complete(r.Context(), prompt, schema)
+		messages := []abb.Message{
+			{Role: "user", Content: prompt},
+		}
+		tools := []abb.Tool{
+			{
+				Name:        "infer_content_parameters",
+				Description: "Infers the platform and content kind from the bounty requirements.",
+				Parameters:  schema["schema"].(map[string]interface{}),
+			},
+		}
+		resp, err := llmProvider.GenerateResponse(r.Context(), messages, tools)
 		if err != nil {
 			writeInternalError(logger, w, fmt.Errorf("failed to infer content parameters: %w", err))
 			return
 		}
+		if len(resp.ToolCalls) == 0 {
+			writeInternalError(logger, w, fmt.Errorf("LLM did not return a tool call for content parameter inference"))
+			return
+		}
 		var inferredParams inferredContentParamsRequest
-		if err := json.Unmarshal([]byte(resp), &inferredParams); err != nil {
+		if err := json.Unmarshal([]byte(resp.ToolCalls[0].Arguments), &inferredParams); err != nil {
 			writeInternalError(logger, w, fmt.Errorf("failed to parse inferred content parameters: %w", err))
 			return
 		}
@@ -643,29 +596,6 @@ func handleCreateBounty(
 		if err != nil {
 			writeInternalError(logger, w, fmt.Errorf("failed to start workflow: %w", err))
 			return
-		}
-
-		// Start the new bounty publishing workflow asynchronously (non-blocking)
-		// This will publish the bounty to Discord/Reddit notification channels
-		publishWorkflowID := fmt.Sprintf("publish-new-bounty-%s", uuid.New().String())
-		publishWorkflowOptions := client.StartWorkflowOptions{
-			ID:        publishWorkflowID,
-			TaskQueue: os.Getenv(EnvTaskQueue),
-			TypedSearchAttributes: temporal.NewSearchAttributes(
-				abb.EnvironmentKey.ValueSet(env),
-			),
-		}
-		publishInput := abb.PublishNewBountyWorkflowInput{
-			BountyID: workflowID,
-		}
-
-		// Start the publish workflow without waiting for it to complete
-		_, publishErr := tc.ExecuteWorkflow(r.Context(), publishWorkflowOptions, abb.PublishNewBountyWorkflow, publishInput)
-		if publishErr != nil {
-			// Log the error but don't fail the main request - publishing is not critical
-			logger.Error("Failed to start bounty publishing workflow", "bounty_id", workflowID, "error", publishErr)
-		} else {
-			logger.Info("Started bounty publishing workflow", "bounty_id", workflowID, "publish_workflow_id", publishWorkflowID)
 		}
 
 		writeJSONResponse(w, api.CreateBountySuccessResponse{

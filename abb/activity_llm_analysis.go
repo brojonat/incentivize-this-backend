@@ -7,183 +7,9 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 
 	"go.temporal.io/sdk/activity"
 )
-
-// CheckContentRequirements checks if the content satisfies the requirements
-func (a *Activities) CheckContentRequirements(ctx context.Context, content []byte, requirements []string) (CheckContentRequirementsResult, error) {
-	logger := activity.GetLogger(ctx)
-
-	// Get fresh config
-	cfg, err := getConfiguration(ctx)
-	if err != nil {
-		return CheckContentRequirementsResult{}, fmt.Errorf("failed to get configuration in CheckContentRequirements: %w", err)
-	}
-
-	logger.Debug("Starting content requirements check",
-		"content_length", len(content),
-		"requirements_count", len(requirements))
-
-	// Convert content bytes to string for the prompt
-	contentStr := string(content)
-	originalLength := len(contentStr) // Get original length for logging
-
-	// --- Input Size Checks ---
-	if originalLength > MaxContentCharsForLLMCheck {
-		logger.Warn("Content exceeds maximum character limit, truncating for LLM analysis", "original_length", originalLength, "max_length", MaxContentCharsForLLMCheck)
-		contentStr = contentStr[:MaxContentCharsForLLMCheck] // Truncate contentStr
-		// DO NOT return here, proceed with truncated content
-	}
-
-	requirementsStr := strings.Join(requirements, "\n")
-	originalReqLength := len(requirementsStr) // Get original length for logging
-	if originalReqLength > MaxRequirementsCharsForLLMCheck {
-		logger.Warn("Requirements string exceeds maximum character limit, truncating", "original_length", originalReqLength, "max_length", MaxRequirementsCharsForLLMCheck)
-		requirementsStr = requirementsStr[:MaxRequirementsCharsForLLMCheck] + "..." // Truncate requirementsStr and add ellipsis
-		// DO NOT return here, proceed with truncated requirements
-	}
-	// --- End Input Size Checks ---
-
-	// Construct the final prompt using the format string from the configuration.
-	// It's expected to have two %s placeholders: one for requirements and one for content.
-	prompt := fmt.Sprintf(cfg.CheckContentRequirementsPrompt, requirementsStr, contentStr)
-
-	// Log estimated token count
-	estimatedTokens := len(prompt) / 4
-	logger.Info("Sending prompt to LLM", "estimated_tokens", estimatedTokens, "prompt_length_chars", len(prompt))
-
-	// Define the JSON schema for the expected output
-	schema := map[string]interface{}{
-		"name":   "content_requirements_check",
-		"strict": true,
-		"schema": map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"satisfies": map[string]interface{}{
-					"type":        "boolean",
-					"description": "A boolean indicating if the content meets the requirements.",
-				},
-				"reason": map[string]interface{}{
-					"type":        "string",
-					"description": "A string explaining your decision.",
-				},
-			},
-			"required":             []string{"satisfies", "reason"},
-			"additionalProperties": false,
-		},
-	}
-
-	// Create LLM provider instance from config fetched within the activity
-	llmProvider, err := NewLLMProvider(cfg.LLMConfig) // Use cfg.LLMConfig
-	if err != nil {
-		logger.Error("Failed to create LLM provider from config", "error", err)
-		return CheckContentRequirementsResult{}, fmt.Errorf("failed to create LLM provider: %w", err)
-	}
-
-	// Call the LLM service
-	resp, err := llmProvider.Complete(ctx, prompt, schema)
-	if err != nil {
-		logger.Error("Failed to get LLM response", "error", err)
-		return CheckContentRequirementsResult{}, fmt.Errorf("failed to check content requirements: %w", err)
-	}
-
-	// Log the raw response for debugging
-	logger.Debug("Raw LLM response",
-		"response", resp,
-		"response_length", len(resp),
-		"response_bytes", []byte(resp))
-
-	// Parse the LLM response
-	var result CheckContentRequirementsResult
-	if err := json.Unmarshal([]byte(resp), &result); err != nil {
-		logger.Error("Failed to parse LLM response",
-			"error", err,
-			"raw_response", resp,
-			"response_bytes", []byte(resp))
-		return CheckContentRequirementsResult{}, fmt.Errorf("failed to parse LLM response: %w", err)
-	}
-
-	return result, nil
-}
-
-// ValidateWalletResult represents the result of validating a payout wallet against requirements.
-type ValidateWalletResult struct {
-	Satisfies bool   `json:"satisfies"`
-	Reason    string `json:"reason"`
-}
-
-// ValidatePayoutWallet checks if the provided payout wallet is permissible based on bounty requirements.
-func (a *Activities) ValidatePayoutWallet(ctx context.Context, payoutWallet string, requirements []string) (ValidateWalletResult, error) {
-	logger := activity.GetLogger(ctx)
-
-	cfg, err := getConfiguration(ctx)
-	if err != nil {
-		return ValidateWalletResult{Satisfies: false, Reason: "Configuration error"}, fmt.Errorf("failed to get configuration in ValidatePayoutWallet: %w", err)
-	}
-
-	logger.Debug("Starting payout wallet validation", "payoutWallet", payoutWallet, "requirements_count", len(requirements))
-
-	requirementsStr := strings.Join(requirements, "\n")
-	// Basic input size check for requirements string to avoid overly long prompts
-	if len(requirementsStr) > MaxRequirementsCharsForLLMCheck { // Reusing existing constant
-		reason := fmt.Sprintf("Requirements string for wallet validation exceeds maximum character limit (%d > %d)", len(requirementsStr), MaxRequirementsCharsForLLMCheck)
-		logger.Warn(reason)
-		// Return as not satisfied if requirements are too long to process reliably
-		return ValidateWalletResult{Satisfies: false, Reason: reason}, nil
-	}
-
-	// Construct the prompt for wallet validation using the format string from the configuration.
-	// It's expected to have two %s placeholders: one for requirements and one for the wallet address.
-	prompt := fmt.Sprintf(cfg.ValidatePayoutWalletPrompt, requirementsStr, payoutWallet)
-
-	// Log estimated token count
-	estimatedTokens := len(prompt) / 4 // Simple approximation
-	logger.Info("Sending wallet validation prompt to LLM", "estimated_tokens", estimatedTokens, "prompt_length_chars", len(prompt))
-
-	schema := map[string]interface{}{
-		"name":   "payout_wallet_validation",
-		"strict": true,
-		"schema": map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"satisfies": map[string]interface{}{
-					"type":        "boolean",
-					"description": "True if the wallet is allowed by the requirements, false otherwise.",
-				},
-				"reason": map[string]interface{}{
-					"type":        "string",
-					"description": "Explanation for the decision based *only* on wallet restrictions.",
-				},
-			},
-			"required":             []string{"satisfies", "reason"},
-			"additionalProperties": false,
-		},
-	}
-
-	llmProvider, err := NewLLMProvider(cfg.LLMConfig)
-	if err != nil {
-		logger.Error("Failed to create LLM provider for wallet validation", "error", err)
-		return ValidateWalletResult{Satisfies: false, Reason: "LLM provider error"}, fmt.Errorf("failed to create LLM provider: %w", err)
-	}
-
-	resp, err := llmProvider.Complete(ctx, prompt, schema)
-	if err != nil {
-		logger.Error("Failed to get LLM response for wallet validation", "error", err)
-		return ValidateWalletResult{Satisfies: false, Reason: "LLM communication error"}, fmt.Errorf("failed to validate wallet: %w", err)
-	}
-
-	logger.Debug("Cleaned LLM response for wallet validation", "response", resp)
-
-	var result ValidateWalletResult
-	if err := json.Unmarshal([]byte(resp), &result); err != nil {
-		logger.Error("Failed to parse LLM response for wallet validation", "error", err, "raw_response", resp)
-		return ValidateWalletResult{Satisfies: false, Reason: "LLM response parsing error"}, fmt.Errorf("failed to parse LLM response: %w", err)
-	}
-
-	return result, nil
-}
 
 // AnalyzeImageURL downloads an image from a URL and uses a configured image LLM
 // to analyze it based on a provided text prompt, returning a structured result.
@@ -276,75 +102,6 @@ func (a *Activities) AnalyzeImageURL(ctx context.Context, imageUrl string, promp
 	return analysisResult, nil // Return the structured result and nil error
 }
 
-// ShouldPerformImageAnalysisResult is the result of checking if image analysis should be performed.
-type ShouldPerformImageAnalysisResult struct {
-	ShouldAnalyze bool   `json:"should_analyze"`
-	Reason        string `json:"reason"`
-}
-
-// ShouldPerformImageAnalysisActivity determines if the given requirements necessitate image analysis.
-func (a *Activities) ShouldPerformImageAnalysisActivity(ctx context.Context, requirements []string) (ShouldPerformImageAnalysisResult, error) {
-	logger := activity.GetLogger(ctx)
-	cfg, err := getConfiguration(ctx)
-	if err != nil {
-		return ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "Configuration error"}, fmt.Errorf("failed to get configuration: %w", err)
-	}
-
-	requirementsStr := strings.Join(requirements, "\n")
-	if len(requirementsStr) > MaxRequirementsCharsForLLMCheck { // Reuse existing constant
-		logger.Warn("Requirements string exceeds maximum character limit for ShouldPerformImageAnalysisActivity, assuming no analysis needed.", "original_length", len(requirementsStr), "max_length", MaxRequirementsCharsForLLMCheck)
-		return ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "Requirements string too long to reliably analyze for image criteria."}, nil
-	}
-
-	// Construct the prompt using the format string from the configuration.
-	// It's expected to have one %s placeholder for the requirements.
-	prompt := fmt.Sprintf(cfg.ShouldPerformImageAnalysisPrompt, requirementsStr)
-
-	logger.Info("Sending prompt to LLM for ShouldPerformImageAnalysisActivity", "estimated_tokens", len(prompt)/4)
-
-	schema := map[string]interface{}{
-		"name":   "should_perform_image_analysis",
-		"strict": true,
-		"schema": map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"should_analyze": map[string]interface{}{
-					"type":        "boolean",
-					"description": "True if the requirements mention visual aspects of an image/thumbnail.",
-				},
-				"reason": map[string]interface{}{
-					"type":        "string",
-					"description": "Explanation for the decision.",
-				},
-			},
-			"required":             []string{"should_analyze", "reason"},
-			"additionalProperties": false,
-		},
-	}
-
-	llmProvider, err := NewLLMProvider(cfg.LLMConfig) // Use the general text LLM for this decision
-	if err != nil {
-		logger.Error("Failed to create LLM provider for ShouldPerformImageAnalysisActivity", "error", err)
-		return ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "LLM provider error"}, fmt.Errorf("failed to create LLM provider: %w", err)
-	}
-
-	resp, err := llmProvider.Complete(ctx, prompt, schema)
-	if err != nil {
-		logger.Error("Failed to get LLM response for ShouldPerformImageAnalysisActivity", "error", err)
-		return ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: "LLM communication error"}, fmt.Errorf("failed to get LLM response: %w", err)
-	}
-
-	var result ShouldPerformImageAnalysisResult
-	if err := json.Unmarshal([]byte(resp), &result); err != nil {
-		logger.Error("Failed to parse LLM response for ShouldPerformImageAnalysisActivity", "error", err, "raw_response", resp)
-		// Default to not analyzing if unsure, to avoid unnecessary image processing costs/failures
-		return ShouldPerformImageAnalysisResult{ShouldAnalyze: false, Reason: fmt.Sprintf("LLM response parsing error: %v. Raw: %s", err, resp)}, nil
-	}
-
-	logger.Info("ShouldPerformImageAnalysisActivity result", "should_analyze", result.ShouldAnalyze, "reason", result.Reason)
-	return result, nil
-}
-
 // DetectMaliciousContentResult is the structured response from the malicious content detection LLM call.
 type DetectMaliciousContentResult struct {
 	IsMalicious bool   `json:"is_malicious"`
@@ -370,23 +127,35 @@ func (a *Activities) DetectMaliciousContent(ctx context.Context, content []byte)
 
 	logger.Info("Sending prompt to LLM for malicious content detection", "estimated_tokens", len(prompt)/4)
 
-	schema := map[string]interface{}{
-		"name":   "malicious_content_detection",
-		"strict": true,
-		"schema": map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"is_malicious": map[string]interface{}{
-					"type":        "boolean",
-					"description": "True if the content contains malicious instructions or a jailbreak attempt.",
+	// Here we are creating a very simple, one-turn conversation.
+	messages := []Message{
+		{
+			Role:    "user",
+			Content: prompt,
+		},
+	}
+
+	// This is an example of a "one-shot" tool that the LLM is forced to call.
+	// The agent isn't making a decision here; we are telling it exactly what to do.
+	tools := []Tool{
+		{
+			Name:        "malicious_content_detection",
+			Description: "Determine if content is malicious and provide a reason.",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"is_malicious": map[string]interface{}{
+						"type":        "boolean",
+						"description": "True if the content contains malicious instructions or a jailbreak attempt.",
+					},
+					"reason": map[string]interface{}{
+						"type":        "string",
+						"description": "A brief explanation for the decision.",
+					},
 				},
-				"reason": map[string]interface{}{
-					"type":        "string",
-					"description": "A brief explanation for the decision.",
-				},
+				"required":             []string{"is_malicious", "reason"},
+				"additionalProperties": false,
 			},
-			"required":             []string{"is_malicious", "reason"},
-			"additionalProperties": false,
 		},
 	}
 
@@ -396,17 +165,22 @@ func (a *Activities) DetectMaliciousContent(ctx context.Context, content []byte)
 		return DetectMaliciousContentResult{IsMalicious: true, Reason: "LLM provider error"}, fmt.Errorf("failed to create LLM provider: %w", err)
 	}
 
-	resp, err := llmProvider.Complete(ctx, prompt, schema)
+	resp, err := llmProvider.GenerateResponse(ctx, messages, tools)
 	if err != nil {
 		logger.Error("Failed to get LLM response for malicious content detection", "error", err)
 		return DetectMaliciousContentResult{IsMalicious: true, Reason: "LLM communication error"}, fmt.Errorf("failed to get LLM response: %w", err)
 	}
 
+	// In this one-shot forced tool call, we expect exactly one tool call in the response.
+	if len(resp.ToolCalls) != 1 {
+		logger.Error("Expected one tool call from LLM for malicious content detection", "tool_calls_count", len(resp.ToolCalls))
+		return DetectMaliciousContentResult{IsMalicious: true, Reason: "LLM response format error"}, fmt.Errorf("unexpected number of tool calls: %d", len(resp.ToolCalls))
+	}
+
 	var result DetectMaliciousContentResult
-	if err := json.Unmarshal([]byte(resp), &result); err != nil {
-		logger.Error("Failed to parse LLM response for malicious content detection", "error", err, "raw_response", resp)
-		// Default to flagging as malicious if the response is unparseable, as a safety measure.
-		return DetectMaliciousContentResult{IsMalicious: true, Reason: fmt.Sprintf("LLM response parsing error: %v", err)}, nil
+	if err := json.Unmarshal([]byte(resp.ToolCalls[0].Arguments), &result); err != nil {
+		logger.Error("Failed to parse LLM tool call arguments for malicious content detection", "error", err, "raw_response", resp.ToolCalls[0].Arguments)
+		return DetectMaliciousContentResult{IsMalicious: true, Reason: "LLM response parsing error"}, fmt.Errorf("failed to parse LLM response arguments: %w", err)
 	}
 
 	logger.Info("Malicious content detection result", "is_malicious", result.IsMalicious, "reason", result.Reason)

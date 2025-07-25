@@ -587,3 +587,14 @@ func checkTokenBalancesForTransfer(
 	// If we passed the destination check AND found a matching source owned by the correct wallet
 	return true, funderWallet, nil
 }
+
+type PayBountyInput struct {
+	Recipient string
+	Amount    *solanautil.USDCAmount
+}
+
+func (a *Activities) PayBountyActivity(ctx context.Context, input PayBountyInput) error {
+	// This is a placeholder for the actual USDC transfer logic.
+	activity.GetLogger(ctx).Info("Executing mock USDC payment", "recipient", input.Recipient, "amount", input.Amount.ToUSDC())
+	return nil
+}

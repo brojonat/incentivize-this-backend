@@ -1,12 +1,12 @@
 package main
 
 import (
-	"log/slog"
-	"os"
+	"log"
 
-	"github.com/brojonat/affiliate-bounty-board/worker"
+	"github.com/brojonat/affiliate-bounty-board/abb"
 	"github.com/urfave/cli/v2"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/worker"
 )
 
 func workerCommands() []*cli.Command {
@@ -34,37 +34,54 @@ func workerCommands() []*cli.Command {
 					Usage: "Check Temporal connection and exit (for health checks)",
 					Value: false,
 				},
+				&cli.StringFlag{
+					Name:    "task-queue",
+					Aliases: []string{"tq"},
+					Usage:   "Temporal task queue name",
+					EnvVars: []string{"TASK_QUEUE"},
+					Value:   "affiliate_bounty_board",
+				},
 			},
-			Action: run_worker,
+			Action: runWorker,
 		},
 	}
 }
 
-func run_worker(c *cli.Context) error {
-	logger := getDefaultLogger(slog.LevelInfo)
+func runWorker(c *cli.Context) error {
 	temporalAddr := c.String("temporal-address")
 	temporalNamespace := c.String("temporal-namespace")
+	taskQueue := c.String("task-queue")
 
-	if c.Bool("check-connection") {
-		logger.Info("Performing Temporal connection check...")
-		tc, err := client.Dial(client.Options{
-			HostPort:  temporalAddr,
-			Namespace: temporalNamespace,
-		})
-		if err != nil {
-			logger.Error("Temporal connection check failed (dial)", "error", err)
-			os.Exit(1)
-		}
-		tc.Close()
-		logger.Info("Temporal connection check successful")
-		os.Exit(0)
+	// Create the client object just once per process
+	client, err := client.Dial(client.Options{
+		HostPort:  temporalAddr,
+		Namespace: temporalNamespace,
+	})
+	if err != nil {
+		log.Fatalln("Unable to create Temporal client", err)
 	}
+	defer client.Close()
 
-	logger.Info("Starting worker")
-	return worker.RunWorker(
-		c.Context,
-		logger,
-		temporalAddr,
-		temporalNamespace,
-	)
+	// Initialize the Temporal worker.
+	w := worker.New(client, taskQueue, worker.Options{})
+
+	// Register the workflows.
+	w.RegisterWorkflow(abb.BountyAssessmentWorkflow)
+	w.RegisterWorkflow(abb.OrchestratorWorkflow)
+	w.RegisterWorkflow(abb.ContactUsNotifyWorkflow)
+	w.RegisterWorkflow(abb.EmailTokenWorkflow)
+
+	// Register the activities.
+	activities, err := abb.NewActivities()
+	if err != nil {
+		log.Fatalln("Unable to create activities", err)
+	}
+	w.RegisterActivity(activities)
+
+	// Start the worker.
+	err = w.Run(worker.InterruptCh())
+	if err != nil {
+		log.Fatalln("Unable to start worker", err)
+	}
+	return err
 }

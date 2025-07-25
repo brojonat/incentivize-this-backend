@@ -11,11 +11,50 @@ import (
 	"strings"
 )
 
+// CheckContentRequirementsResult represents the result of checking content requirements.
+// It's used for both text and image analysis.
+type CheckContentRequirementsResult struct {
+	Satisfies bool   `json:"satisfies"`
+	Reason    string `json:"reason"`
+}
+
 // LLMProvider represents a generic LLM service provider for text completion
 type LLMProvider interface {
-	// Complete sends a prompt to the LLM and returns the completion.
-	// If schema is not nil, it will be used to request a structured JSON response.
-	Complete(ctx context.Context, prompt string, schema map[string]interface{}) (string, error)
+	// GenerateResponse sends a conversational history to the LLM and gets a response.
+	GenerateResponse(ctx context.Context, messages []Message, tools []Tool) (*LLMResponse, error)
+}
+
+// Tool defines a function the LLM can invoke.
+type Tool struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	// Parameters defined as a JSON Schema object.
+	Parameters map[string]interface{} `json:"parameters"`
+}
+
+// ToolCall represents the LLM's request to call a specific tool.
+type ToolCall struct {
+	ID        string `json:"id"`        // A unique identifier for the tool call instance.
+	Name      string `json:"name"`      // The name of the tool to be called.
+	Arguments string `json:"arguments"` // A JSON string containing the arguments.
+}
+
+// Message represents a single message in the conversation history.
+type Message struct {
+	Role       string     `json:"role"`                   // "user", "assistant", or "tool"
+	Content    string     `json:"content"`                // Text content of the message.
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // For assistant messages requesting tool calls.
+	ToolCallID string     `json:"tool_call_id,omitempty"` // For "tool" role messages, linking to a ToolCall.
+}
+
+// LLMResponse is the object returned by the LLM provider.
+// It can either be a final answer or a request to call tools.
+type LLMResponse struct {
+	// The final text content, if available.
+	Content string
+	// A list of tool calls requested by the LLM. If this is not empty,
+	// the application should execute the tools and send the results back.
+	ToolCalls []ToolCall
 }
 
 // LLMConfig holds configuration for text LLM providers
@@ -101,95 +140,122 @@ type OpenAIProvider struct {
 	cfg LLMConfig
 }
 
-// Complete sends a prompt to the OpenAI API and returns the completion.
-// If a schema is provided, it requests a structured JSON response matching the schema.
-func (p *OpenAIProvider) Complete(ctx context.Context, prompt string, schema map[string]interface{}) (string, error) {
-	// Define a struct for the response format that can handle json_schema
-	type responseFormat struct {
-		Type       string      `json:"type"`
-		JSONSchema interface{} `json:"json_schema,omitempty"`
+// GenerateResponse sends a conversational history to the LLM and gets a response.
+func (p *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Message, tools []Tool) (*LLMResponse, error) {
+	// 1. Map our abstract aPI to the OpenAI specific API
+	// API specific-structs
+	type openAIMessage struct {
+		Role       string      `json:"role"`
+		Content    string      `json:"content"`
+		ToolCalls  []*ToolCall `json:"tool_calls,omitempty"`
+		ToolCallID string      `json:"tool_call_id,omitempty"`
+	}
+	type openAITool struct {
+		Type     string `json:"type"`
+		Function Tool   `json:"function"`
 	}
 
-	// Create request body
+	// map messages
+	apiMessages := make([]openAIMessage, len(messages))
+	for i, msg := range messages {
+		apiMessages[i] = openAIMessage{
+			Role:       msg.Role,
+			Content:    msg.Content,
+			ToolCallID: msg.ToolCallID,
+		}
+		if msg.ToolCalls != nil {
+			apiMessages[i].ToolCalls = make([]*ToolCall, len(msg.ToolCalls))
+			for j, tc := range msg.ToolCalls {
+				apiMessages[i].ToolCalls[j] = &tc
+			}
+		}
+	}
+
+	// map tools
+	apiTools := make([]openAITool, len(tools))
+	for i, t := range tools {
+		apiTools[i] = openAITool{
+			Type:     "function",
+			Function: t,
+		}
+	}
+
+	// 2. Create the request body
 	reqBody := struct {
-		Model          string          `json:"model"`
-		Messages       []interface{}   `json:"messages"`
-		MaxTokens      int             `json:"max_tokens"`
-		Temperature    float64         `json:"temperature"`
-		ResponseFormat *responseFormat `json:"response_format,omitempty"`
+		Model       string          `json:"model"`
+		Messages    []openAIMessage `json:"messages"`
+		Tools       []openAITool    `json:"tools,omitempty"`
+		MaxTokens   int             `json:"max_tokens"`
+		Temperature float64         `json:"temperature"`
 	}{
-		Model: p.cfg.Model,
-		Messages: []interface{}{
-			map[string]string{
-				"role":    "user",
-				"content": prompt,
-			},
-		},
+		Model:       p.cfg.Model,
+		Messages:    apiMessages,
+		Tools:       apiTools,
 		MaxTokens:   p.cfg.MaxTokens,
 		Temperature: p.cfg.Temperature,
 	}
 
-	// Set the response format only if a schema is provided
-	if schema != nil {
-		reqBody.ResponseFormat = &responseFormat{
-			Type:       "json_schema",
-			JSONSchema: schema,
-		}
-	}
-
-	// Marshal request body
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal request body: %w", err)
+		return nil, fmt.Errorf("failed to marshal openai request body: %w", err)
 	}
 
-	// Determine the URL to use
 	url := "https://api.openai.com/v1/chat/completions"
 	if p.cfg.BaseURL != "" {
 		url = p.cfg.BaseURL
 	}
 
-	// Create request
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create openai request: %w", err)
 	}
 
-	// Set headers
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+p.cfg.APIKey)
 
-	// Send request
+	// 3. Send the request
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to send request: %w", err)
+		return nil, fmt.Errorf("failed to send openai request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Check response status
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("OpenAI API returned status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("openai api returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Parse response
+	// 4. Parse the response
 	var result struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content   string      `json:"content"`
+				ToolCalls []*ToolCall `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("failed to parse response: %w", err)
+		return nil, fmt.Errorf("failed to parse openai response: %w", err)
 	}
 
 	if len(result.Choices) == 0 {
-		return "", fmt.Errorf("no choices in response")
+		return nil, fmt.Errorf("no choices in openai response")
 	}
 
-	return result.Choices[0].Message.Content, nil
+	choice := result.Choices[0].Message
+	response := &LLMResponse{
+		Content: choice.Content,
+	}
+
+	if choice.ToolCalls != nil {
+		response.ToolCalls = make([]ToolCall, len(choice.ToolCalls))
+		for i, tc := range choice.ToolCalls {
+			response.ToolCalls[i] = *tc
+		}
+	}
+
+	return response, nil
 }
 
 // OpenAIImageProvider implements ImageLLMProvider for OpenAI (Vision)
@@ -393,11 +459,11 @@ type AnthropicProvider struct {
 	cfg LLMConfig
 }
 
-func (p *AnthropicProvider) Complete(ctx context.Context, prompt string, schema map[string]interface{}) (string, error) {
-	// Anthropic doesn't support JSON schema response format in the same way.
-	// We'll have to rely on prompt engineering for now.
-	// This implementation will ignore the schema.
-	return p.Complete(ctx, prompt, nil)
+func (p *AnthropicProvider) GenerateResponse(ctx context.Context, messages []Message, tools []Tool) (*LLMResponse, error) {
+	// Anthropic's tool calling is also in beta and requires a specific header.
+	// For now, we will return a "not implemented" error.
+	// We will also remove the old `Complete` method.
+	return nil, fmt.Errorf("not implemented")
 }
 
 // OllamaProvider implements LLMProvider for Ollama
@@ -405,9 +471,9 @@ type OllamaProvider struct {
 	cfg LLMConfig
 }
 
-func (p *OllamaProvider) Complete(ctx context.Context, prompt string, schema map[string]interface{}) (string, error) {
+func (p *OllamaProvider) GenerateResponse(ctx context.Context, messages []Message, tools []Tool) (*LLMResponse, error) {
 	// Ollama's support for JSON schema varies by model.
 	// We'll rely on prompt engineering and the json format parameter.
 	// This implementation will ignore the schema.
-	return p.Complete(ctx, prompt, nil)
+	return nil, fmt.Errorf("not implemented")
 }

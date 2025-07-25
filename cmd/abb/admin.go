@@ -240,42 +240,6 @@ func createBounty(ctx *cli.Context) error {
 	return printServerResponse(res)
 }
 
-func payBounty(ctx *cli.Context) error {
-	// Create the request using a map for flexibility
-	req := map[string]interface{}{
-		"amount": ctx.Float64("amount"),
-		"wallet": ctx.String("wallet"),
-	}
-
-	// Marshal to JSON
-	body, err := json.Marshal(req)
-	if err != nil {
-		return fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	// Create and send the HTTP request
-	httpReq, err := http.NewRequest(
-		http.MethodPost,
-		ctx.String("endpoint")+"/bounties/pay",
-		bytes.NewBuffer(body),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set headers
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", ctx.String("token")))
-
-	// Execute the request
-	res, err := http.DefaultClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-
-	return printServerResponse(res)
-}
-
 func listBounties(ctx *cli.Context) error {
 	// Create a custom HTTP client that skips TLS verification
 	// WARNING: Use with caution, bypasses security checks.

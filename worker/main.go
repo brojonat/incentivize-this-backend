@@ -64,34 +64,10 @@ func RunWorker(ctx context.Context, l *slog.Logger, thp, tns string) error {
 
 	// Register all workflows
 	w.RegisterWorkflow(abb.BountyAssessmentWorkflow)
-	w.RegisterWorkflow(abb.CheckContentRequirementsWorkflow)
-	w.RegisterWorkflow(abb.PayBountyWorkflow)
-	w.RegisterWorkflow(abb.PublishNewBountyWorkflow)
-	w.RegisterWorkflow(abb.EmailTokenWorkflow)
-	w.RegisterWorkflow(abb.PruneStaleEmbeddingsWorkflow)
-	w.RegisterWorkflow(abb.GumroadNotifyWorkflow)
-	w.RegisterWorkflow(abb.ContactUsNotifyWorkflow)
+	w.RegisterWorkflow(abb.OrchestratorWorkflow)
 
-	// Register all activities
-	w.RegisterActivity(activities.GenerateAndStoreBountyEmbeddingActivity)
-	w.RegisterActivity(activities.PullContentActivity)
-	w.RegisterActivity(activities.PullIncentivizeThisContentActivity)
-	w.RegisterActivity(activities.CheckContentRequirements)
-	w.RegisterActivity(activities.ValidatePayoutWallet)
-	w.RegisterActivity(activities.VerifyPayment)
-	w.RegisterActivity(activities.TransferUSDC)
-	w.RegisterActivity(activities.PublishNewBountyReddit)
-	w.RegisterActivity(activities.PublishNewBountyDiscord)
-	w.RegisterActivity(activities.AnalyzeImageURL)
-	w.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
-	w.RegisterActivity(activities.SendTokenEmail)
-	w.RegisterActivity(activities.SendContactUsEmail)
-	w.RegisterActivity(activities.SendBountySummaryEmail)
-	w.RegisterActivity(activities.SummarizeAndStoreBountyActivity)
-	w.RegisterActivity(activities.PruneStaleEmbeddingsActivity)
-	w.RegisterActivity(activities.DeleteBountyEmbeddingViaHTTPActivity)
-	w.RegisterActivity(activities.CallGumroadNotifyActivity)
-	w.RegisterActivity(activities.MarkGumroadSaleNotifiedActivity)
+	// Register all activities on the activities struct
+	w.RegisterActivity(activities)
 
 	// Run the single worker
 	l.Info("Starting worker", "TaskQueue", taskQueue)

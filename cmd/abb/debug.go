@@ -5,16 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/brojonat/affiliate-bounty-board/abb"
-	"github.com/google/uuid"
 	"github.com/urfave/cli/v2"
-	"go.temporal.io/sdk/client"
 )
 
 func debugCommands() []*cli.Command {
@@ -69,89 +65,6 @@ func debugCommands() []*cli.Command {
 				},
 			},
 			Action: checkHealth,
-		},
-		{
-			Name:  "check-requirements",
-			Usage: "Test content requirements checking",
-			Flags: []cli.Flag{
-				&cli.StringFlag{
-					Name:     "content",
-					Usage:    "Content to check",
-					Required: true,
-				},
-				&cli.StringSliceFlag{
-					Name:    "requirement",
-					Aliases: []string{"r"},
-					Usage:   "Requirement to check (can be specified multiple times)",
-				},
-				&cli.StringFlag{
-					Name:    "openai-api-key",
-					Usage:   "OpenAI API key",
-					EnvVars: []string{"OPENAI_API_KEY"},
-				},
-				&cli.StringFlag{
-					Name:    "openai-model",
-					Usage:   "OpenAI model to use",
-					Value:   "gpt-4o",
-					EnvVars: []string{"OPENAI_MODEL"},
-				},
-				&cli.IntFlag{
-					Name:  "max-tokens",
-					Usage: "Maximum tokens to generate",
-					Value: 1000,
-				},
-				&cli.Float64Flag{
-					Name:  "temperature",
-					Usage: "Temperature for text generation",
-					Value: 0.7,
-				},
-				&cli.StringFlag{
-					Name:    "temporal-address",
-					Aliases: []string{"ta"},
-					Usage:   "Temporal server address",
-					EnvVars: []string{"TEMPORAL_ADDRESS"},
-					Value:   "localhost:7233",
-				},
-				&cli.StringFlag{
-					Name:    "temporal-namespace",
-					Aliases: []string{"tn"},
-					Usage:   "Temporal namespace",
-					EnvVars: []string{"TEMPORAL_NAMESPACE"},
-					Value:   "default",
-				},
-			},
-			Action: testCheckContentRequirements,
-		},
-		{
-			Name:        "pay-bounty",
-			Usage:       "Pay a bounty directly",
-			Description: "Pays a bounty to a wallet via the /bounties/pay endpoint. Intended for debugging and/or initial funding.",
-			Flags: []cli.Flag{
-				&cli.StringFlag{
-					Name:    "endpoint",
-					Aliases: []string{"end", "e"},
-					Value:   "http://localhost:8080",
-					Usage:   "Server endpoint",
-					EnvVars: []string{EnvAPIEndpoint},
-				},
-				&cli.StringFlag{
-					Name:     "token",
-					Required: true,
-					Usage:    "Authorization token",
-					EnvVars:  []string{EnvAuthToken},
-				},
-				&cli.Float64Flag{
-					Name:     "amount",
-					Required: true,
-					Usage:    "Amount to pay (in USDC)",
-				},
-				&cli.StringFlag{
-					Name:     "wallet",
-					Required: true,
-					Usage:    "Solana wallet to pay out to",
-				},
-			},
-			Action: payBounty,
 		},
 	}
 }
@@ -251,73 +164,5 @@ func checkHealth(c *cli.Context) error {
 		resp.Body.Close()
 	}
 
-	return nil
-}
-
-func testCheckContentRequirements(c *cli.Context) error {
-	// Get content from flag or stdin
-	content := c.String("content")
-	if content == "" {
-		return fmt.Errorf("--content flag is required")
-	}
-
-	// If content is "-", read from stdin
-	if content == "-" {
-		contentBytes, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return fmt.Errorf("failed to read content from stdin: %w", err)
-		}
-		content = string(contentBytes)
-	}
-
-	// Get requirements from flag
-	requirements := c.StringSlice("requirement")
-	if len(requirements) == 0 {
-		return fmt.Errorf("at least one --requirement flag is required")
-	}
-
-	// Join requirements with newlines
-	requirementsStr := strings.Join(requirements, "\n")
-
-	// Create Temporal client with debug logging
-	tc, err := client.Dial(client.Options{
-		Logger:    getDefaultLogger(slog.LevelDebug),
-		HostPort:  c.String("temporal-address"),
-		Namespace: c.String("temporal-namespace"),
-	})
-	if err != nil {
-		return fmt.Errorf("couldn't initialize temporal client: %w", err)
-	}
-	defer tc.Close()
-
-	// Execute workflow
-	workflowID := fmt.Sprintf("check-requirements-%s", uuid.New().String())
-	workflowOptions := client.StartWorkflowOptions{
-		ID:        workflowID,
-		TaskQueue: os.Getenv("TASK_QUEUE"),
-	}
-
-	// Execute the workflow using the registered workflow function
-	we, err := tc.ExecuteWorkflow(c.Context, workflowOptions, abb.CheckContentRequirementsWorkflow, content, requirementsStr)
-	if err != nil {
-		return fmt.Errorf("failed to start workflow: %w", err)
-	}
-
-	// Wait for workflow completion
-	var result abb.CheckContentRequirementsResult
-	err = we.Get(c.Context, &result)
-	if err != nil {
-		return fmt.Errorf("workflow failed: %w", err)
-	}
-
-	// Output result as JSON
-	output := struct {
-		Satisfies bool   `json:"satisfies"`
-		Reason    string `json:"reason"`
-	}{
-		Satisfies: result.Satisfies,
-		Reason:    result.Reason,
-	}
-	json.NewEncoder(os.Stdout).Encode(output)
 	return nil
 }
