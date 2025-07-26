@@ -77,3 +77,22 @@ var DetectMaliciousContentTool = Tool{
 		"required": []interface{}{"content"},
 	},
 }
+
+var ValidatePayoutWalletTool = Tool{
+	Name:        "validate_payout_wallet",
+	Description: "Validates if a payout wallet is eligible for a bounty based on the content and bounty prompt.",
+	Parameters: map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"payout_wallet": map[string]interface{}{
+				"type":        "string",
+				"description": "The payout wallet address to validate.",
+			},
+			"validation_prompt": map[string]interface{}{
+				"type":        "string",
+				"description": "A specific prompt to guide the LLM in validating the wallet. This prompt should contain the bounty requirements as well as any relevant content that may be relevant to the payout wallet requirements.",
+			},
+		},
+		"required": []interface{}{"payout_wallet", "validation_prompt"},
+	},
+}

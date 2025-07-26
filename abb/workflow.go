@@ -49,6 +49,7 @@ const (
 	BountyFailedFeeTransfer      BountyCompletionStatus = "FEE_TRANSFER_FAILED"
 	BountyFailedEmbedding        BountyCompletionStatus = "EMBEDDING_FAILED"
 	BountyFailedInternalError    BountyCompletionStatus = "INTERNAL_ERROR"
+	OrchestratorMaxTurns                                = 20
 )
 
 // BountyStatus defines the possible states of a bounty workflow.
@@ -232,7 +233,7 @@ func processClaim(ctx workflow.Context, a *Activities, bountyState *BountyState,
 
 	var orchestratorResult OrchestratorWorkflowOutput
 	orchErr := workflow.ExecuteChildWorkflow(ctx, OrchestratorWorkflow, OrchestratorWorkflowInput{
-		Tools:         []Tool{GetContentDetailsTool, AnalyzeImageURLTool, DetectMaliciousContentTool},
+		Tools:         []Tool{GetContentDetailsTool, AnalyzeImageURLTool, DetectMaliciousContentTool, ValidatePayoutWalletTool},
 		Bounty:        bountyInput,
 		InitialSignal: signal,
 	}).Get(ctx, &orchestratorResult)
@@ -310,8 +311,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 	// Add the decision tool to the list of available tools.
 	tools := append(input.Tools, SubmitDecisionTool)
 
-	// FIXME: this should be a constant/configured from env
-	for i := 0; i < 10; i++ {
+	for range OrchestratorMaxTurns {
 		var llmResponse LLMResponse
 		err := workflow.ExecuteActivity(ctx, a.GenerateResponse, messages, tools).Get(ctx, &llmResponse)
 		if err != nil {
@@ -347,6 +347,23 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 					} else {
 						var result CheckContentRequirementsResult
 						activityErr := workflow.ExecuteActivity(ctx, a.AnalyzeImageURL, args.ImageURL, args.Prompt).Get(ctx, &result)
+						if activityErr != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+						} else {
+							resultBytes, _ := json.Marshal(result)
+							toolResult = string(resultBytes)
+						}
+					}
+				case "validate_payout_wallet":
+					var args struct {
+						PayoutWallet     string `json:"payout_wallet"`
+						ValidationPrompt string `json:"validation_prompt"`
+					}
+					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+					} else {
+						var result ValidatePayoutWalletResult
+						activityErr := workflow.ExecuteActivity(ctx, a.ValidatePayoutWallet, args.PayoutWallet, args.ValidationPrompt).Get(ctx, &result)
 						if activityErr != nil {
 							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
 						} else {

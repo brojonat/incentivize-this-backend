@@ -102,6 +102,31 @@ func (a *Activities) AnalyzeImageURL(ctx context.Context, imageUrl string, promp
 	return analysisResult, nil // Return the structured result and nil error
 }
 
+// ValidatePayoutWallet uses an LLM to determine if the provided payout wallet is valid
+// based on the provided validation prompt.
+func (a *Activities) ValidatePayoutWallet(ctx context.Context, payoutWallet string, validationPrompt string) (ValidatePayoutWalletResult, error) {
+	logger := activity.GetLogger(ctx)
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return ValidatePayoutWalletResult{IsValid: false, Reason: "Configuration error"}, fmt.Errorf("failed to get configuration: %w", err)
+	}
+
+	llmProvider, err := NewLLMProvider(cfg.LLMConfig)
+	if err != nil {
+		logger.Error("Failed to create LLM provider for payout wallet validation", "error", err)
+		return ValidatePayoutWalletResult{IsValid: false, Reason: "LLM provider error"}, fmt.Errorf("failed to create LLM provider: %w", err)
+	}
+
+	result, err := llmProvider.ValidateWalletWithPrompt(ctx, payoutWallet, validationPrompt)
+	if err != nil {
+		logger.Error("Failed to validate payout wallet", "error", err)
+		return ValidatePayoutWalletResult{IsValid: false, Reason: "LLM communication error"}, fmt.Errorf("failed to validate payout wallet: %w", err)
+	}
+
+	logger.Info("Payout wallet validation result", "is_valid", result.IsValid, "reason", result.Reason)
+	return result, nil
+}
+
 // DetectMaliciousContentResult is the structured response from the malicious content detection LLM call.
 type DetectMaliciousContentResult struct {
 	IsMalicious bool   `json:"is_malicious"`

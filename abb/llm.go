@@ -18,10 +18,18 @@ type CheckContentRequirementsResult struct {
 	Reason    string `json:"reason"`
 }
 
+// ValidatePayoutWalletResult is the structured response from the payout wallet validation LLM call.
+type ValidatePayoutWalletResult struct {
+	IsValid bool   `json:"is_valid"`
+	Reason  string `json:"reason"`
+}
+
 // LLMProvider represents a generic LLM service provider for text completion
 type LLMProvider interface {
 	// GenerateResponse sends a conversational history to the LLM and gets a response.
 	GenerateResponse(ctx context.Context, messages []Message, tools []Tool) (*LLMResponse, error)
+	// ValidateWalletWithPrompt uses the LLM to validate a wallet based on a given prompt.
+	ValidateWalletWithPrompt(ctx context.Context, payoutWallet string, validationPrompt string) (ValidatePayoutWalletResult, error)
 }
 
 // Tool defines a function the LLM can invoke.
@@ -258,6 +266,56 @@ func (p *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Messag
 	return response, nil
 }
 
+// ValidateWalletWithPrompt uses the LLM to validate a wallet based on a given prompt.
+func (p *OpenAIProvider) ValidateWalletWithPrompt(ctx context.Context, payoutWallet string, validationPrompt string) (ValidatePayoutWalletResult, error) {
+	prompt := fmt.Sprintf("Please validate the payout wallet `%s` based on the following prompt: %s", payoutWallet, validationPrompt)
+
+	messages := []Message{
+		{
+			Role:    "user",
+			Content: prompt,
+		},
+	}
+
+	tools := []Tool{
+		{
+			Name:        "submit_wallet_validation",
+			Description: "Determine if a payout wallet is valid and provide a reason.",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"is_valid": map[string]interface{}{
+						"type":        "boolean",
+						"description": "True if the payout wallet is valid.",
+					},
+					"reason": map[string]interface{}{
+						"type":        "string",
+						"description": "A brief explanation for the decision.",
+					},
+				},
+				"required":             []string{"is_valid", "reason"},
+				"additionalProperties": false,
+			},
+		},
+	}
+
+	resp, err := p.GenerateResponse(ctx, messages, tools)
+	if err != nil {
+		return ValidatePayoutWalletResult{IsValid: false, Reason: "LLM communication error"}, fmt.Errorf("failed to get LLM response: %w", err)
+	}
+
+	if len(resp.ToolCalls) != 1 {
+		return ValidatePayoutWalletResult{IsValid: false, Reason: "LLM response format error"}, fmt.Errorf("unexpected number of tool calls: %d", len(resp.ToolCalls))
+	}
+
+	var result ValidatePayoutWalletResult
+	if err := json.Unmarshal([]byte(resp.ToolCalls[0].Arguments), &result); err != nil {
+		return ValidatePayoutWalletResult{IsValid: false, Reason: "LLM response parsing error"}, fmt.Errorf("failed to parse LLM response arguments: %w", err)
+	}
+
+	return result, nil
+}
+
 // OpenAIImageProvider implements ImageLLMProvider for OpenAI (Vision)
 type OpenAIImageProvider struct {
 	cfg ImageLLMConfig // Uses ImageLLMConfig
@@ -466,6 +524,10 @@ func (p *AnthropicProvider) GenerateResponse(ctx context.Context, messages []Mes
 	return nil, fmt.Errorf("not implemented")
 }
 
+func (p *AnthropicProvider) ValidateWalletWithPrompt(ctx context.Context, payoutWallet string, validationPrompt string) (ValidatePayoutWalletResult, error) {
+	return ValidatePayoutWalletResult{IsValid: false, Reason: "not implemented"}, fmt.Errorf("not implemented")
+}
+
 // OllamaProvider implements LLMProvider for Ollama
 type OllamaProvider struct {
 	cfg LLMConfig
@@ -476,4 +538,8 @@ func (p *OllamaProvider) GenerateResponse(ctx context.Context, messages []Messag
 	// We'll rely on prompt engineering and the json format parameter.
 	// This implementation will ignore the schema.
 	return nil, fmt.Errorf("not implemented")
+}
+
+func (p *OllamaProvider) ValidateWalletWithPrompt(ctx context.Context, payoutWallet string, validationPrompt string) (ValidatePayoutWalletResult, error) {
+	return ValidatePayoutWalletResult{IsValid: false, Reason: "not implemented"}, fmt.Errorf("not implemented")
 }

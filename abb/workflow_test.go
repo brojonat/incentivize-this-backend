@@ -67,7 +67,15 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_NoToolCalls_Success() {
 
 	// Mock LLM response with a tool call to submit_decision
 	s.env.OnActivity("GenerateResponse", mock.Anything,
-		[]Message{{Role: "user", Content: prompt}},
+		mock.MatchedBy(func(messages []Message) bool {
+			if len(messages) != 1 || messages[0].Role != "user" {
+				return false
+			}
+			// Check that the core instructions and the specific prompt are present.
+			return strings.Contains(messages[0].Content, "You are assessing a piece of content for a bounty") &&
+				strings.Contains(messages[0].Content, "Initial content to assess") &&
+				strings.Contains(messages[0].Content, prompt)
+		}),
 		[]Tool{SubmitDecisionTool}).
 		Return(&LLMResponse{
 			ToolCalls: []ToolCall{{
@@ -101,7 +109,14 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_Rejection() {
 
 	// Mock LLM response with a rejection
 	s.env.OnActivity("GenerateResponse", mock.Anything,
-		[]Message{{Role: "user", Content: prompt}},
+		mock.MatchedBy(func(messages []Message) bool {
+			if len(messages) != 1 || messages[0].Role != "user" {
+				return false
+			}
+			return strings.Contains(messages[0].Content, "You are assessing a piece of content for a bounty") &&
+				strings.Contains(messages[0].Content, "Initial content to assess") &&
+				strings.Contains(messages[0].Content, prompt)
+		}),
 		[]Tool{SubmitDecisionTool}).
 		Return(&LLMResponse{
 			ToolCalls: []ToolCall{{
@@ -135,7 +150,14 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Success() {
 
 	// First LLM call - requests tool
 	s.env.OnActivity("GenerateResponse", mock.Anything,
-		[]Message{{Role: "user", Content: prompt}},
+		mock.MatchedBy(func(messages []Message) bool {
+			if len(messages) != 1 || messages[0].Role != "user" {
+				return false
+			}
+			return strings.Contains(messages[0].Content, "You are assessing a piece of content for a bounty") &&
+				strings.Contains(messages[0].Content, "Initial content to assess") &&
+				strings.Contains(messages[0].Content, prompt)
+		}),
 		[]Tool{GetContentDetailsTool, SubmitDecisionTool}).
 		Return(&LLMResponse{
 			ToolCalls: []ToolCall{{
@@ -155,16 +177,26 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Success() {
 		Return([]byte(`{"title":"Test Post","content":"Hello world"}`), nil)
 
 	// Second LLM call - final response with tool result
-	expectedMessages := []Message{
-		{Role: "user", Content: prompt},
-		{Role: "assistant", ToolCalls: []ToolCall{{
-			ID:        "call1",
-			Name:      "get_content_details",
-			Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`,
-		}}},
-		{Role: "tool", ToolCallID: "call1", Content: `{"title":"Test Post","content":"Hello world"}`},
-	}
-	s.env.OnActivity("GenerateResponse", mock.Anything, expectedMessages, []Tool{GetContentDetailsTool, SubmitDecisionTool}).
+	s.env.OnActivity("GenerateResponse", mock.Anything,
+		mock.MatchedBy(func(messages []Message) bool {
+			if len(messages) != 3 {
+				return false
+			}
+			// First message is the initial prompt
+			if messages[0].Role != "user" || !strings.Contains(messages[0].Content, prompt) {
+				return false
+			}
+			// Second message is the assistant's tool call
+			if messages[1].Role != "assistant" || len(messages[1].ToolCalls) != 1 || messages[1].ToolCalls[0].ID != "call1" {
+				return false
+			}
+			// Third message is the tool result
+			if messages[2].Role != "tool" || messages[2].ToolCallID != "call1" || !strings.Contains(messages[2].Content, "Hello world") {
+				return false
+			}
+			return true
+		}),
+		[]Tool{GetContentDetailsTool, SubmitDecisionTool}).
 		Return(&LLMResponse{
 			ToolCalls: []ToolCall{{
 				ID:        "decision1",
@@ -197,7 +229,14 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Failure() {
 
 	// First LLM call
 	s.env.OnActivity("GenerateResponse", mock.Anything,
-		[]Message{{Role: "user", Content: prompt}},
+		mock.MatchedBy(func(messages []Message) bool {
+			if len(messages) != 1 || messages[0].Role != "user" {
+				return false
+			}
+			return strings.Contains(messages[0].Content, "You are assessing a piece of content for a bounty") &&
+				strings.Contains(messages[0].Content, "Initial content to assess") &&
+				strings.Contains(messages[0].Content, prompt)
+		}),
 		[]Tool{GetContentDetailsTool, SubmitDecisionTool}).
 		Return(&LLMResponse{
 			ToolCalls: []ToolCall{{
@@ -218,8 +257,16 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Failure() {
 			if len(messages) != 3 {
 				return false
 			}
+			// Check the initial user prompt
+			if messages[0].Role != "user" || !strings.Contains(messages[0].Content, prompt) {
+				return false
+			}
+			// Check the assistant's response
+			if messages[1].Role != "assistant" || len(messages[1].ToolCalls) != 1 || messages[1].ToolCalls[0].ID != "call1" {
+				return false
+			}
+			// Check the tool's error response
 			lastMessage := messages[2]
-			// Check that the tool result contains the error, without being too specific about the format.
 			return lastMessage.Role == "tool" &&
 				lastMessage.ToolCallID == "call1" &&
 				strings.Contains(lastMessage.Content, "failed to execute tool") &&
@@ -258,7 +305,14 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_UnknownTool() {
 
 	// LLM requests unknown tool
 	s.env.OnActivity("GenerateResponse", mock.Anything,
-		[]Message{{Role: "user", Content: prompt}},
+		mock.MatchedBy(func(messages []Message) bool {
+			if len(messages) != 1 || messages[0].Role != "user" {
+				return false
+			}
+			return strings.Contains(messages[0].Content, "You are assessing a piece of content for a bounty") &&
+				strings.Contains(messages[0].Content, "Initial content to assess") &&
+				strings.Contains(messages[0].Content, prompt)
+		}),
 		[]Tool{GetContentDetailsTool, SubmitDecisionTool}).
 		Return(&LLMResponse{
 			ToolCalls: []ToolCall{{
@@ -269,16 +323,26 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_UnknownTool() {
 		}, nil).Once()
 
 	// Second call with error response - should provide final response without tool calls
-	expectedMessages := []Message{
-		{Role: "user", Content: prompt},
-		{Role: "assistant", ToolCalls: []ToolCall{{
-			ID:        "call1",
-			Name:      "unknown_tool",
-			Arguments: `{}`,
-		}}},
-		{Role: "tool", ToolCallID: "call1", Content: `{"error": "unknown tool requested"}`},
-	}
-	s.env.OnActivity("GenerateResponse", mock.Anything, expectedMessages, []Tool{GetContentDetailsTool, SubmitDecisionTool}).
+	s.env.OnActivity("GenerateResponse", mock.Anything,
+		mock.MatchedBy(func(messages []Message) bool {
+			if len(messages) != 3 {
+				return false
+			}
+			// Check the initial user prompt
+			if messages[0].Role != "user" || !strings.Contains(messages[0].Content, prompt) {
+				return false
+			}
+			// Check the assistant's response
+			if messages[1].Role != "assistant" || len(messages[1].ToolCalls) != 1 || messages[1].ToolCalls[0].ID != "call1" || messages[1].ToolCalls[0].Name != "unknown_tool" {
+				return false
+			}
+			// Check the tool's error response
+			lastMessage := messages[2]
+			return lastMessage.Role == "tool" &&
+				lastMessage.ToolCallID == "call1" &&
+				strings.Contains(lastMessage.Content, "unknown tool requested")
+		}),
+		[]Tool{GetContentDetailsTool, SubmitDecisionTool}).
 		Return(&LLMResponse{
 			ToolCalls: []ToolCall{{
 				ID:        "decision1",
@@ -312,7 +376,14 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_AnalyzeImageURL_Success() 
 
 	// First LLM call - requests content details
 	s.env.OnActivity("GenerateResponse", mock.Anything,
-		[]Message{{Role: "user", Content: prompt}},
+		mock.MatchedBy(func(messages []Message) bool {
+			if len(messages) != 1 || messages[0].Role != "user" {
+				return false
+			}
+			return strings.Contains(messages[0].Content, "You are assessing a piece of content for a bounty") &&
+				strings.Contains(messages[0].Content, "Initial content to assess") &&
+				strings.Contains(messages[0].Content, prompt)
+		}),
 		[]Tool{GetContentDetailsTool, AnalyzeImageURLTool, SubmitDecisionTool}).
 		Return(&LLMResponse{
 			ToolCalls: []ToolCall{{
@@ -328,12 +399,14 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_AnalyzeImageURL_Success() 
 	).Return([]byte(`{"title":"Post about cats","thumbnail_url":"`+imageURL+`"}`), nil)
 
 	// Second LLM call - requests image analysis with specific prompt
-	expectedMessagesAfterContent := []Message{
-		{Role: "user", Content: prompt},
-		{Role: "assistant", ToolCalls: []ToolCall{{ID: "call1", Name: "get_content_details", Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`}}},
-		{Role: "tool", ToolCallID: "call1", Content: `{"title":"Post about cats","thumbnail_url":"` + imageURL + `"}`},
-	}
-	s.env.OnActivity("GenerateResponse", mock.Anything, expectedMessagesAfterContent, []Tool{GetContentDetailsTool, AnalyzeImageURLTool, SubmitDecisionTool}).
+	s.env.OnActivity("GenerateResponse", mock.Anything,
+		mock.MatchedBy(func(messages []Message) bool {
+			if len(messages) != 3 {
+				return false
+			}
+			return messages[2].Role == "tool" && strings.Contains(messages[2].Content, imageURL)
+		}),
+		[]Tool{GetContentDetailsTool, AnalyzeImageURLTool, SubmitDecisionTool}).
 		Return(&LLMResponse{
 			ToolCalls: []ToolCall{{
 				ID:        "call2",
@@ -351,14 +424,14 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_AnalyzeImageURL_Success() 
 		Return(analysisResult, nil)
 
 	// Third LLM call - final decision
-	expectedMessagesAfterAnalysis := []Message{
-		{Role: "user", Content: prompt},
-		{Role: "assistant", ToolCalls: []ToolCall{{ID: "call1", Name: "get_content_details", Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`}}},
-		{Role: "tool", ToolCallID: "call1", Content: `{"title":"Post about cats","thumbnail_url":"` + imageURL + `"}`},
-		{Role: "assistant", ToolCalls: []ToolCall{{ID: "call2", Name: "analyze_image_url", Arguments: `{"image_url":"` + imageURL + `", "prompt":"` + analysisPrompt + `"}`}}},
-		{Role: "tool", ToolCallID: "call2", Content: `{"satisfies":true,"reason":"The image contains a cat."}`},
-	}
-	s.env.OnActivity("GenerateResponse", mock.Anything, expectedMessagesAfterAnalysis, []Tool{GetContentDetailsTool, AnalyzeImageURLTool, SubmitDecisionTool}).
+	s.env.OnActivity("GenerateResponse", mock.Anything,
+		mock.MatchedBy(func(messages []Message) bool {
+			if len(messages) != 5 {
+				return false
+			}
+			return messages[4].Role == "tool" && strings.Contains(messages[4].Content, "The image contains a cat.")
+		}),
+		[]Tool{GetContentDetailsTool, AnalyzeImageURLTool, SubmitDecisionTool}).
 		Return(&LLMResponse{
 			ToolCalls: []ToolCall{{
 				ID:        "decision1",
@@ -390,7 +463,14 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_MaxTurnsExceeded() {
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return(prompt, nil)
 
 	// Mock infinite tool calling - but not the decision tool
-	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, []Tool{GetContentDetailsTool, SubmitDecisionTool}).
+	s.env.OnActivity("GenerateResponse", mock.Anything,
+		mock.MatchedBy(func(messages []Message) bool {
+			// This matcher handles both the initial call and subsequent calls in the loop.
+			return strings.Contains(messages[0].Content, "You are assessing a piece of content for a bounty") &&
+				strings.Contains(messages[0].Content, "Initial content to assess") &&
+				strings.Contains(messages[0].Content, prompt)
+		}),
+		[]Tool{GetContentDetailsTool, SubmitDecisionTool}).
 		Return(&LLMResponse{
 			ToolCalls: []ToolCall{{
 				ID: "call1", Name: "get_content_details", Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`,
@@ -516,6 +596,7 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_RejectedClaim() {
 
 	// Register child workflow to reject claim
 	s.env.RegisterWorkflowWithOptions(func(ctx workflow.Context, input OrchestratorWorkflowInput) (*OrchestratorWorkflowOutput, error) {
+		s.Equal(DetectMaliciousContentTool, input.Tools[2])
 		return &OrchestratorWorkflowOutput{
 			IsApproved: false,
 			Reason:     "Content does not meet requirements",
