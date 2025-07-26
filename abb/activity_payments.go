@@ -588,13 +588,30 @@ func checkTokenBalancesForTransfer(
 	return true, funderWallet, nil
 }
 
-type PayBountyInput struct {
-	Recipient string
-	Amount    *solanautil.USDCAmount
+func (a *Activities) PayBountyActivity(
+	ctx context.Context,
+	bountyID string,
+	recipient string,
+	amount *solanautil.USDCAmount,
+) error {
+	memo := fmt.Sprintf("{\"bounty_id\": \"%s\", \"purpose\": \"bounty_payment\"}", bountyID)
+	activity.GetLogger(ctx).Info("Executing USDC payment for bounty",
+		"bounty_id", bountyID,
+		"recipient", recipient,
+		"amount", amount.ToUSDC())
+	return a.TransferUSDC(ctx, recipient, amount.ToUSDC(), memo)
 }
 
-func (a *Activities) PayBountyActivity(ctx context.Context, input PayBountyInput) error {
-	// This is a placeholder for the actual USDC transfer logic.
-	activity.GetLogger(ctx).Info("Executing mock USDC payment", "recipient", input.Recipient, "amount", input.Amount.ToUSDC())
-	return nil
+func (a *Activities) RefundBountyActivity(
+	ctx context.Context,
+	bountyID string,
+	refundRecipient string,
+	amount *solanautil.USDCAmount,
+) error {
+	memo := fmt.Sprintf("{\"bounty_id\": \"%s\", \"purpose\": \"refund\"}", bountyID)
+	activity.GetLogger(ctx).Info("Executing bounty refund",
+		"bounty_id", bountyID,
+		"recipient", refundRecipient,
+		"amount", amount.ToUSDC())
+	return a.TransferUSDC(ctx, refundRecipient, amount.ToUSDC(), memo)
 }

@@ -24,3 +24,56 @@ var GetContentDetailsTool = Tool{
 		"required": []interface{}{"platform", "content_kind", "content_id"},
 	},
 }
+
+var SubmitDecisionTool = Tool{
+	Name:        "submit_decision",
+	Description: "Submits the final decision on whether the content is approved for the bounty, along with the reason and payout amount.",
+	Parameters: map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"is_approved": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Whether the content is approved for the bounty payout.",
+			},
+			"reason": map[string]interface{}{
+				"type":        "string",
+				"description": "A detailed explanation for the decision.",
+			},
+		},
+		"required": []interface{}{"is_approved", "reason"},
+	},
+}
+
+var AnalyzeImageURLTool = Tool{
+	Name:        "analyze_image_url",
+	Description: "Analyzes an image from a URL to determine if it meets the bounty requirements. This is useful for bounties that require specific types of images.",
+	Parameters: map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"image_url": map[string]interface{}{
+				"type":        "string",
+				"description": "The URL of the image to analyze.",
+			},
+			"prompt": map[string]interface{}{
+				"type":        "string",
+				"description": "The specific requirement the image must meet. For example, 'the image must contain a cat'.",
+			},
+		},
+		"required": []interface{}{"image_url", "prompt"},
+	},
+}
+
+var DetectMaliciousContentTool = Tool{
+	Name:        "detect_malicious_content",
+	Description: "Detects if a piece of content contains a prompt injection attack or other malicious content.",
+	Parameters: map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"content": map[string]interface{}{
+				"type":        "string",
+				"description": "The content to check.",
+			},
+		},
+		"required": []interface{}{"content"},
+	},
+}
