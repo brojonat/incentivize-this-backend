@@ -2,11 +2,11 @@ package main
 
 import (
 	"log"
+	"log/slog"
+	"os"
 
-	"github.com/brojonat/affiliate-bounty-board/abb"
+	"github.com/brojonat/affiliate-bounty-board/worker"
 	"github.com/urfave/cli/v2"
-	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/worker"
 )
 
 func workerCommands() []*cli.Command {
@@ -52,36 +52,14 @@ func runWorker(c *cli.Context) error {
 	temporalNamespace := c.String("temporal-namespace")
 	taskQueue := c.String("task-queue")
 
-	// Create the client object just once per process
-	client, err := client.Dial(client.Options{
-		HostPort:  temporalAddr,
-		Namespace: temporalNamespace,
-	})
-	if err != nil {
-		log.Fatalln("Unable to create Temporal client", err)
+	// Initialize the logger
+	lvl := new(slog.LevelVar)
+	lvl.Set(slog.LevelInfo)
+	l := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
+
+	if err := worker.RunWorker(c.Context, l, temporalAddr, temporalNamespace, taskQueue); err != nil {
+		log.Fatalln("Worker failed to run", "error", err)
 	}
-	defer client.Close()
 
-	// Initialize the Temporal worker.
-	w := worker.New(client, taskQueue, worker.Options{})
-
-	// Register the workflows.
-	w.RegisterWorkflow(abb.BountyAssessmentWorkflow)
-	w.RegisterWorkflow(abb.OrchestratorWorkflow)
-	w.RegisterWorkflow(abb.ContactUsNotifyWorkflow)
-	w.RegisterWorkflow(abb.EmailTokenWorkflow)
-
-	// Register the activities.
-	activities, err := abb.NewActivities()
-	if err != nil {
-		log.Fatalln("Unable to create activities", err)
-	}
-	w.RegisterActivity(activities)
-
-	// Start the worker.
-	err = w.Run(worker.InterruptCh())
-	if err != nil {
-		log.Fatalln("Unable to start worker", err)
-	}
-	return err
+	return nil
 }

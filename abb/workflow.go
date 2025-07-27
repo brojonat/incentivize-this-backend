@@ -68,8 +68,8 @@ const (
 // Signal Name Constants
 const (
 	AssessmentSignalName        = "assessment"
-	CancelSignalName            = "cancel"
 	GetPaidBountiesQueryType    = "getPaidBounties"
+	GetBountyDetailsQueryType   = "getBountyDetails"
 	DefaultPayoutTimeout        = 10 * time.Minute
 	ContentReassessmentCooldown = 24 * time.Hour
 )
@@ -82,20 +82,40 @@ type AssessContentSignal struct {
 	ContentKind  ContentKind  `json:"content_kind"`
 }
 
+// BountyDetails represents the detailed state of a bounty, suitable for querying.
+type BountyDetails struct {
+	BountyID                string       `json:"bounty_id"`
+	Title                   string       `json:"title"`
+	Status                  BountyStatus `json:"status"`
+	Requirements            []string     `json:"requirements"`
+	BountyPerPost           float64      `json:"bounty_per_post"`
+	TotalBounty             float64      `json:"total_bounty"`
+	TotalCharged            float64      `json:"total_charged"`
+	RemainingBountyValue    float64      `json:"remaining_bounty_value"`
+	BountyFunderWallet      string       `json:"bounty_funder_wallet,omitempty"`
+	PlatformKind            PlatformKind `json:"platform_kind"`
+	ContentKind             ContentKind  `json:"content_kind"`
+	Tier                    BountyTier   `json:"tier"`
+	CreatedAt               time.Time    `json:"created_at"`
+	EndAt                   time.Time    `json:"end_at"`
+	PaymentTimeoutExpiresAt *time.Time   `json:"payment_timeout_expires_at,omitempty"`
+}
+
 // BountyAssessmentWorkflowInput represents the input parameters for the workflow
 type BountyAssessmentWorkflowInput struct {
-	Title          string             `json:"title"`
-	Requirements   []string           `json:"requirements"`
-	BountyPerPost  *solana.USDCAmount `json:"bounty_per_post"`
-	TotalBounty    *solana.USDCAmount `json:"total_bounty"`
-	TotalCharged   *solana.USDCAmount `json:"total_charged"`
-	Platform       PlatformKind       `json:"platform"`
-	ContentKind    ContentKind        `json:"content_kind"`
-	Tier           BountyTier         `json:"tier"`
-	PaymentTimeout time.Duration      `json:"payment_timeout"`
-	Timeout        time.Duration      `json:"timeout"`
-	TreasuryWallet string             `json:"treasury_wallet"`
-	EscrowWallet   string             `json:"escrow_wallet"`
+	Title             string             `json:"title"`
+	Requirements      []string           `json:"requirements"`
+	BountyPerPost     *solana.USDCAmount `json:"bounty_per_post"`
+	TotalBounty       *solana.USDCAmount `json:"total_bounty"`
+	TotalCharged      *solana.USDCAmount `json:"total_charged"`
+	Platform          PlatformKind       `json:"platform"`
+	ContentKind       ContentKind        `json:"content_kind"`
+	Tier              BountyTier         `json:"tier"`
+	PaymentTimeout    time.Duration      `json:"payment_timeout"`
+	Timeout           time.Duration      `json:"timeout"`
+	TreasuryWallet    string             `json:"treasury_wallet"`
+	EscrowWallet      string             `json:"escrow_wallet"`
+	MaxPayoutsPerUser int                `json:"max_payouts_per_user"`
 }
 
 // BountyState manages the state of the bounty within the workflow.
@@ -108,6 +128,7 @@ type BountyState struct {
 	TotalCharged   *solana.USDCAmount
 	ValueRemaining *solana.USDCAmount
 	Payouts        []PayoutDetail
+	PayoutCounts   map[string]int
 	Platform       PlatformKind
 	ContentKind    ContentKind
 	Timeout        time.Duration
@@ -118,6 +139,7 @@ type BountyState struct {
 // BountyAssessmentWorkflow is the main workflow for managing a bounty.
 func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkflowInput) error {
 	logger := workflow.GetLogger(ctx)
+	startTime := workflow.Now(ctx)
 	ao := workflow.ActivityOptions{StartToCloseTimeout: 1 * time.Minute}
 	ctx = workflow.WithActivityOptions(ctx, ao)
 	a := &Activities{}
@@ -129,11 +151,41 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 		BountyPerPost:  input.BountyPerPost,
 		ValueRemaining: input.TotalBounty,
 		Payouts:        make([]PayoutDetail, 0),
+		PayoutCounts:   make(map[string]int),
 		Platform:       input.Platform,
 		ContentKind:    input.ContentKind,
 		Timeout:        input.Timeout,
 		FailedClaims:   make(map[string]time.Time),
 	}
+
+	workflow.SetQueryHandler(ctx, GetPaidBountiesQueryType, func() ([]PayoutDetail, error) {
+		return bountyState.Payouts, nil
+	})
+
+	workflow.SetQueryHandler(ctx, GetBountyDetailsQueryType, func() (*BountyDetails, error) {
+		info := workflow.GetInfo(ctx)
+		details := &BountyDetails{
+			BountyID:             info.WorkflowExecution.ID,
+			Title:                input.Title,
+			Status:               bountyState.Status,
+			Requirements:         input.Requirements,
+			BountyPerPost:        input.BountyPerPost.ToUSDC(),
+			TotalBounty:          input.TotalBounty.ToUSDC(),
+			TotalCharged:         input.TotalCharged.ToUSDC(),
+			RemainingBountyValue: bountyState.ValueRemaining.ToUSDC(),
+			BountyFunderWallet:   bountyState.FunderWallet,
+			PlatformKind:         input.Platform,
+			ContentKind:          input.ContentKind,
+			Tier:                 input.Tier,
+			CreatedAt:            startTime,
+			EndAt:                startTime.Add(input.Timeout),
+		}
+		if details.Status == BountyStatusAwaitingFunding {
+			expiresAt := startTime.Add(input.PaymentTimeout)
+			details.PaymentTimeoutExpiresAt = &expiresAt
+		}
+		return details, nil
+	})
 
 	// Wait for funding
 	var funderWallet string
@@ -156,9 +208,17 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	bountyState.Status = BountyStatusListening
 	logger.Info("Bounty funded. Listening for submissions.", "funder_wallet", funderWallet)
 
+	// Update search attributes to reflect the funded status
+	if err := workflow.UpsertTypedSearchAttributes(ctx,
+		BountyFunderWalletKey.ValueSet(funderWallet),
+		BountyStatusKey.ValueSet(string(BountyStatusListening)),
+	); err != nil {
+		logger.Error("Failed to upsert search attributes after funding", "error", err)
+		// This is not a fatal error for the workflow itself, so just log it.
+	}
+
 	// Main loop for listening to signals, cancellation, or timing out
 	assessmentChan := workflow.GetSignalChannel(ctx, AssessmentSignalName)
-	cancelChan := workflow.GetSignalChannel(ctx, CancelSignalName)
 
 	for {
 		// Check if insufficient balance for next payout
@@ -166,6 +226,9 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 			logger.Info("Insufficient balance for next payout. Closing bounty.",
 				"remaining", bountyState.ValueRemaining, "needed", bountyState.BountyPerPost)
 			bountyState.Status = BountyStatusDrained
+			if err := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusDrained))); err != nil {
+				logger.Error("Failed to upsert search attributes for drained status", "error", err)
+			}
 			break
 		}
 
@@ -178,18 +241,22 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 			processClaim(ctx, a, bountyState, signal, logger, input)
 		})
 
-		// Listen for cancellation signals
-		selector.AddReceive(cancelChan, func(c workflow.ReceiveChannel, more bool) {
-			var signal struct{} // Empty signal payload
-			c.Receive(ctx, &signal)
+		// Listen for cancellation via the workflow's context
+		selector.AddReceive(ctx.Done(), func(c workflow.ReceiveChannel, more bool) {
 			logger.Info("Bounty cancellation requested")
 			bountyState.Status = BountyStatusCancelled
+			if err := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusCancelled))); err != nil {
+				logger.Error("Failed to upsert search attributes for cancelled status", "error", err)
+			}
 		})
 
 		// Listen for timeout
 		selector.AddFuture(workflow.NewTimer(ctx, bountyState.Timeout), func(f workflow.Future) {
 			logger.Info("Bounty timeout reached")
 			bountyState.Status = BountyStatusClosed
+			if err := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusClosed))); err != nil {
+				logger.Error("Failed to upsert search attributes for closed status", "error", err)
+			}
 		})
 
 		selector.Select(ctx)
@@ -199,18 +266,14 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 		}
 	}
 
-	// Process final payouts
-	if len(bountyState.Payouts) > 0 {
-		for _, p := range bountyState.Payouts {
-			workflow.ExecuteActivity(ctx, a.PayBountyActivity, bountyState.BountyID, p.PayoutWallet, p.Amount).Get(ctx, nil) // Wait for each payout to complete
-		}
-	}
-
 	// Send any remaining balance back to the funder wallet
 	if bountyState.ValueRemaining.IsPositive() {
 		logger.Info("Refunding remaining balance", "amount", bountyState.ValueRemaining, "funder_wallet", bountyState.FunderWallet)
 
-		err := workflow.ExecuteActivity(ctx, a.RefundBountyActivity, bountyState.BountyID, bountyState.FunderWallet, bountyState.ValueRemaining).Get(ctx, nil)
+		// Use a disconnected context to ensure refund completes even if the parent workflow is cancelled.
+		refundCtx, cancel := workflow.NewDisconnectedContext(ctx)
+		defer cancel()
+		err := workflow.ExecuteActivity(refundCtx, a.RefundBountyActivity, bountyState.BountyID, bountyState.FunderWallet, bountyState.ValueRemaining).Get(refundCtx, nil)
 		if err != nil {
 			logger.Error("Failed to refund remaining balance", "error", err)
 			// Don't fail the workflow - log and continue
@@ -224,11 +287,21 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 }
 
 func processClaim(ctx workflow.Context, a *Activities, bountyState *BountyState, signal AssessContentSignal, logger log.Logger, bountyInput BountyAssessmentWorkflowInput) {
+	maxPayouts := bountyInput.MaxPayoutsPerUser
+	if maxPayouts <= 0 {
+		maxPayouts = 1
+	}
+
 	if lastFailureTime, ok := bountyState.FailedClaims[signal.ContentID]; ok {
 		if workflow.Now(ctx).Sub(lastFailureTime) < ContentReassessmentCooldown {
 			logger.Info("Content is on cooldown.", "content_id", signal.ContentID)
 			return
 		}
+	}
+
+	if bountyState.PayoutCounts[signal.PayoutWallet] >= maxPayouts {
+		logger.Info("User has reached the maximum payout limit for this bounty.", "wallet", signal.PayoutWallet)
+		return
 	}
 
 	var orchestratorResult OrchestratorWorkflowOutput
@@ -246,27 +319,45 @@ func processClaim(ctx workflow.Context, a *Activities, bountyState *BountyState,
 
 	payoutAmount := bountyState.BountyPerPost
 
-	// Check if we have sufficient balance for this payout
 	if bountyState.ValueRemaining.Cmp(payoutAmount) < 0 {
-		logger.Warn("Insufficient balance for payout",
-			"requested", payoutAmount, "available", bountyState.ValueRemaining)
+		logger.Warn("Insufficient balance for payout", "requested", payoutAmount, "available", bountyState.ValueRemaining)
 		bountyState.FailedClaims[signal.ContentID] = workflow.Now(ctx)
 		return
 	}
 
-	bountyState.Payouts = append(bountyState.Payouts, PayoutDetail{
+	payoutDetail := PayoutDetail{
 		ContentID:    signal.ContentID,
 		PayoutWallet: signal.PayoutWallet,
 		Amount:       payoutAmount,
 		Timestamp:    workflow.Now(ctx),
 		Platform:     bountyState.Platform,
 		ContentKind:  bountyState.ContentKind,
-	})
+	}
+
+	// Execute immediate payout
+	payoutErr := workflow.ExecuteActivity(ctx, a.PayBountyActivity, bountyState.BountyID, payoutDetail.PayoutWallet, payoutDetail.Amount).Get(ctx, nil)
+	if payoutErr != nil {
+		logger.Error("Payout failed", "error", payoutErr, "wallet", payoutDetail.PayoutWallet)
+		bountyState.FailedClaims[signal.ContentID] = workflow.Now(ctx)
+		return
+	}
+
+	bountyState.Payouts = append(bountyState.Payouts, payoutDetail)
+	bountyState.PayoutCounts[signal.PayoutWallet]++
 	bountyState.ValueRemaining = bountyState.ValueRemaining.Sub(payoutAmount)
-	logger.Info("Payout recorded", "amount", payoutAmount)
+	logger.Info("Payout successful", "amount", payoutAmount, "wallet", signal.PayoutWallet, "content_id", signal.ContentID)
+
+	searchAttributes := []temporal.SearchAttributeUpdate{
+		BountyValueRemainingKey.ValueSet(bountyState.ValueRemaining.ToUSDC()),
+	}
 
 	if bountyState.ValueRemaining.IsZero() {
 		bountyState.Status = BountyStatusDrained
+		searchAttributes = append(searchAttributes, BountyStatusKey.ValueSet(string(BountyStatusDrained)))
+	}
+
+	if err := workflow.UpsertTypedSearchAttributes(ctx, searchAttributes...); err != nil {
+		logger.Error("Failed to upsert search attributes after processing claim", "error", err)
 	}
 }
 
@@ -311,7 +402,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 	// Add the decision tool to the list of available tools.
 	tools := append(input.Tools, SubmitDecisionTool)
 
-	for range OrchestratorMaxTurns {
+	for i := 0; i < OrchestratorMaxTurns; i++ {
 		var llmResponse LLMResponse
 		err := workflow.ExecuteActivity(ctx, a.GenerateResponse, messages, tools).Get(ctx, &llmResponse)
 		if err != nil {
@@ -373,13 +464,14 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 					}
 				case "detect_malicious_content":
 					var args struct {
-						Content string `json:"content"`
+						ContentID string `json:"content_id"`
+						Prompt    string `json:"prompt"`
 					}
 					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
 						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
 					} else {
 						var result DetectMaliciousContentResult
-						activityErr := workflow.ExecuteActivity(ctx, a.DetectMaliciousContent, []byte(args.Content)).Get(ctx, &result)
+						activityErr := workflow.ExecuteActivity(ctx, a.DetectMaliciousContent, args.ContentID, args.Prompt).Get(ctx, &result)
 						if activityErr != nil {
 							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
 						} else {
@@ -478,4 +570,63 @@ func EmailTokenWorkflow(ctx workflow.Context, input EmailTokenWorkflowInput) err
 		APIKey: input.Token,
 	}
 	return workflow.ExecuteActivity(ctx, a.MarkGumroadSaleNotifiedActivity, markInput).Get(ctx, nil)
+}
+
+func PruneStaleEmbeddingsWorkflow(ctx workflow.Context) (string, error) {
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    10 * time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumInterval:    2 * time.Minute,
+			MaximumAttempts:    3,
+		},
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	var result string
+	err := workflow.ExecuteActivity(ctx, (*Activities).PruneStaleEmbeddingsActivity, PruneStaleEmbeddingsActivityInput{}).Get(ctx, &result)
+	if err != nil {
+		return "", fmt.Errorf("PruneStaleEmbeddingsActivity failed: %w", err)
+	}
+
+	return result, nil
+}
+
+// GumroadNotifyWorkflowInput defines the input for the ScheduledGumroadNotifyWorkflow.
+// It specifies how far back the notify job should look.
+type GumroadNotifyWorkflowInput struct {
+	LookbackDuration time.Duration `json:"lookback_duration"`
+}
+
+// GumroadNotifyWorkflow is a simple workflow that calls an activity
+// to trigger Gumroad notifications based on a lookback duration.
+// This workflow is intended to be run on a schedule (e.g., every 5 minutes).
+func GumroadNotifyWorkflow(ctx workflow.Context, input GumroadNotifyWorkflowInput) error {
+	logger := workflow.GetLogger(ctx)
+	logger.Info("GumroadNotifyWorkflow started", "lookbackDuration", input.LookbackDuration)
+
+	activityOptions := workflow.ActivityOptions{
+		StartToCloseTimeout: 2 * time.Minute, // Timeout for the activity call
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    10 * time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumInterval:    time.Minute,
+			MaximumAttempts:    3,
+		},
+	}
+	ctx = workflow.WithActivityOptions(ctx, activityOptions)
+
+	activityInput := CallGumroadNotifyActivityInput{
+		LookbackDuration: input.LookbackDuration,
+	}
+
+	err := workflow.ExecuteActivity(ctx, (*Activities).CallGumroadNotifyActivity, activityInput).Get(ctx, nil)
+	if err != nil {
+		logger.Error("GumroadNotifyWorkflow failed to execute CallGumroadNotifyActivity", "error", err)
+		return fmt.Errorf("GumroadNotifyActivity failed: %w", err)
+	}
+
+	logger.Info("GumroadNotifyWorkflow completed successfully")
+	return nil
 }

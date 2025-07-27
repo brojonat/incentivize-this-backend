@@ -152,11 +152,19 @@ type OpenAIProvider struct {
 func (p *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Message, tools []Tool) (*LLMResponse, error) {
 	// 1. Map our abstract aPI to the OpenAI specific API
 	// API specific-structs
+	type openAIToolCall struct {
+		ID       string `json:"id"`
+		Type     string `json:"type"`
+		Function struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		} `json:"function"`
+	}
 	type openAIMessage struct {
-		Role       string      `json:"role"`
-		Content    string      `json:"content"`
-		ToolCalls  []*ToolCall `json:"tool_calls,omitempty"`
-		ToolCallID string      `json:"tool_call_id,omitempty"`
+		Role       string           `json:"role"`
+		Content    string           `json:"content"`
+		ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
+		ToolCallID string           `json:"tool_call_id,omitempty"`
 	}
 	type openAITool struct {
 		Type     string `json:"type"`
@@ -172,9 +180,19 @@ func (p *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Messag
 			ToolCallID: msg.ToolCallID,
 		}
 		if msg.ToolCalls != nil {
-			apiMessages[i].ToolCalls = make([]*ToolCall, len(msg.ToolCalls))
+			apiMessages[i].ToolCalls = make([]openAIToolCall, len(msg.ToolCalls))
 			for j, tc := range msg.ToolCalls {
-				apiMessages[i].ToolCalls[j] = &tc
+				apiMessages[i].ToolCalls[j] = openAIToolCall{
+					ID:   tc.ID,
+					Type: "function",
+					Function: struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					}{
+						Name:      tc.Name,
+						Arguments: tc.Arguments,
+					},
+				}
 			}
 		}
 	}
@@ -188,22 +206,37 @@ func (p *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Messag
 		}
 	}
 
-	// 2. Create the request body
-	reqBody := struct {
-		Model       string          `json:"model"`
-		Messages    []openAIMessage `json:"messages"`
-		Tools       []openAITool    `json:"tools,omitempty"`
-		MaxTokens   int             `json:"max_tokens"`
-		Temperature float64         `json:"temperature"`
-	}{
-		Model:       p.cfg.Model,
-		Messages:    apiMessages,
-		Tools:       apiTools,
-		MaxTokens:   p.cfg.MaxTokens,
-		Temperature: p.cfg.Temperature,
+	// Define a type for the tool_choice parameter.
+	type openAIToolChoice struct {
+		Type     string `json:"type"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
 	}
 
-	jsonData, err := json.Marshal(reqBody)
+	// 2. Create the request body
+	rawReqBody := map[string]interface{}{
+		"model":       p.cfg.Model,
+		"messages":    apiMessages,
+		"tools":       apiTools,
+		"max_tokens":  p.cfg.MaxTokens,
+		"temperature": p.cfg.Temperature,
+	}
+
+	// If there is exactly one tool, force the model to use it.
+	// This is key for getting structured output for things like title inference.
+	if len(apiTools) == 1 {
+		rawReqBody["tool_choice"] = openAIToolChoice{
+			Type: "function",
+			Function: struct {
+				Name string `json:"name"`
+			}{
+				Name: apiTools[0].Function.Name,
+			},
+		}
+	}
+
+	jsonData, err := json.Marshal(rawReqBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal openai request body: %w", err)
 	}
@@ -238,8 +271,8 @@ func (p *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Messag
 	var result struct {
 		Choices []struct {
 			Message struct {
-				Content   string      `json:"content"`
-				ToolCalls []*ToolCall `json:"tool_calls"`
+				Content   string           `json:"content"`
+				ToolCalls []openAIToolCall `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
@@ -259,7 +292,11 @@ func (p *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Messag
 	if choice.ToolCalls != nil {
 		response.ToolCalls = make([]ToolCall, len(choice.ToolCalls))
 		for i, tc := range choice.ToolCalls {
-			response.ToolCalls[i] = *tc
+			response.ToolCalls[i] = ToolCall{
+				ID:        tc.ID,
+				Name:      tc.Function.Name,
+				Arguments: tc.Function.Arguments,
+			}
 		}
 	}
 

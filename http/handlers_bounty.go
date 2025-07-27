@@ -50,13 +50,14 @@ type ReturnBountyToOwnerRequest struct {
 
 // CreateBountyRequest represents the request body for creating a new bounty
 type CreateBountyRequest struct {
-	Title           string   `json:"title"`
-	Requirements    []string `json:"requirements"`
-	BountyPerPost   float64  `json:"bounty_per_post"`
-	TotalBounty     float64  `json:"total_bounty"`
-	FeePercentage   *float64 `json:"fee_percentage,omitempty"`
-	TimeoutDuration string   `json:"timeout_duration"`
-	Tier            string   `json:"tier,omitempty"`
+	Title             string   `json:"title"`
+	Requirements      []string `json:"requirements"`
+	BountyPerPost     float64  `json:"bounty_per_post"`
+	TotalBounty       float64  `json:"total_bounty"`
+	FeePercentage     *float64 `json:"fee_percentage,omitempty"`
+	TimeoutDuration   string   `json:"timeout_duration"`
+	Tier              string   `json:"tier,omitempty"`
+	MaxPayoutsPerUser *int     `json:"max_payouts_per_user,omitempty"`
 }
 
 // PaidBountyItem represents a single paid bounty in the list response
@@ -511,6 +512,12 @@ func handleCreateBounty(
 			feePercentage = defaultFeePercentage
 		}
 
+		// Max Payouts Per User
+		maxPayoutsPerUser := 1
+		if claims.Status >= UserStatusSudo && req.MaxPayoutsPerUser != nil && *req.MaxPayoutsPerUser > 0 && *req.MaxPayoutsPerUser <= 100 {
+			maxPayoutsPerUser = *req.MaxPayoutsPerUser
+		}
+
 		// Calculate the final bounty amount for the user after platform fees.
 		// This uses go-money for safe currency allocation.
 		totalMoney := money.NewFromFloat(req.TotalBounty, money.USD)
@@ -554,18 +561,19 @@ func handleCreateBounty(
 
 		// Create workflow input
 		input := abb.BountyAssessmentWorkflowInput{
-			Title:          bountyTitle,
-			Requirements:   req.Requirements,
-			BountyPerPost:  bountyPerPost,
-			TotalBounty:    totalBounty,
-			TotalCharged:   totalCharged,
-			Platform:       normalizedPlatform,
-			ContentKind:    normalizedContentKind,
-			Tier:           bountyTier,
-			Timeout:        bountyTimeoutDuration,
-			PaymentTimeout: 10 * time.Minute,
-			TreasuryWallet: os.Getenv(EnvSolanaTreasuryWallet),
-			EscrowWallet:   os.Getenv(EnvSolanaEscrowWallet),
+			Title:             bountyTitle,
+			Requirements:      req.Requirements,
+			BountyPerPost:     bountyPerPost,
+			TotalBounty:       totalBounty,
+			TotalCharged:      totalCharged,
+			Platform:          normalizedPlatform,
+			ContentKind:       normalizedContentKind,
+			Tier:              bountyTier,
+			Timeout:           bountyTimeoutDuration,
+			PaymentTimeout:    10 * time.Minute,
+			TreasuryWallet:    os.Getenv(EnvSolanaTreasuryWallet),
+			EscrowWallet:      os.Getenv(EnvSolanaEscrowWallet),
+			MaxPayoutsPerUser: maxPayoutsPerUser,
 		}
 
 		// Execute workflow
@@ -1227,168 +1235,50 @@ func handleGetBountyByID(l *slog.Logger, tc client.Client) http.HandlerFunc {
 			return
 		}
 
-		// Use a background context with timeout for Temporal calls
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
 
-		// Describe the workflow execution first to get status and potentially run ID
-		descResp, err := tc.DescribeWorkflowExecution(ctx, workflowID, "") // RunID can be empty
+		resp, err := tc.QueryWorkflow(ctx, workflowID, "", abb.GetBountyDetailsQueryType)
 		if err != nil {
 			var notFoundErr *serviceerror.NotFound
 			if errors.As(err, &notFoundErr) {
-				writeEmptyResultError(w) // Use 404 for not found
+				writeEmptyResultError(w)
 			} else {
-				writeInternalError(l, w, fmt.Errorf("failed to describe workflow %s: %w", workflowID, err))
+				writeInternalError(l, w, fmt.Errorf("failed to query workflow %s for details: %w", workflowID, err))
 			}
 			return
 		}
 
-		// Ensure we have a valid execution info
-		if descResp == nil || descResp.WorkflowExecutionInfo == nil || descResp.WorkflowExecutionInfo.Execution == nil {
-			writeInternalError(l, w, fmt.Errorf("invalid description received for workflow %s", workflowID))
+		var bountyDetails abb.BountyDetails
+		if err := resp.Get(&bountyDetails); err != nil {
+			writeInternalError(l, w, fmt.Errorf("failed to decode bounty details from query for workflow %s: %w", workflowID, err))
 			return
 		}
 
-		// Get workflow input from history (similar to list handler)
-		var input abb.BountyAssessmentWorkflowInput
-		historyIterator := tc.GetWorkflowHistory(ctx, workflowID, descResp.WorkflowExecutionInfo.Execution.RunId, false, enums.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
-		if !historyIterator.HasNext() {
-			writeInternalError(l, w, fmt.Errorf("failed to get workflow history or history is empty for %s", workflowID))
-			return
+		// Convert abb.BountyDetails to api.BountyListItem
+		// This is a bit redundant but keeps the API response consistent.
+		// We could consider changing the API to return BountyDetails directly in the future.
+		bountyListItem := api.BountyListItem{
+			BountyID:             bountyDetails.BountyID,
+			Title:                bountyDetails.Title,
+			Status:               string(bountyDetails.Status),
+			Requirements:         bountyDetails.Requirements,
+			BountyPerPost:        bountyDetails.BountyPerPost,
+			TotalBounty:          bountyDetails.TotalBounty,
+			TotalCharged:         bountyDetails.TotalCharged,
+			RemainingBountyValue: bountyDetails.RemainingBountyValue,
+			BountyFunderWallet:   bountyDetails.BountyFunderWallet,
+			PlatformKind:         string(bountyDetails.PlatformKind),
+			ContentKind:          string(bountyDetails.ContentKind),
+			Tier:                 int(bountyDetails.Tier),
+			CreatedAt:            bountyDetails.CreatedAt,
+			EndAt:                bountyDetails.EndAt,
+		}
+		if bountyDetails.PaymentTimeoutExpiresAt != nil {
+			bountyListItem.PaymentTimeoutExpiresAt = bountyDetails.PaymentTimeoutExpiresAt
 		}
 
-		event, err := historyIterator.Next()
-		if err != nil {
-			writeInternalError(l, w, fmt.Errorf("failed to get first history event for %s: %w", workflowID, err))
-			return
-		}
-
-		if event.GetEventType() != enums.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED {
-			writeInternalError(l, w, fmt.Errorf("first history event is not WorkflowExecutionStarted for %s", workflowID))
-			return
-		}
-
-		attrs := event.GetWorkflowExecutionStartedEventAttributes()
-		if attrs == nil || attrs.Input == nil || len(attrs.Input.Payloads) == 0 {
-			writeInternalError(l, w, fmt.Errorf("WorkflowExecutionStarted event missing input attributes for %s", workflowID))
-			return
-		}
-
-		err = converter.GetDefaultDataConverter().FromPayload(attrs.Input.Payloads[0], &input)
-		if err != nil {
-			writeInternalError(l, w, fmt.Errorf("failed to decode workflow input from history for %s: %w", workflowID, err))
-			return
-		}
-
-		// Construct the response using BountyListItem
-		// Extract EndTime from Search Attributes
-		var endTime time.Time
-		var status string // Variable to store the bounty status
-		var tier int64
-
-		if descResp.WorkflowExecutionInfo != nil && descResp.WorkflowExecutionInfo.SearchAttributes != nil {
-			if saPayload, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyTimeoutTimeKey.GetName()]; ok {
-				err = converter.GetDefaultDataConverter().FromPayload(saPayload, &endTime)
-				if err != nil {
-					// Log error but maybe don't fail the request? Or return partial data?
-					l.Warn("Failed to decode BountyTimeoutTime search attribute", "workflow_id", workflowID, "error", err)
-					// Set endTime to zero value if decoding fails
-					endTime = time.Time{}
-				} else {
-					l.Debug("Successfully decoded end time from search attribute", "workflow_id", workflowID, "end_time", endTime)
-				}
-			} else {
-				l.Warn("BountyTimeoutTime search attribute not found", "workflow_id", workflowID)
-				// Set endTime to zero value if attribute is missing
-				endTime = time.Time{}
-			}
-
-			// Get BountyStatus from Search Attributes
-			if statusPayload, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyStatusKey.GetName()]; ok {
-				var decodedStatus string
-				err = converter.GetDefaultDataConverter().FromPayload(statusPayload, &decodedStatus)
-				if err != nil {
-					l.Warn("Failed to decode BountyStatus search attribute", "workflow_id", workflowID, "error", err)
-					status = descResp.WorkflowExecutionInfo.Status.String() // Fallback to Temporal status
-				} else {
-					status = decodedStatus
-				}
-			} else {
-				l.Warn("BountyStatus search attribute not found", "workflow_id", workflowID)
-				status = descResp.WorkflowExecutionInfo.Status.String() // Fallback to Temporal status
-			}
-
-			// Get BountyTier from Search Attributes
-			if tierPayload, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyTierKey.GetName()]; ok {
-				err = converter.GetDefaultDataConverter().FromPayload(tierPayload, &tier)
-				if err != nil {
-					l.Warn("Failed to decode BountyTier search attribute", "workflow_id", workflowID, "error", err)
-					tier = int64(abb.DefaultBountyTier) // Fallback to default
-				}
-			} else {
-				l.Warn("BountyTier search attribute not found", "workflow_id", workflowID)
-				tier = int64(abb.DefaultBountyTier)
-			}
-		} else {
-			l.Warn("SearchAttributes missing in DescribeWorkflowExecution response", "workflow_id", workflowID)
-			endTime = time.Time{}                                   // Set zero value if missing
-			status = descResp.WorkflowExecutionInfo.Status.String() // Fallback to Temporal status if all search attributes are missing
-			tier = int64(abb.DefaultBountyTier)
-		}
-
-		var remainingBountyValue float64
-		if descResp.WorkflowExecutionInfo != nil && descResp.WorkflowExecutionInfo.SearchAttributes != nil {
-			if val, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyValueRemainingKey.GetName()]; ok {
-				err = converter.GetDefaultDataConverter().FromPayload(val, &remainingBountyValue)
-				if err != nil {
-					l.Error("Failed to decode BountyValueRemainingKey", "error", err, "workflow_id", workflowID)
-					remainingBountyValue = 0.0 // Default to 0 on error
-				}
-			} else {
-				l.Warn("BountyValueRemainingKey not found", "workflow_id", workflowID)
-				// Default remaining to total if not found (might happen for older workflows or before initial set)
-				remainingBountyValue = input.TotalBounty.ToUSDC()
-			}
-		} else {
-			l.Warn("SearchAttributes missing in DescribeWorkflowExecution response", "workflow_id", workflowID)
-			remainingBountyValue = 0.0 // Default to 0 if search attributes are missing
-		}
-
-		var funderWallet string
-		if descResp.WorkflowExecutionInfo != nil && descResp.WorkflowExecutionInfo.SearchAttributes != nil {
-			if saPayload, ok := descResp.WorkflowExecutionInfo.SearchAttributes.GetIndexedFields()[abb.BountyFunderWalletKey.GetName()]; ok {
-				err = converter.GetDefaultDataConverter().FromPayload(saPayload, &funderWallet)
-				if err != nil {
-					l.Warn("Failed to decode BountyFunderWallet search attribute", "workflow_id", workflowID, "error", err)
-				}
-			} else {
-				l.Warn("BountyFunderWallet search attribute not found", "workflow_id", workflowID)
-			}
-		}
-
-		bountyDetail := api.BountyListItem{
-			BountyID:             workflowID,
-			Title:                input.Title,
-			Status:               status,
-			Requirements:         input.Requirements,
-			BountyPerPost:        input.BountyPerPost.ToUSDC(),
-			TotalBounty:          input.TotalBounty.ToUSDC(),
-			TotalCharged:         input.TotalCharged.ToUSDC(),
-			RemainingBountyValue: remainingBountyValue,
-			BountyFunderWallet:   funderWallet,
-			PlatformKind:         string(input.Platform),
-			ContentKind:          string(input.ContentKind),
-			Tier:                 int(tier),
-			CreatedAt:            descResp.WorkflowExecutionInfo.StartTime.AsTime(),
-			EndAt:                endTime,
-		}
-
-		if status == string(abb.BountyStatusAwaitingFunding) {
-			expiresAt := descResp.WorkflowExecutionInfo.StartTime.AsTime().Add(input.PaymentTimeout)
-			bountyDetail.PaymentTimeoutExpiresAt = &expiresAt
-		}
-
-		writeJSONResponse(w, bountyDetail, http.StatusOK)
+		writeJSONResponse(w, bountyListItem, http.StatusOK)
 	}
 }
 
