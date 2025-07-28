@@ -18,7 +18,7 @@ spec:
         component: workers
     spec:
       containers:
-      - image: "{{DOCKER_REPO}}{{CLI_IMG_TAG}}"
+      - image: "{{DOCKER_REPO}}:{{GIT_COMMIT_SHA}}"
         imagePullPolicy: Always
         name: affiliate-bounty-board-worker
         envFrom:

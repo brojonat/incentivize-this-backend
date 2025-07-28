@@ -74,8 +74,8 @@ deploy-server: ## Deploy server to Kubernetes (prod)
 	$(eval DYNAMIC_TAG := brojonat/abb-cli:$(GIT_HASH))
 	@echo "Applying server deployment with image: $(DYNAMIC_TAG)"
 	kustomize build --load-restrictor=LoadRestrictionsNone server/k8s/prod | \
-	sed -e "s;{{DOCKER_REPO}};$(DOCKER_REPO);g" \
-		-e "s;{{CLI_IMG_TAG}};$(DYNAMIC_TAG);g" | \
+	sed -e "s;{{DOCKER_REPO}};brojonat/abb-cli;g" \
+		-e "s;{{GIT_COMMIT_SHA}};$(GIT_HASH);g" | \
 		kubectl apply -f -
 	# No need to patch anymore, the image tag change forces the rollout
 	@echo "Server deployment applied."
@@ -88,8 +88,8 @@ deploy-worker: ## Deploy worker to Kubernetes (prod)
 	$(eval DYNAMIC_TAG := brojonat/abb-cli:$(GIT_HASH))
 	@echo "Applying worker deployment with image: $(DYNAMIC_TAG)"
 	kustomize build --load-restrictor=LoadRestrictionsNone worker/k8s/prod | \
-	sed -e "s;{{DOCKER_REPO}};$(DOCKER_REPO);g" \
-		-e "s;{{CLI_IMG_TAG}};$(DYNAMIC_TAG);g" | \
+	sed -e "s;{{DOCKER_REPO}};brojonat/abb-cli;g" \
+		-e "s;{{GIT_COMMIT_SHA}};$(GIT_HASH);g" | \
 		kubectl apply -f -
 	# No need to patch anymore, the image tag change forces the rollout
 	@echo "Worker deployment applied."
