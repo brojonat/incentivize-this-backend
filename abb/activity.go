@@ -74,6 +74,7 @@ const (
 	EnvLLMShouldPerformImageAnalysisPromptBase = "LLM_PROMPT_SHOULD_PERFORM_IMAGE_ANALYSIS_BASE_B64"
 	EnvLLMImageAnalysisPromptBase              = "LLM_PROMPT_IMAGE_ANALYSIS_BASE_B64"
 	EnvLLMMaliciousContentPromptBase           = "LLM_PROMPT_MALICIOUS_CONTENT_BASE_B64"
+	EnvLLMOrchestratorPromptBase               = "LLM_PROMPT_ORCHESTRATOR_PROMPT_BASE_B64"
 
 	EnvDiscordBotToken  = "DISCORD_BOT_TOKEN"
 	EnvDiscordChannelID = "DISCORD_CHANNEL_ID"
@@ -161,6 +162,7 @@ type Configuration struct {
 	ValidatePayoutWalletPrompt       string                      `json:"validate_payout_wallet_prompt"`
 	ShouldPerformImageAnalysisPrompt string                      `json:"should_perform_image_analysis_prompt"`
 	MaliciousContentPrompt           string                      `json:"malicious_content_prompt"`
+	OrchestratorPrompt               string                      `json:"orchestrator_prompt"`
 	PublishTargetSubreddit           string                      `json:"publish_target_subreddit"`
 	Environment                      string                      `json:"environment"`
 	RedditFlairID                    string                      `json:"reddit_flair_id"`
@@ -179,6 +181,32 @@ func NewActivities() (*Activities, error) {
 	return &Activities{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}, nil
+}
+
+// GenerateResponse is an activity that wraps the LLM provider's GenerateResponse method.
+func (a *Activities) GenerateResponse(ctx context.Context, messages []Message, tools []Tool) (*LLMResponse, error) {
+	logger := activity.GetLogger(ctx)
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		logger.Error("Failed to get configuration in GenerateResponse activity", "error", err)
+		return nil, fmt.Errorf("failed to get configuration: %w", err)
+	}
+
+	llmProvider, err := NewLLMProvider(cfg.LLMConfig)
+	if err != nil {
+		logger.Error("Failed to create LLM provider in GenerateResponse activity", "error", err)
+		return nil, fmt.Errorf("failed to create LLM provider: %w", err)
+	}
+
+	logger.Info("Calling LLM provider", "message_count", len(messages), "tool_count", len(tools))
+
+	resp, err := llmProvider.GenerateResponse(ctx, messages, tools)
+	if err != nil {
+		logger.Error("LLM provider call failed in GenerateResponse activity", "error", err)
+		return nil, fmt.Errorf("llmprovider.GenerateResponse failed: %w", err)
+	}
+
+	return resp, nil
 }
 
 // getConfiguration reads configuration from environment variables.
@@ -288,6 +316,10 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 	llmMaliciousContentPromptBase, err := decodeBase64(os.Getenv(EnvLLMMaliciousContentPromptBase))
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode LLM_PROMPT_MALICIOUS_CONTENT_BASE_B64: %w", err)
+	}
+	llmOrchestratorPromptBase, err := decodeBase64(os.Getenv(EnvLLMOrchestratorPromptBase))
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode LLM_PROMPT_ORCHESTRATOR_PROMPT_BASE_B64: %w", err)
 	}
 
 	maxTokensStr := os.Getenv(EnvLLMMaxTokens)
@@ -409,6 +441,7 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		ValidatePayoutWalletPrompt:       llmValidatePayoutWalletPromptBase,
 		ShouldPerformImageAnalysisPrompt: llmShouldPerformImageAnalysisPromptBase,
 		MaliciousContentPrompt:           llmMaliciousContentPromptBase,
+		OrchestratorPrompt:               llmOrchestratorPromptBase,
 		PublishTargetSubreddit:           targetSubreddit,
 		Environment:                      environmentToStore,
 		RedditFlairID:                    flairID,
@@ -429,9 +462,9 @@ func decodeBase64(s string) (string, error) {
 
 // PullContentInput represents the input for the PullContentActivity
 type PullContentInput struct {
-	PlatformType PlatformKind
-	ContentKind  ContentKind
-	ContentID    string
+	PlatformType PlatformKind `json:"platform"`
+	ContentKind  ContentKind  `json:"content_kind"`
+	ContentID    string       `json:"content_id"`
 }
 
 // PullContentActivity fetches content from various platforms based on input.
@@ -888,24 +921,12 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 		err = fmt.Errorf("unsupported platform type in PullContentActivity: %s", input.PlatformType)
 	}
 
-	// Check for errors assigned within the switch cases or default
-	if err != nil {
-		return nil, err // Return the specific error from the platform logic or default case
-	}
-
-	// Final check before returning (Ensure contentBytes is populated)
-	if contentBytes == nil {
-		// This case should ideally not be reached if errors are handled properly above
-		logger.Error("contentBytes is unexpectedly nil after switch without error", "platform", input.PlatformType)
-		return nil, fmt.Errorf("internal error: contentBytes is nil after processing platform %s without error", input.PlatformType)
-	}
-
 	// Perform malicious content detection.
-	detectionResult, detectionErr := a.DetectMaliciousContent(ctx, contentBytes)
-	if detectionErr != nil {
+	detectionResult, err := a.DetectMaliciousContent(ctx, contentBytes)
+	if err != nil {
 		// If the detection activity itself fails, we should not proceed.
-		logger.Error("Malicious content detection activity failed", "error", detectionErr)
-		return nil, fmt.Errorf("security check failed: %w", detectionErr)
+		logger.Error("Malicious content detection activity failed", "error", err)
+		return nil, fmt.Errorf("security check failed: %w", err)
 	}
 
 	if detectionResult.IsMalicious {
@@ -918,7 +939,6 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 		return nil, err
 	}
 
-	logger.Info("PullContentActivity finished successfully", "platform", input.PlatformType, "contentID", input.ContentID)
 	return contentBytes, nil
 }
 
@@ -1214,4 +1234,17 @@ func (a *Activities) PruneStaleEmbeddingsActivity(ctx context.Context, input Pru
 	responseMessage := string(bodyBytes)
 	logger.Info("Successfully pruned stale embeddings", "url", pruneURL, "response_message", responseMessage)
 	return responseMessage, nil
+}
+
+func (a *Activities) GetOrchestratorPromptActivity(ctx context.Context) (string, error) {
+	logger := activity.GetLogger(ctx)
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		logger.Error("Failed to get configuration in GetOrchestratorPromptActivity", "error", err)
+		return "", fmt.Errorf("failed to get configuration: %w", err)
+	}
+	if cfg.OrchestratorPrompt == "" {
+		return "", fmt.Errorf("orchestrator prompt is not configured")
+	}
+	return cfg.OrchestratorPrompt, nil
 }

@@ -1,12 +1,12 @@
 package main
 
 import (
+	"log"
 	"log/slog"
 	"os"
 
 	"github.com/brojonat/affiliate-bounty-board/worker"
 	"github.com/urfave/cli/v2"
-	"go.temporal.io/sdk/client"
 )
 
 func workerCommands() []*cli.Command {
@@ -34,37 +34,32 @@ func workerCommands() []*cli.Command {
 					Usage: "Check Temporal connection and exit (for health checks)",
 					Value: false,
 				},
+				&cli.StringFlag{
+					Name:    "task-queue",
+					Aliases: []string{"tq"},
+					Usage:   "Temporal task queue name",
+					EnvVars: []string{"TASK_QUEUE"},
+					Value:   "affiliate_bounty_board",
+				},
 			},
-			Action: run_worker,
+			Action: runWorker,
 		},
 	}
 }
 
-func run_worker(c *cli.Context) error {
-	logger := getDefaultLogger(slog.LevelInfo)
+func runWorker(c *cli.Context) error {
 	temporalAddr := c.String("temporal-address")
 	temporalNamespace := c.String("temporal-namespace")
+	taskQueue := c.String("task-queue")
 
-	if c.Bool("check-connection") {
-		logger.Info("Performing Temporal connection check...")
-		tc, err := client.Dial(client.Options{
-			HostPort:  temporalAddr,
-			Namespace: temporalNamespace,
-		})
-		if err != nil {
-			logger.Error("Temporal connection check failed (dial)", "error", err)
-			os.Exit(1)
-		}
-		tc.Close()
-		logger.Info("Temporal connection check successful")
-		os.Exit(0)
+	// Initialize the logger
+	lvl := new(slog.LevelVar)
+	lvl.Set(slog.LevelInfo)
+	l := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
+
+	if err := worker.RunWorker(c.Context, l, temporalAddr, temporalNamespace, taskQueue); err != nil {
+		log.Fatalln("Worker failed to run", "error", err)
 	}
 
-	logger.Info("Starting worker")
-	return worker.RunWorker(
-		c.Context,
-		logger,
-		temporalAddr,
-		temporalNamespace,
-	)
+	return nil
 }

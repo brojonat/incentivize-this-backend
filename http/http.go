@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Rhymond/go-money"
 	"github.com/brojonat/affiliate-bounty-board/abb"
 	"github.com/brojonat/affiliate-bounty-board/db/dbgen"
 	"github.com/brojonat/affiliate-bounty-board/http/api"
@@ -266,31 +265,6 @@ func WithCORSConfig(ctx context.Context, headers, methods, origins []string) con
 	}{headers, methods, origins})
 }
 
-// PayoutCalculator is a function that calculates the available payout amount
-// given the total bounty amount specified by an advertiser
-type PayoutCalculator func(totalAmount float64) float64
-
-// DefaultPayoutCalculator creates a calculator that applies a percentage-based revenue share
-func DefaultPayoutCalculator(userRevSharePct float64) PayoutCalculator {
-	// Return a calculator function that applies the percentage
-	return func(totalAmount float64) float64 {
-		totalMoney := money.NewFromFloat(totalAmount, money.USD)
-		userShare := int(userRevSharePct)
-		platformShare := 100 - userShare
-		// Allocate can take ratios
-		parties, err := totalMoney.Allocate(userShare, platformShare)
-		if err != nil {
-			// Since this function can't return an error, log it and return a value
-			// that indicates failure, like the original amount, so it can be handled upstream.
-			// Ideally, the signature would allow for an error return.
-			slog.Default().Error("failed to allocate money in DefaultPayoutCalculator", "error", err)
-			return totalAmount
-		}
-		userPayoutMoney := parties[0]
-		return userPayoutMoney.AsMajorUnits()
-	}
-}
-
 func writeOK(w http.ResponseWriter) {
 	resp := api.DefaultJSONResponse{Message: "ok"}
 	writeJSONResponse(w, resp, http.StatusOK)
@@ -388,14 +362,6 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	}
 	logger.Debug("Successfully connected to Solana RPC", "endpoint", cfg.Solana.RPCEndpoint)
 
-	// --- Setup Temporal Schedules ---
-	if err := setupPruneStaleEmbeddingsSchedule(ctx, logger, tc, cfg.Environment); err != nil {
-		logger.Error("Failed to set up prune stale embeddings schedule", "error", err)
-	}
-	if err := setupGumroadNotifySchedule(ctx, logger, tc, cfg.Environment); err != nil {
-		logger.Error("Failed to set up Gumroad notify schedule", "error", err)
-	}
-
 	// Create Rate Limiter for JWT-based assessment endpoint
 	jwtAssessLimiter := NewRateLimiter(1*time.Hour, 10) // 10 requests per hour per JWT
 
@@ -490,7 +456,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 
 	// create bounty routes
 	mux.HandleFunc("POST /bounties", stools.AdaptHandler(
-		handleCreateBounty(logger, tc, llmProvider, llmEmbedProvider, DefaultPayoutCalculator(cfg.UserRevenueSharePct), cfg.Environment, cfg.Prompts),
+		handleCreateBounty(logger, tc, llmProvider, llmEmbedProvider, cfg.UserRevenueSharePct, cfg.Environment, cfg.Prompts),
 		apiMode(logger, llmRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
@@ -498,13 +464,6 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	))
 
 	// pay/funding/transactional bounty routes
-	mux.HandleFunc("POST /bounties/pay", stools.AdaptHandler(
-		handlePayBounty(logger, tc),
-		withLogging(logger),
-		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-		requireStatus(UserStatusSudo),
-	))
-
 	mux.HandleFunc("POST /bounties/assess", stools.AdaptHandler(
 		handleAssessContent(logger, tc),
 		apiMode(logger, llmRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
@@ -609,6 +568,14 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		}
 	}()
 
+	// setup temporal schedules
+	if err := setupPruneStaleEmbeddingsSchedule(ctx, logger, tc, cfg.Environment); err != nil {
+		logger.Error("Failed to set up prune stale embeddings schedule", "error", err)
+	}
+	if err := setupGumroadNotifySchedule(ctx, logger, tc, cfg.Environment); err != nil {
+		logger.Error("Failed to set up Gumroad notify schedule", "error", err)
+	}
+
 	// Wait for context cancellation
 	<-ctx.Done()
 	logger.Info("shutting down HTTP server")
@@ -636,6 +603,14 @@ func handlePing() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSONResponse(w, api.DefaultJSONResponse{Message: "pong"}, http.StatusOK)
 	}
+}
+
+func decodeBase64(s string) (string, error) {
+	data, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 // setupPruneStaleEmbeddingsSchedule sets up a Temporal schedule for pruning stale embeddings.
@@ -735,12 +710,4 @@ func setupGumroadNotifySchedule(ctx context.Context, logger *slog.Logger, tc cli
 
 	logger.Info("Successfully created Gumroad Notify schedule", "scheduleID", scheduleID)
 	return nil
-}
-
-func decodeBase64(s string) (string, error) {
-	data, err := base64.StdEncoding.DecodeString(s)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
 }

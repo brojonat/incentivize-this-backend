@@ -14,7 +14,7 @@ import (
 )
 
 // RunWorker runs the worker with the specified options
-func RunWorker(ctx context.Context, l *slog.Logger, thp, tns string) error {
+func RunWorker(ctx context.Context, l *slog.Logger, thp, tns, tq string) error {
 	// --- Create a new slog.Logger for Temporal, configured to LevelWarn ---
 	temporalSlogHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelWarn,
@@ -56,45 +56,21 @@ func RunWorker(ctx context.Context, l *slog.Logger, thp, tns string) error {
 	}
 
 	// Create the single worker
-	taskQueue := os.Getenv("TASK_QUEUE")
-	if taskQueue == "" {
-		return fmt.Errorf("TASK_QUEUE environment variable not set")
-	}
-	w := worker.New(c, taskQueue, worker.Options{})
+	w := worker.New(c, tq, worker.Options{})
 
 	// Register all workflows
 	w.RegisterWorkflow(abb.BountyAssessmentWorkflow)
-	w.RegisterWorkflow(abb.CheckContentRequirementsWorkflow)
-	w.RegisterWorkflow(abb.PayBountyWorkflow)
-	w.RegisterWorkflow(abb.PublishNewBountyWorkflow)
-	w.RegisterWorkflow(abb.EmailTokenWorkflow)
+	w.RegisterWorkflow(abb.OrchestratorWorkflow)
 	w.RegisterWorkflow(abb.PruneStaleEmbeddingsWorkflow)
 	w.RegisterWorkflow(abb.GumroadNotifyWorkflow)
 	w.RegisterWorkflow(abb.ContactUsNotifyWorkflow)
+	w.RegisterWorkflow(abb.EmailTokenWorkflow)
 
-	// Register all activities
-	w.RegisterActivity(activities.GenerateAndStoreBountyEmbeddingActivity)
-	w.RegisterActivity(activities.PullContentActivity)
-	w.RegisterActivity(activities.PullIncentivizeThisContentActivity)
-	w.RegisterActivity(activities.CheckContentRequirements)
-	w.RegisterActivity(activities.ValidatePayoutWallet)
-	w.RegisterActivity(activities.VerifyPayment)
-	w.RegisterActivity(activities.TransferUSDC)
-	w.RegisterActivity(activities.PublishNewBountyReddit)
-	w.RegisterActivity(activities.PublishNewBountyDiscord)
-	w.RegisterActivity(activities.AnalyzeImageURL)
-	w.RegisterActivity(activities.ShouldPerformImageAnalysisActivity)
-	w.RegisterActivity(activities.SendTokenEmail)
-	w.RegisterActivity(activities.SendContactUsEmail)
-	w.RegisterActivity(activities.SendBountySummaryEmail)
-	w.RegisterActivity(activities.SummarizeAndStoreBountyActivity)
-	w.RegisterActivity(activities.PruneStaleEmbeddingsActivity)
-	w.RegisterActivity(activities.DeleteBountyEmbeddingViaHTTPActivity)
-	w.RegisterActivity(activities.CallGumroadNotifyActivity)
-	w.RegisterActivity(activities.MarkGumroadSaleNotifiedActivity)
+	// Register all activities on the activities struct
+	w.RegisterActivity(activities)
 
 	// Run the single worker
-	l.Info("Starting worker", "TaskQueue", taskQueue)
+	l.Info("Starting worker", "TaskQueue", tq)
 	err = w.Run(worker.InterruptCh())
 	l.Info("Worker stopped")
 	return err

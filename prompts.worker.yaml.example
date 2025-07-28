@@ -8,3 +8,5 @@ image-analysis-base: |
   Secret sauce prompt for running thumbnail image analysis.
 malicious-content-base: |
   Secret sauce prompt for checking for malicious content.
+orchestrator-prompt-base: |
+  Secret sauce prompt for driving the agent loop.

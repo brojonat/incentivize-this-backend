@@ -587,3 +587,31 @@ func checkTokenBalancesForTransfer(
 	// If we passed the destination check AND found a matching source owned by the correct wallet
 	return true, funderWallet, nil
 }
+
+func (a *Activities) PayBountyActivity(
+	ctx context.Context,
+	bountyID string,
+	recipient string,
+	amount *solanautil.USDCAmount,
+) error {
+	memo := fmt.Sprintf("{\"bounty_id\": \"%s\", \"purpose\": \"bounty_payment\"}", bountyID)
+	activity.GetLogger(ctx).Info("Executing USDC payment for bounty",
+		"bounty_id", bountyID,
+		"recipient", recipient,
+		"amount", amount.ToUSDC())
+	return a.TransferUSDC(ctx, recipient, amount.ToUSDC(), memo)
+}
+
+func (a *Activities) RefundBountyActivity(
+	ctx context.Context,
+	bountyID string,
+	refundRecipient string,
+	amount *solanautil.USDCAmount,
+) error {
+	memo := fmt.Sprintf("{\"bounty_id\": \"%s\", \"purpose\": \"refund\"}", bountyID)
+	activity.GetLogger(ctx).Info("Executing bounty refund",
+		"bounty_id", bountyID,
+		"recipient", refundRecipient,
+		"amount", amount.ToUSDC())
+	return a.TransferUSDC(ctx, refundRecipient, amount.ToUSDC(), memo)
+}
