@@ -48,6 +48,7 @@ spec:
             - --check-connection
           initialDelaySeconds: 5
           periodSeconds: 10
+          timeoutSeconds: 5
         livenessProbe:
           exec:
             command:
@@ -57,6 +58,7 @@ spec:
             - --check-connection
           initialDelaySeconds: 15
           periodSeconds: 20
+          timeoutSeconds: 5
       restartPolicy: Always
       imagePullSecrets:
       - name: regcred
