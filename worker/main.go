@@ -75,3 +75,26 @@ func RunWorker(ctx context.Context, l *slog.Logger, thp, tns, tq string) error {
 	l.Info("Worker stopped")
 	return err
 }
+
+// CheckConnection attempts to connect to Temporal and returns an error if it fails.
+// This is intended for use in health checks.
+func CheckConnection(ctx context.Context, l *slog.Logger, thp, tns string) error {
+	temporalSlogHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelWarn,
+	})
+	temporalLogger := sdklog.NewStructuredLogger(slog.New(temporalSlogHandler))
+
+	// For a health check, we just need to dial and then close.
+	c, err := client.Dial(client.Options{
+		Logger:    temporalLogger,
+		HostPort:  thp,
+		Namespace: tns,
+	})
+	if err != nil {
+		return fmt.Errorf("health check failed to connect to Temporal: %w", err)
+	}
+	c.Close()
+
+	l.Info("Health check successful: connected to Temporal")
+	return nil
+}
