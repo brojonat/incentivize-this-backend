@@ -1,15 +1,9 @@
 bounties:
-  - name: test
+  - name: photoshop-request
     requirements: |
-      Write a comment in one of the following subreddits:
-        - r/photoshoprequest
-        - r/rayab
-
-      The comment must be created after {{.Date}}.
-      If the comment has been edited, the bounty is not fulfilled.
-      The comment must be on a post that has at least 25 upvotes.
-    total_amount: 1.0
-    per_post_amount: 0.25
+      Write a comment in r/photoshoprequest. The comment must be created after {{.Date}}, and the original poster must reply with "!solved". The comment must be on a post that has at least 25 upvotes. The payout wallet must be included in the comment.
+    total_amount: 100.0
+    per_post_amount: 1.0
     duration: 180d
     fee_percentage: 0
   - name: A
