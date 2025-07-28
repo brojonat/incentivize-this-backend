@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"log/slog"
 	"os"
 
@@ -59,17 +58,14 @@ func runWorker(c *cli.Context) error {
 
 	// Handle the health check flag
 	if c.Bool("check-connection") {
-
 		if err := worker.CheckConnection(c.Context, l, temporalAddr, temporalNamespace); err != nil {
-			log.Fatalf("Health check failed: %v", err)
+			return err
 		}
 		// If the health check is successful, we exit cleanly.
 		return nil
 	}
 
-	err := worker.RunWorker(c.Context, l, temporalAddr, temporalNamespace, taskQueue)
-	if err != nil {
-		slog.Error("Unable to start worker", "error", err)
+	if err := worker.RunWorker(c.Context, l, temporalAddr, temporalNamespace, taskQueue); err != nil {
 		return err
 	}
 
