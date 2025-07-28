@@ -145,7 +145,7 @@ bounties:
 
   - name: M
     requirements: |
-      Create a Reddit comment about NordVPN. It should have at least 10 upvotes. It should emphasize the benefits of using NordVPN: that it can help you stay safe online by encrypting your traffic. It should also mention that it's a good way to access content that is blocked in your country.
+      Create a Reddit comment about the VPN services. It should have at least 10 upvotes. It should emphasize the benefits of using a VPN: that it can help you stay safe online by encrypting your traffic. It should also mention that it's a good way to access content that is blocked in your country.
       The comment must be in one of the following subreddits:
       - r/netflix
       - r/hulu
@@ -157,8 +157,10 @@ bounties:
       - r/hbo
       - r/homelab
       - r/DIY
-    total_amount: 20.0
-    per_post_amount: 1.0
+
+      There must not be any child comments suggesting that this is a paid post or sponsored content.
+    total_amount: 50.0
+    per_post_amount: 5.0
     duration: 180d
     fee_percentage: 0
 
