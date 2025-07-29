@@ -9,12 +9,12 @@ var GetContentDetailsTool = Tool{
 			"platform": map[string]interface{}{
 				"type":        "string",
 				"description": "The platform the content is on.",
-				"enum":        []interface{}{"reddit", "youtube", "twitch", "hackernews", "bluesky", "instagram", "incentivizethis", "tripadvisor"},
+				"enum":        []interface{}{"reddit", "youtube", "twitch", "hackernews", "bluesky", "instagram", "incentivizethis", "tripadvisor", "steam"},
 			},
 			"content_kind": map[string]interface{}{
 				"type":        "string",
-				"description": "The type of content.",
-				"enum":        []interface{}{"post", "comment", "video", "clip", "bounty", "review"},
+				"description": "The type of content. This is platform dependent. The valid options are:\n- Reddit: post, comment\n- YouTube: video, comment\n- Twitch: video, clip\n- Hacker News: post, comment\n- Bluesky: post\n- Instagram: post\n- IncentivizeThis: bounty\n- TripAdvisor: review\n- Steam: dota2chat (this is the ONLY valid content kind for Steam)",
+				"enum":        []interface{}{"post", "comment", "video", "clip", "bounty", "review", "dota2chat"},
 			},
 			"content_id": map[string]interface{}{
 				"type":        "string",

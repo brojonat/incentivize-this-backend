@@ -66,6 +66,8 @@ const (
 	EnvTwitchClientID     = "TWITCH_CLIENT_ID"
 	EnvTwitchClientSecret = "TWITCH_CLIENT_SECRET"
 
+	EnvOpenDotaAPIKey = "OPENDOTA_API_KEY"
+
 	EnvLLMImageProvider                        = "LLM_IMAGE_PROVIDER"
 	EnvLLMImageAPIKey                          = "LLM_IMAGE_API_KEY"
 	EnvLLMImageModel                           = "LLM_IMAGE_MODEL"
@@ -105,13 +107,15 @@ const (
 	PlatformInstagram       PlatformKind = "instagram"
 	PlatformIncentivizeThis PlatformKind = "incentivizethis"
 	PlatformTripAdvisor     PlatformKind = "tripadvisor"
+	PlatformSteam           PlatformKind = "steam"
 
-	ContentKindPost    ContentKind = "post"
-	ContentKindComment ContentKind = "comment"
-	ContentKindVideo   ContentKind = "video"
-	ContentKindClip    ContentKind = "clip"
-	ContentKindBounty  ContentKind = "bounty"
-	ContentKindReview  ContentKind = "review"
+	ContentKindPost      ContentKind = "post"
+	ContentKindComment   ContentKind = "comment"
+	ContentKindVideo     ContentKind = "video"
+	ContentKindClip      ContentKind = "clip"
+	ContentKindBounty    ContentKind = "bounty"
+	ContentKindReview    ContentKind = "review"
+	ContentKindDota2Chat ContentKind = "dota2chat"
 
 	PlatformGumroad PaymentPlatformKind = "gumroad"
 	PlatformBMC     PaymentPlatformKind = "bmc"
@@ -157,6 +161,7 @@ type Configuration struct {
 	InstagramDeps                    InstagramDependencies       `json:"instagram_deps"`
 	IncentivizeThisDeps              IncentivizeThisDependencies `json:"incentivizethis_deps"`
 	TripadvisorDeps                  TripadvisorDependencies     `json:"tripadvisor_deps"`
+	SteamDeps                        SteamDependencies           `json:"steam_deps"`
 	DiscordConfig                    DiscordConfig               `json:"discord_config"`
 	CheckContentRequirementsPrompt   string                      `json:"check_content_requirements_prompt"`
 	ValidatePayoutWalletPrompt       string                      `json:"validate_payout_wallet_prompt"`
@@ -401,6 +406,11 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		APIKey: os.Getenv(EnvTripadvisorAPIKey),
 	}
 
+	// --- Steam Dependencies ---
+	steamDeps := SteamDependencies{
+		APIKey: os.Getenv(EnvOpenDotaAPIKey),
+	}
+
 	// --- Discord Config ---
 	discordConfig := DiscordConfig{
 		BotToken:  os.Getenv(EnvDiscordBotToken),
@@ -436,6 +446,7 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		InstagramDeps:                    instagramDeps,
 		IncentivizeThisDeps:              incentivizeThisDeps,
 		TripadvisorDeps:                  tripadvisorDeps,
+		SteamDeps:                        steamDeps,
 		DiscordConfig:                    discordConfig,
 		CheckContentRequirementsPrompt:   llmCheckContentRequirementsPromptBase,
 		ValidatePayoutWalletPrompt:       llmValidatePayoutWalletPromptBase,
@@ -915,6 +926,20 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 		contentBytes, err = json.Marshal(tripadvisorContent)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal Tripadvisor content: %w", err)
+		}
+
+	case PlatformSteam:
+		logger.Debug("Executing Steam pull logic within PullContentActivity")
+		if input.ContentKind != ContentKindDota2Chat {
+			return nil, fmt.Errorf("unsupported content kind for Steam: %s. Only '%s' is supported", input.ContentKind, ContentKindDota2Chat)
+		}
+		steamContent, err := a.fetchDota2Chat(ctx, cfg.SteamDeps, input.ContentID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to pull Steam content: %w", err)
+		}
+		contentBytes, err = json.Marshal(steamContent)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal Steam content: %w", err)
 		}
 
 	default:

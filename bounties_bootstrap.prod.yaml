@@ -6,6 +6,13 @@ bounties:
     per_post_amount: 1.0
     duration: 180d
     fee_percentage: 0
+  - name: dota-smoke-test
+    requirements: |
+      Say "gg" in a Dota 2 chat.
+    total_amount: 1.0
+    per_post_amount: 0.01
+    duration: 180d
+    fee_percentage: 0
   - name: A
     requirements: |
       Write a comment about Austin Hardwoods lumber store. The comment must show the business in a positive light and emphasize their competitive prices and the fact that they're a local business. The comment must have at least 10 upvotes. The comment must be in one of the following subreddits:
@@ -20,7 +27,6 @@ bounties:
     per_post_amount: 0.25
     duration: 180d
     fee_percentage: 0
-
   - name: B
     requirements: |
       Write an Instagram post about SuzieCakes. The post must show the business in a positive light and emphasize their amazing baked goods and the fact that they're a local business. The post must have at least 10 comments and mention @susiecakesbakery and either #Austin or #OrangeCounty (or both).

@@ -330,8 +330,8 @@ func processClaim(ctx workflow.Context, a *Activities, bountyState *BountyState,
 		PayoutWallet: signal.PayoutWallet,
 		Amount:       payoutAmount,
 		Timestamp:    workflow.Now(ctx),
-		Platform:     bountyState.Platform,
-		ContentKind:  bountyState.ContentKind,
+		Platform:     signal.Platform,
+		ContentKind:  signal.ContentKind,
 	}
 
 	// Execute immediate payout
@@ -420,6 +420,8 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
 						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
 					} else {
+						// Ensure the ContentKind from the signal is used, not from the bounty state
+						args.ContentKind = input.InitialSignal.ContentKind
 						var contentBytes []byte
 						activityErr := workflow.ExecuteActivity(ctx, a.PullContentActivity, args).Get(ctx, &contentBytes)
 						if activityErr != nil {
