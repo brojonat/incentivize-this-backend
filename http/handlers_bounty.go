@@ -301,6 +301,7 @@ func handleCreateBounty(
 			abb.PlatformIncentivizeThis,
 			abb.PlatformTripAdvisor,
 			abb.PlatformSteam,
+			abb.PlatformGitHub,
 		}
 		validContentKinds := []abb.ContentKind{
 			abb.ContentKindPost,
@@ -310,6 +311,7 @@ func handleCreateBounty(
 			abb.ContentKindBounty,
 			abb.ContentKindReview,
 			abb.ContentKindDota2Chat,
+			abb.ContentKindIssue,
 		}
 
 		// Convert valid kinds to string slices for the prompt
@@ -345,7 +347,8 @@ func handleCreateBounty(
 - Instagram: post
 - IncentivizeThis: bounty
 - TripAdvisor: review
-- Steam: dota2chat`,
+- Steam: dota2chat
+- GitHub: issue`,
 						"enum": validContentKindsStr,
 					},
 					"Error": map[string]interface{}{
@@ -468,8 +471,13 @@ func handleCreateBounty(
 				writeBadRequestError(w, fmt.Errorf("invalid content_kind for Steam: must be '%s'", abb.ContentKindDota2Chat))
 				return
 			}
+		case abb.PlatformGitHub:
+			if normalizedContentKind != abb.ContentKindIssue {
+				writeBadRequestError(w, fmt.Errorf("invalid content_kind for GitHub: must be '%s'", abb.ContentKindIssue))
+				return
+			}
 		default:
-			writeBadRequestError(w, fmt.Errorf("invalid platform_kind: must be one of %s, %s, %s, %s, %s, %s, %s, %s, or %s", abb.PlatformReddit, abb.PlatformYouTube, abb.PlatformTwitch, abb.PlatformHackerNews, abb.PlatformBluesky, abb.PlatformInstagram, abb.PlatformIncentivizeThis, abb.PlatformTripAdvisor, abb.PlatformSteam))
+			writeBadRequestError(w, fmt.Errorf("invalid platform_kind: must be one of %s, %s, %s, %s, %s, %s, %s, %s, %s, or %s", abb.PlatformReddit, abb.PlatformYouTube, abb.PlatformTwitch, abb.PlatformHackerNews, abb.PlatformBluesky, abb.PlatformInstagram, abb.PlatformIncentivizeThis, abb.PlatformTripAdvisor, abb.PlatformSteam, abb.PlatformGitHub))
 			return
 		}
 

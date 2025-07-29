@@ -304,9 +304,14 @@ func processClaim(ctx workflow.Context, a *Activities, bountyState *BountyState,
 		return
 	}
 
+	tools := []Tool{GetContentDetailsTool, AnalyzeImageURLTool, DetectMaliciousContentTool, ValidatePayoutWalletTool}
+	if signal.Platform == PlatformGitHub {
+		tools = []Tool{GetGitHubIssueTool, GetClosingPRTool, GetGitHubUserTool}
+	}
+
 	var orchestratorResult OrchestratorWorkflowOutput
 	orchErr := workflow.ExecuteChildWorkflow(ctx, OrchestratorWorkflow, OrchestratorWorkflowInput{
-		Tools:         []Tool{GetContentDetailsTool, AnalyzeImageURLTool, DetectMaliciousContentTool, ValidatePayoutWalletTool},
+		Tools:         tools,
 		Bounty:        bountyInput,
 		InitialSignal: signal,
 	}).Get(ctx, &orchestratorResult)
@@ -428,6 +433,58 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
 						} else {
 							toolResult = string(contentBytes)
+						}
+					}
+				case "get_github_issue":
+					var args struct {
+						Owner       string `json:"owner"`
+						Repo        string `json:"repo"`
+						IssueNumber int    `json:"issue_number"`
+					}
+					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+					} else {
+						var result GitHubIssueContent
+						activityErr := workflow.ExecuteActivity(ctx, a.getGitHubIssue, args.Owner, args.Repo, args.IssueNumber).Get(ctx, &result)
+						if activityErr != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+						} else {
+							resultBytes, _ := json.Marshal(result)
+							toolResult = string(resultBytes)
+						}
+					}
+				case "get_closing_pr":
+					var args struct {
+						Owner       string `json:"owner"`
+						Repo        string `json:"repo"`
+						IssueNumber int    `json:"issue_number"`
+					}
+					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+					} else {
+						var result GitHubPullRequestContent
+						activityErr := workflow.ExecuteActivity(ctx, a.getClosingPR, args.Owner, args.Repo, args.IssueNumber).Get(ctx, &result)
+						if activityErr != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+						} else {
+							resultBytes, _ := json.Marshal(result)
+							toolResult = string(resultBytes)
+						}
+					}
+				case "get_github_user":
+					var args struct {
+						Username string `json:"username"`
+					}
+					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+					} else {
+						var result GitHubUserContent
+						activityErr := workflow.ExecuteActivity(ctx, a.getGitHubUser, args.Username).Get(ctx, &result)
+						if activityErr != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+						} else {
+							resultBytes, _ := json.Marshal(result)
+							toolResult = string(resultBytes)
 						}
 					}
 				case "analyze_image_url":

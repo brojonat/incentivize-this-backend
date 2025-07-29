@@ -108,6 +108,7 @@ const (
 	PlatformIncentivizeThis PlatformKind = "incentivizethis"
 	PlatformTripAdvisor     PlatformKind = "tripadvisor"
 	PlatformSteam           PlatformKind = "steam"
+	PlatformGitHub          PlatformKind = "github"
 
 	ContentKindPost      ContentKind = "post"
 	ContentKindComment   ContentKind = "comment"
@@ -116,6 +117,7 @@ const (
 	ContentKindBounty    ContentKind = "bounty"
 	ContentKindReview    ContentKind = "review"
 	ContentKindDota2Chat ContentKind = "dota2chat"
+	ContentKindIssue     ContentKind = "issue"
 
 	PlatformGumroad PaymentPlatformKind = "gumroad"
 	PlatformBMC     PaymentPlatformKind = "bmc"
@@ -171,6 +173,7 @@ type Configuration struct {
 	PublishTargetSubreddit           string                      `json:"publish_target_subreddit"`
 	Environment                      string                      `json:"environment"`
 	RedditFlairID                    string                      `json:"reddit_flair_id"`
+	GitHubDeps                       GitHubDependencies          `json:"github_deps"`
 }
 
 // Activities holds all activity implementations and their dependencies
@@ -456,6 +459,7 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		PublishTargetSubreddit:           targetSubreddit,
 		Environment:                      environmentToStore,
 		RedditFlairID:                    flairID,
+		GitHubDeps:                       GitHubDependencies{},
 	}
 	return config, nil
 }
@@ -942,6 +946,29 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 			return nil, fmt.Errorf("failed to marshal Steam content: %w", err)
 		}
 
+	case PlatformGitHub:
+		deps := cfg.GitHubDeps
+		if deps.Type() != PlatformGitHub {
+			// This is a sanity check and should never happen.
+			return nil, fmt.Errorf("internal configuration error: GitHubDeps type is not PlatformGitHub")
+		}
+		switch input.ContentKind {
+		case ContentKindIssue:
+			owner, repo, issueNum, err := a.parseGitHubURL(input.ContentID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse github url: %w", err)
+			}
+			content, err := a.getGitHubIssue(ctx, owner, repo, issueNum)
+			if err != nil {
+				return nil, err
+			}
+			contentBytes, err = json.Marshal(content)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal github issue: %w", err)
+			}
+		default:
+			return nil, fmt.Errorf("unsupported content kind for github: %s", input.ContentKind)
+		}
 	default:
 		err = fmt.Errorf("unsupported platform type in PullContentActivity: %s", input.PlatformType)
 	}

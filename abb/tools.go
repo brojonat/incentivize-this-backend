@@ -9,12 +9,12 @@ var GetContentDetailsTool = Tool{
 			"platform": map[string]interface{}{
 				"type":        "string",
 				"description": "The platform the content is on.",
-				"enum":        []interface{}{"reddit", "youtube", "twitch", "hackernews", "bluesky", "instagram", "incentivizethis", "tripadvisor", "steam"},
+				"enum":        []interface{}{"reddit", "youtube", "twitch", "hackernews", "bluesky", "instagram", "incentivizethis", "tripadvisor", "steam", "github"},
 			},
 			"content_kind": map[string]interface{}{
 				"type":        "string",
-				"description": "The type of content. This is platform dependent. The valid options are:\n- Reddit: post, comment\n- YouTube: video, comment\n- Twitch: video, clip\n- Hacker News: post, comment\n- Bluesky: post\n- Instagram: post\n- IncentivizeThis: bounty\n- TripAdvisor: review\n- Steam: dota2chat (this is the ONLY valid content kind for Steam)",
-				"enum":        []interface{}{"post", "comment", "video", "clip", "bounty", "review", "dota2chat"},
+				"description": "The type of content. This is platform dependent. The valid options are:\n- Reddit: post, comment\n- YouTube: video, comment\n- Twitch: video, clip\n- Hacker News: post, comment\n- Bluesky: post\n- Instagram: post\n- IncentivizeThis: bounty\n- TripAdvisor: review\n- Steam: dota2chat (this is the ONLY valid content kind for Steam)\n- GitHub: issue",
+				"enum":        []interface{}{"post", "comment", "video", "clip", "bounty", "review", "dota2chat", "issue"},
 			},
 			"content_id": map[string]interface{}{
 				"type":        "string",
@@ -94,5 +94,66 @@ var ValidatePayoutWalletTool = Tool{
 			},
 		},
 		"required": []interface{}{"payout_wallet", "validation_prompt"},
+	},
+}
+
+var GetGitHubIssueTool = Tool{
+	Name:        "get_github_issue",
+	Description: "Gets the details of a GitHub issue.",
+	Parameters: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"owner": map[string]any{
+				"type":        "string",
+				"description": "The owner of the repository.",
+			},
+			"repo": map[string]any{
+				"type":        "string",
+				"description": "The name of the repository.",
+			},
+			"issue_number": map[string]any{
+				"type":        "integer",
+				"description": "The number of the issue.",
+			},
+		},
+		"required": []string{"owner", "repo", "issue_number"},
+	},
+}
+
+var GetClosingPRTool = Tool{
+	Name:        "get_closing_pr",
+	Description: "Gets the details of the pull request that closed a GitHub issue.",
+	Parameters: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"owner": map[string]any{
+				"type":        "string",
+				"description": "The owner of the repository.",
+			},
+			"repo": map[string]any{
+				"type":        "string",
+				"description": "The name of the repository.",
+			},
+			"issue_number": map[string]any{
+				"type":        "integer",
+				"description": "The number of the issue that the PR closed.",
+			},
+		},
+		"required": []string{"owner", "repo", "issue_number"},
+	},
+}
+
+var GetGitHubUserTool = Tool{
+	Name:        "get_github_user",
+	Description: "Gets the details of a GitHub user.",
+	Parameters: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"username": map[string]any{
+				"type":        "string",
+				"description": "The username of the GitHub user.",
+			},
+		},
+		"required": []string{"username"},
 	},
 }
