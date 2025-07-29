@@ -15,7 +15,7 @@ bounties:
     fee_percentage: 0
   - name: github-smoke-test
     requirements: |
-      To claim this bounty, your pull request must close a GitHub Issue on https://github.com/brojonat/affiliate-bounty-board/issues. Your Solana wallet address for payout must be present in your public GitHub profile bio. The PR must be merged after {{.Date}}.
+      To claim this bounty, your pull request must close a GitHub Issue on https://github.com/brojonat/incentivize-this-backend/issues. Your Solana wallet address for payout must be present in your public GitHub profile bio. The PR must be merged after {{.Date}}.
     total_amount: 1.0
     per_post_amount: 0.01
     duration: 180d
