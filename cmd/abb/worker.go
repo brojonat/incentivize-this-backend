@@ -59,6 +59,7 @@ func runWorker(c *cli.Context) error {
 
 	// Handle the health check flag
 	if c.Bool("check-connection") {
+
 		if err := worker.CheckConnection(c.Context, l, temporalAddr, temporalNamespace); err != nil {
 			log.Fatalf("Health check failed: %v", err)
 		}
@@ -66,8 +67,10 @@ func runWorker(c *cli.Context) error {
 		return nil
 	}
 
-	if err := worker.RunWorker(c.Context, l, temporalAddr, temporalNamespace, taskQueue); err != nil {
-		log.Fatalln("Worker failed to run", "error", err)
+	err := worker.RunWorker(c.Context, l, temporalAddr, temporalNamespace, taskQueue)
+	if err != nil {
+		slog.Error("Unable to start worker", "error", err)
+		return err
 	}
 
 	return nil

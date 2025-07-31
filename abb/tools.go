@@ -157,3 +157,78 @@ var GetGitHubUserTool = Tool{
 		"required": []string{"username"},
 	},
 }
+
+var GetRedditUserStatsTool = Tool{
+	Name:        "get_reddit_user_stats",
+	Description: "Gets the statistics of a Reddit user, such as karma and account age.",
+	Parameters: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"username": map[string]any{
+				"type":        "string",
+				"description": "The username of the Reddit user.",
+			},
+		},
+		"required": []string{"username"},
+	},
+}
+
+var GetSubredditStatsTool = Tool{
+	Name:        "get_subreddit_stats",
+	Description: "Gets the statistics of a subreddit, such as subscriber count.",
+	Parameters: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"subreddit_name": map[string]any{
+				"type":        "string",
+				"description": "The name of the subreddit.",
+			},
+		},
+		"required": []string{"subreddit_name"},
+	},
+}
+
+var GetYoutubeChannelStatsTool = Tool{
+	Name:        "get_youtube_channel_stats",
+	Description: "Gets the statistics of a YouTube channel, such as subscriber count.",
+	Parameters: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"channel_id": map[string]any{
+				"type":        "string",
+				"description": "The ID of the YouTube channel.",
+			},
+		},
+		"required": []string{"channel_id"},
+	},
+}
+
+var GetBlueskyUserStatsTool = Tool{
+	Name:        "get_bluesky_user_stats",
+	Description: "Gets the statistics of a Bluesky user, such as follower count.",
+	Parameters: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"user_handle": map[string]any{
+				"type":        "string",
+				"description": "The handle of the Bluesky user.",
+			},
+		},
+		"required": []string{"user_handle"},
+	},
+}
+
+var GetSteamPlayerInfoTool = Tool{
+	Name:        "get_steam_player_info",
+	Description: "Gets player information from OpenDota using their Steam32 account ID.",
+	Parameters: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"account_id": map[string]any{
+				"type":        "integer",
+				"description": "The player's Steam32 account ID.",
+			},
+		},
+		"required": []string{"account_id"},
+	},
+}

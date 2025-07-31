@@ -56,3 +56,15 @@ CREATE TABLE contact_us_submissions (
     message TEXT,
     created_at TIMESTAMPTZ NOT NULL
 );
+
+CREATE TABLE solana_transactions (
+    signature VARCHAR(88) PRIMARY KEY,
+    slot BIGINT NOT NULL,
+    block_time TIMESTAMPTZ NOT NULL,
+    bounty_id VARCHAR(255),
+    funder_wallet VARCHAR(44) NOT NULL,
+    recipient_wallet VARCHAR(44) NOT NULL,
+    amount_lamports BIGINT NOT NULL,
+    memo TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

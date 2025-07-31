@@ -55,6 +55,28 @@ type ChatEvent struct {
 	Slot int    `json:"slot"`
 }
 
+// OpenDotaPlayerInfo represents the player information from OpenDota.
+type OpenDotaPlayerInfo struct {
+	Profile struct {
+		AccountID      int    `json:"account_id"`
+		Personaname    string `json:"personaname"`
+		Name           string `json:"name"`
+		Plus           bool   `json:"plus"`
+		Cheese         int    `json:"cheese"`
+		Steamid        string `json:"steamid"`
+		Avatar         string `json:"avatar"`
+		Avatarmedium   string `json:"avatarmedium"`
+		Avatarfull     string `json:"avatarfull"`
+		Profileurl     string `json:"profileurl"`
+		LastLogin      string `json:"last_login"`
+		Loccountrycode string `json:"loccountrycode"`
+		IsContributor  bool   `json:"is_contributor"`
+		IsSubscriber   bool   `json:"is_subscriber"`
+	} `json:"profile"`
+	RankTier    int `json:"rank_tier"`
+	Leaderboard int `json:"leaderboard_rank"`
+}
+
 // fetchDota2Chat fetches a specific review from the Steam API.
 func (a *Activities) fetchDota2Chat(ctx context.Context, deps SteamDependencies, matchID string) (*Dota2ChatContent, error) {
 	// Construct the URL for the GetMatchDetails endpoint
@@ -101,4 +123,41 @@ func (a *Activities) fetchDota2Chat(ctx context.Context, deps SteamDependencies,
 	}
 
 	return &response, nil
+}
+
+// GetSteamPlayerInfo fetches player information from OpenDota.
+func (a *Activities) GetSteamPlayerInfo(ctx context.Context, accountID int) (*OpenDotaPlayerInfo, error) {
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get configuration: %w", err)
+	}
+	deps := cfg.SteamDeps
+
+	baseURL := fmt.Sprintf("https://api.opendota.com/api/players/%d", accountID)
+	url := baseURL
+	if deps.APIKey != "" {
+		url = fmt.Sprintf("%s?api_key=%s", baseURL, deps.APIKey)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create opendota api request: %w", err)
+	}
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make opendota api request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("opendota api returned status %d", resp.StatusCode)
+	}
+
+	var playerInfo OpenDotaPlayerInfo
+	if err := json.NewDecoder(resp.Body).Decode(&playerInfo); err != nil {
+		return nil, fmt.Errorf("failed to decode opendota api response: %w", err)
+	}
+
+	return &playerInfo, nil
 }
