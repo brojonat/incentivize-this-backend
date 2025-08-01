@@ -6,6 +6,7 @@ sql:
       - "db/sqlc/bounty_summary.sql"
       - "db/sqlc/gumroad.sql"
       - "db/sqlc/contact_us.sql"
+      - "db/sqlc/transaction_history.sql"
     schema: "db/sqlc/schema.sql"   # Path to database schema
     gen:
       go:

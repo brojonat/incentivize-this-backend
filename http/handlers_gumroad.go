@@ -123,7 +123,7 @@ func handleNotifyGumroadSales(logger *slog.Logger, querier dbgen.Querier, tc cli
 				SaleID:         sale.ID,
 				Email:          sale.Email,
 				Token:          tokenString,
-				SourcePlatform: abb.PlatformGumroad,
+				SourcePlatform: abb.PaymentPlatformGumroad,
 			}
 
 			_, err = tc.ExecuteWorkflow(r.Context(), workflowOptions, abb.EmailTokenWorkflow, workflowInput)

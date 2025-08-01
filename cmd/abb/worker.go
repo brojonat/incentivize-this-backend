@@ -57,8 +57,20 @@ func runWorker(c *cli.Context) error {
 	lvl.Set(slog.LevelInfo)
 	l := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
 
-	if err := worker.RunWorker(c.Context, l, temporalAddr, temporalNamespace, taskQueue); err != nil {
-		log.Fatalln("Worker failed to run", "error", err)
+	// Handle the health check flag
+	if c.Bool("check-connection") {
+
+		if err := worker.CheckConnection(c.Context, l, temporalAddr, temporalNamespace); err != nil {
+			log.Fatalf("Health check failed: %v", err)
+		}
+		// If the health check is successful, we exit cleanly.
+		return nil
+	}
+
+	err := worker.RunWorker(c.Context, l, temporalAddr, temporalNamespace, taskQueue)
+	if err != nil {
+		slog.Error("Unable to start worker", "error", err)
+		return err
 	}
 
 	return nil

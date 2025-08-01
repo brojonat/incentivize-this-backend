@@ -6,6 +6,8 @@ package dbgen
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
@@ -17,9 +19,12 @@ type Querier interface {
 	GetBountySummary(ctx context.Context, bountyID string) ([]byte, error)
 	GetContactUsSubmission(ctx context.Context, id int32) (ContactUsSubmission, error)
 	GetExistingGumroadSaleIDs(ctx context.Context, saleIds []string) ([]string, error)
+	GetLatestSolanaTransactionForRecipient(ctx context.Context, recipientWallet string) (SolanaTransaction, error)
+	GetSolanaTransactionsByBountyID(ctx context.Context, bountyID pgtype.Text) ([]SolanaTransaction, error)
 	GetUnnotifiedGumroadSales(ctx context.Context) ([]GumroadSale, error)
 	InsertEmbedding(ctx context.Context, arg InsertEmbeddingParams) error
 	InsertGumroadSale(ctx context.Context, arg InsertGumroadSaleParams) error
+	InsertSolanaTransaction(ctx context.Context, arg InsertSolanaTransactionParams) (SolanaTransaction, error)
 	ListBountyIDs(ctx context.Context) ([]string, error)
 	SearchEmbeddings(ctx context.Context, arg SearchEmbeddingsParams) ([]SearchEmbeddingsRow, error)
 	UpdateBountySummary(ctx context.Context, arg UpdateBountySummaryParams) error
