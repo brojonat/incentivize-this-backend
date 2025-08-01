@@ -119,8 +119,8 @@ const (
 	ContentKindDota2Chat ContentKind = "dota2chat"
 	ContentKindIssue     ContentKind = "issue"
 
-	PlatformGumroad PaymentPlatformKind = "gumroad"
-	PlatformBMC     PaymentPlatformKind = "bmc"
+	PaymentPlatformGumroad PaymentPlatformKind = "gumroad"
+	PaymentPlatformBMC     PaymentPlatformKind = "bmc"
 )
 
 // SolanaConfig holds the necessary configuration for Solana interactions.
@@ -129,7 +129,7 @@ type SolanaConfig struct {
 	WSEndpoint       string               `json:"ws_endpoint"`
 	EscrowPrivateKey *solanago.PrivateKey `json:"escrow_private_key"`
 	EscrowWallet     solanago.PublicKey   `json:"escrow_token_account"`
-	TreasuryWallet   string               `json:"treasury_wallet"`
+	TreasuryWallet   *solanago.PublicKey  `json:"treasury_wallet,omitempty"`
 	USDCMintAddress  solanago.PublicKey   `json:"usdc_mint_address"`
 }
 
@@ -235,8 +235,8 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		solanaConfig.EscrowPrivateKey = &dummyEscrowWallet.PrivateKey
 		solanaConfig.EscrowWallet = dummyEscrowWallet.PublicKey()
 		solanaConfig.USDCMintAddress = solanago.MustPublicKeyFromBase58("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
-		dummyTreasury := solanago.NewWallet()
-		solanaConfig.TreasuryWallet = dummyTreasury.PublicKey().String()
+		dummyTreasury := solanago.NewWallet().PublicKey()
+		solanaConfig.TreasuryWallet = &dummyTreasury
 	} else {
 		// Production, development, or other modes that require real keys from env
 		escrowPrivateKeyStr := os.Getenv(EnvSolanaEscrowPrivateKey)
@@ -271,7 +271,6 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 			return nil, fmt.Errorf("failed to parse USDC mint address: %w", err)
 		}
 		solanaConfig.USDCMintAddress = usdcMint
-		solanaConfig.TreasuryWallet = treasuryWalletStr
 
 		escrowPrivateKey, err := solanago.PrivateKeyFromBase58(escrowPrivateKeyStr)
 		if err != nil {
@@ -288,18 +287,15 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		solanaConfig.EscrowWallet = escrowWallet
 
 		if !escrowPrivateKey.PublicKey().Equals(escrowWallet) {
-			logger.Error("Escrow private key does not match escrow wallet address")
 			return nil, fmt.Errorf("escrow private key does not match escrow wallet address")
 		}
 
-		if treasuryWalletStr != "" {
-			if _, err := solanago.PublicKeyFromBase58(treasuryWalletStr); err != nil {
-				logger.Error("Failed to parse treasury wallet address", "env_var", EnvSolanaTreasuryWallet, "error", err)
-				return nil, fmt.Errorf("failed to parse treasury wallet address: %w", err)
-			}
-		} else {
-			logger.Info("Treasury wallet not set in environment (optional)", "env_var", EnvSolanaTreasuryWallet)
+		treasuryWallet, err := solanago.PublicKeyFromBase58(treasuryWalletStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse treasury wallet address: %w", err)
 		}
+		solanaConfig.TreasuryWallet = &treasuryWallet
+
 	}
 
 	// --- LLM Config ---
