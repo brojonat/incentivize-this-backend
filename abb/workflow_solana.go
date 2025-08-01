@@ -100,51 +100,70 @@ func (a *Activities) PollAndStoreTransactionsActivity(ctx context.Context, input
 			}
 		}
 
-		// This is a simplified parsing logic. A more robust implementation would
-		// inspect pre and post token balances to accurately determine the sender,
-		// recipient, and amount.
-		rawTx, err := tx.Transaction.GetTransaction()
-		if err != nil {
-			logger.Warn("could not get raw transaction", "err", err.Error())
-		}
-		if rawTx != nil && len(rawTx.Message.Instructions) > 0 {
-			// Naive assumption: first account is funder, second is recipient
-			if len(rawTx.Message.AccountKeys) >= 2 {
-				funder := rawTx.Message.AccountKeys[0]
-				recipient := rawTx.Message.AccountKeys[1]
-				// This is a placeholder for the actual amount logic.
-				var amount int64 = 0
+		// This is the parsing logic that inspects token balances to determine
+		// the sender, recipient, and amount for SPL token transfers.
+		usdcMintAddress := cfg.SolanaConfig.USDCMintAddress
 
-				postBalances := tx.Meta.PostTokenBalances
-				preBalances := tx.Meta.PreTokenBalances
+		var funderWallet, recipientWallet string
+		var amount int64
 
-				for _, postBalance := range postBalances {
-					if postBalance.Owner.Equals(recipient) {
-						for _, preBalance := range preBalances {
-							if preBalance.Owner.Equals(recipient) {
-								postAmount, _ := strconv.ParseInt(postBalance.UiTokenAmount.Amount, 10, 64)
-								preAmount, _ := strconv.ParseInt(preBalance.UiTokenAmount.Amount, 10, 64)
-								amount = postAmount - preAmount
-							}
-						}
+		// Find the recipient and amount by checking for an increase in the escrow's USDC balance.
+		for _, postBalance := range tx.Meta.PostTokenBalances {
+			if postBalance.Owner.Equals(escrowPubKey) && postBalance.Mint.String() == usdcMintAddress.String() {
+				var preAmount int64
+				for _, preBalance := range tx.Meta.PreTokenBalances {
+					if preBalance.AccountIndex == postBalance.AccountIndex {
+						preAmount, _ = strconv.ParseInt(preBalance.UiTokenAmount.Amount, 10, 64)
+						break
 					}
 				}
+				postAmount, _ := strconv.ParseInt(postBalance.UiTokenAmount.Amount, 10, 64)
 
-				bountyID := parseBountyIDFromMemo(memo)
-				solanaTx := api.SolanaTransaction{
-					Signature:       sigInfo.Signature.String(),
-					Slot:            int64(tx.Slot),
-					BlockTime:       time.Unix(int64(*sigInfo.BlockTime), 0),
-					BountyID:        &bountyID,
-					FunderWallet:    funder.String(),
-					RecipientWallet: recipient.String(),
-					AmountLamports:  amount,
-					Memo:            &memo,
+				if postAmount > preAmount {
+					amount = postAmount - preAmount
+					recipientWallet = escrowPubKey.String()
+					break // Found the credit to our wallet
 				}
+			}
+		}
 
-				if err := a.PostSolanaTransaction(ctx, solanaTx); err != nil {
-					logger.Error("Failed to post transaction to DB", "signature", solanaTx.Signature, "error", err)
+		// If we found a valid transaction, find the funder.
+		if amount > 0 {
+			// The funder is the owner of the token account that saw a corresponding decrease.
+			for _, preBalance := range tx.Meta.PreTokenBalances {
+				if preBalance.Mint.String() == usdcMintAddress.String() && !preBalance.Owner.Equals(escrowPubKey) {
+					var postAmount int64
+					for _, postBalance := range tx.Meta.PostTokenBalances {
+						if postBalance.AccountIndex == preBalance.AccountIndex {
+							postAmount, _ = strconv.ParseInt(postBalance.UiTokenAmount.Amount, 10, 64)
+							break
+						}
+					}
+					preAmount, _ := strconv.ParseInt(preBalance.UiTokenAmount.Amount, 10, 64)
+					if preAmount > postAmount {
+						funderWallet = preBalance.Owner.String()
+						break // Found the debit
+					}
 				}
+			}
+		}
+
+		// If we have a valid transaction, store it.
+		if amount > 0 && funderWallet != "" && recipientWallet != "" {
+			bountyID := parseBountyIDFromMemo(memo)
+			solanaTx := api.SolanaTransaction{
+				Signature:          sigInfo.Signature.String(),
+				Slot:               int64(tx.Slot),
+				BlockTime:          time.Unix(int64(*sigInfo.BlockTime), 0),
+				BountyID:           &bountyID,
+				FunderWallet:       funderWallet,
+				RecipientWallet:    recipientWallet,
+				AmountSmallestUnit: amount,
+				Memo:               &memo,
+			}
+
+			if err := a.PostSolanaTransaction(ctx, solanaTx); err != nil {
+				logger.Error("Failed to post transaction to DB", "signature", solanaTx.Signature, "error", err)
 			}
 		}
 	}

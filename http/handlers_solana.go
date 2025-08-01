@@ -29,14 +29,14 @@ func handleInsertSolanaTransaction(logger *slog.Logger, querier dbgen.Querier) h
 		}
 
 		insertedTx, err := querier.InsertSolanaTransaction(r.Context(), dbgen.InsertSolanaTransactionParams{
-			Signature:       tx.Signature,
-			Slot:            tx.Slot,
-			BlockTime:       pgtype.Timestamptz{Time: tx.BlockTime, Valid: true},
-			BountyID:        pgtype.Text{String: bountyID, Valid: bountyID != ""},
-			FunderWallet:    tx.FunderWallet,
-			RecipientWallet: tx.RecipientWallet,
-			AmountLamports:  tx.AmountLamports,
-			Memo:            pgtype.Text{String: memo, Valid: true},
+			Signature:          tx.Signature,
+			Slot:               tx.Slot,
+			BlockTime:          pgtype.Timestamptz{Time: tx.BlockTime, Valid: true},
+			BountyID:           pgtype.Text{String: bountyID, Valid: bountyID != ""},
+			FunderWallet:       tx.FunderWallet,
+			RecipientWallet:    tx.RecipientWallet,
+			AmountSmallestUnit: tx.AmountSmallestUnit,
+			Memo:               pgtype.Text{String: memo, Valid: true},
 		})
 		if err != nil {
 			writeInternalError(logger, w, err)
@@ -68,15 +68,15 @@ func handleGetBountyTransactions(logger *slog.Logger, querier dbgen.Querier) htt
 		apiTxs := make([]api.SolanaTransaction, len(txs))
 		for i, tx := range txs {
 			apiTxs[i] = api.SolanaTransaction{
-				Signature:       tx.Signature,
-				Slot:            tx.Slot,
-				BlockTime:       tx.BlockTime.Time,
-				BountyID:        &tx.BountyID.String,
-				FunderWallet:    tx.FunderWallet,
-				RecipientWallet: tx.RecipientWallet,
-				AmountLamports:  tx.AmountLamports,
-				Memo:            &tx.Memo.String,
-				CreatedAt:       tx.CreatedAt.Time,
+				Signature:          tx.Signature,
+				Slot:               tx.Slot,
+				BlockTime:          tx.BlockTime.Time,
+				BountyID:           &tx.BountyID.String,
+				FunderWallet:       tx.FunderWallet,
+				RecipientWallet:    tx.RecipientWallet,
+				AmountSmallestUnit: tx.AmountSmallestUnit,
+				Memo:               &tx.Memo.String,
+				CreatedAt:          tx.CreatedAt.Time,
 			}
 		}
 
@@ -106,15 +106,15 @@ func handleGetLatestSolanaTransactionForRecipient(logger *slog.Logger, querier d
 
 		// Convert dbgen.SolanaTransaction to api.SolanaTransaction
 		apiTx := api.SolanaTransaction{
-			Signature:       tx.Signature,
-			Slot:            tx.Slot,
-			BlockTime:       tx.BlockTime.Time,
-			BountyID:        &tx.BountyID.String,
-			FunderWallet:    tx.FunderWallet,
-			RecipientWallet: tx.RecipientWallet,
-			AmountLamports:  tx.AmountLamports,
-			Memo:            &tx.Memo.String,
-			CreatedAt:       tx.CreatedAt.Time,
+			Signature:          tx.Signature,
+			Slot:               tx.Slot,
+			BlockTime:          tx.BlockTime.Time,
+			BountyID:           &tx.BountyID.String,
+			FunderWallet:       tx.FunderWallet,
+			RecipientWallet:    tx.RecipientWallet,
+			AmountSmallestUnit: tx.AmountSmallestUnit,
+			Memo:               &tx.Memo.String,
+			CreatedAt:          tx.CreatedAt.Time,
 		}
 
 		writeJSONResponse(w, &apiTx, http.StatusOK)

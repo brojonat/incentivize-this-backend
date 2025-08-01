@@ -13,6 +13,7 @@ import (
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/jsonrpc"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/temporal"
 )
 
 var ErrRetryNeededAfterRateLimit = errors.New("rate limited, retry needed after wait")
@@ -55,20 +56,7 @@ func (a *Activities) TransferUSDC(ctx context.Context, recipientWallet string, a
 		logger.Error("Transfer amount must be positive", "amount", amount)
 		return fmt.Errorf("transfer amount must be positive")
 	}
-	// Ensure Solana config is properly loaded
-	if cfg.SolanaConfig.EscrowPrivateKey == nil {
-		logger.Error("Escrow private key not configured")
-		return fmt.Errorf("escrow private key not configured")
-	}
-	if cfg.SolanaConfig.USDCMintAddress == "" {
-		logger.Error("USDC Mint Address not configured")
-		return fmt.Errorf("usdc mint address not configured")
-	}
-	usdcMint, err := solanago.PublicKeyFromBase58(cfg.SolanaConfig.USDCMintAddress)
-	if err != nil {
-		logger.Error("Invalid USDC Mint Address", "address", cfg.SolanaConfig.USDCMintAddress, "error", err)
-		return fmt.Errorf("invalid usdc mint address '%s': %w", cfg.SolanaConfig.USDCMintAddress, err)
-	}
+	usdcMint := cfg.SolanaConfig.USDCMintAddress
 
 	// Convert amount to lamports
 	usdcAmount, err := solanautil.NewUSDCAmount(amount)
@@ -78,20 +66,17 @@ func (a *Activities) TransferUSDC(ctx context.Context, recipientWallet string, a
 	}
 	lamports := usdcAmount.ToSmallestUnit().Uint64()
 
-	logger.Debug("Transfer details", "from_escrow", cfg.SolanaConfig.EscrowWallet.String(), "to_recipient", recipientPubKey.String(), "mint", usdcMint.String(), "lamports", lamports)
-
-	// Create RPC Client (using config)
 	rpcClient := solanautil.NewRPCClient(cfg.SolanaConfig.RPCEndpoint)
 
 	// Perform the transfer with memo
 	txSig, err := solanautil.SendUSDCWithMemo(
-		ctx, // Use activity context
+		ctx,
 		rpcClient,
 		usdcMint,
-		*cfg.SolanaConfig.EscrowPrivateKey, // Use configured private key
+		*cfg.SolanaConfig.EscrowPrivateKey,
 		recipientPubKey,
 		lamports,
-		memo, // Pass the memo here
+		memo,
 	)
 	if err != nil {
 		logger.Error("Failed to send USDC transfer", "error", err)
@@ -100,18 +85,18 @@ func (a *Activities) TransferUSDC(ctx context.Context, recipientWallet string, a
 
 	logger.Info("USDC transfer submitted", "signature", txSig.String())
 
-	// Optionally wait for confirmation (consider timeout)
-	confirmCtx, cancel := context.WithTimeout(ctx, 60*time.Second) // Example timeout
+	// We need to confirm the transaction, but if we fail to do so, we should not retry
+	// the activity because the transaction may have already been sent. This would
+	// result in a double spend.
+	confirmCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 	err = solanautil.ConfirmTransaction(confirmCtx, rpcClient, txSig, rpc.CommitmentFinalized)
 	if err != nil {
-		// Log warning but maybe don't fail the activity entirely?
-		// The transfer might still succeed even if confirmation times out here.
-		logger.Warn("Failed to confirm transaction within timeout, but proceeding", "signature", txSig.String(), "error", err)
-	} else {
-		logger.Info("USDC transfer confirmed", "signature", txSig.String())
+		return temporal.NewApplicationError(
+			fmt.Sprintf("failed to confirm transaction: %s", err.Error()),
+			"CONFIRMATION_FAILED",
+		)
 	}
-
 	return nil
 }
 
@@ -160,7 +145,7 @@ func (a *Activities) VerifyPayment(
 			// check if the transaction is in the list
 			for _, tx := range transactions {
 				if tx.RecipientWallet == expectedRecipient.String() &&
-					tx.AmountLamports == int64(expectedAmountLamports) &&
+					tx.AmountSmallestUnit == int64(expectedAmountLamports) &&
 					tx.Memo != nil && strings.Contains(*tx.Memo, bountyID) {
 					return &VerifyPaymentResult{
 						Verified:     true,

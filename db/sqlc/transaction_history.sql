@@ -6,7 +6,7 @@ INSERT INTO solana_transactions (
     bounty_id,
     funder_wallet,
     recipient_wallet,
-    amount_lamports,
+    amount_smallest_unit,
     memo
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8

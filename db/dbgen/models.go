@@ -65,13 +65,13 @@ type GumroadSale struct {
 }
 
 type SolanaTransaction struct {
-	Signature       string             `json:"signature"`
-	Slot            int64              `json:"slot"`
-	BlockTime       pgtype.Timestamptz `json:"block_time"`
-	BountyID        pgtype.Text        `json:"bounty_id"`
-	FunderWallet    string             `json:"funder_wallet"`
-	RecipientWallet string             `json:"recipient_wallet"`
-	AmountLamports  int64              `json:"amount_lamports"`
-	Memo            pgtype.Text        `json:"memo"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	Signature          string             `json:"signature"`
+	Slot               int64              `json:"slot"`
+	BlockTime          pgtype.Timestamptz `json:"block_time"`
+	BountyID           pgtype.Text        `json:"bounty_id"`
+	FunderWallet       string             `json:"funder_wallet"`
+	RecipientWallet    string             `json:"recipient_wallet"`
+	AmountSmallestUnit int64              `json:"amount_smallest_unit"`
+	Memo               pgtype.Text        `json:"memo"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 }

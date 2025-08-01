@@ -130,7 +130,7 @@ type SolanaConfig struct {
 	EscrowPrivateKey *solanago.PrivateKey `json:"escrow_private_key"`
 	EscrowWallet     solanago.PublicKey   `json:"escrow_token_account"`
 	TreasuryWallet   string               `json:"treasury_wallet"`
-	USDCMintAddress  string               `json:"usdc_mint_address"`
+	USDCMintAddress  solanago.PublicKey   `json:"usdc_mint_address"`
 }
 
 // AbbServerConfig holds configuration related to the ABB server itself.
@@ -230,12 +230,12 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 	if currentEnv == "test" {
 		logger.Info("ENV is 'test', using dummy Solana configuration.")
 		dummyEscrowWallet := solanago.NewWallet()
-		solanaConfig.RPCEndpoint = "https://api.devnet.solana.com"                    // Default to devnet for local/test
-		solanaConfig.WSEndpoint = "wss://api.devnet.solana.com"                       // Default to devnet for local/test
-		solanaConfig.EscrowPrivateKey = &dummyEscrowWallet.PrivateKey                 // Dummy key
-		solanaConfig.EscrowWallet = dummyEscrowWallet.PublicKey()                     // Corresponding dummy pubkey
-		solanaConfig.USDCMintAddress = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" // Common USDC mint
-		dummyTreasury := solanago.NewWallet()                                         // Dummy treasury
+		solanaConfig.RPCEndpoint = "https://api.devnet.solana.com"
+		solanaConfig.WSEndpoint = "wss://api.devnet.solana.com"
+		solanaConfig.EscrowPrivateKey = &dummyEscrowWallet.PrivateKey
+		solanaConfig.EscrowWallet = dummyEscrowWallet.PublicKey()
+		solanaConfig.USDCMintAddress = solanago.MustPublicKeyFromBase58("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+		dummyTreasury := solanago.NewWallet()
 		solanaConfig.TreasuryWallet = dummyTreasury.PublicKey().String()
 	} else {
 		// Production, development, or other modes that require real keys from env
@@ -264,9 +264,14 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		}
 
 		solanaConfig.RPCEndpoint = rpcURL
-		solanaConfig.WSEndpoint = wsURL // If empty, downstream functions might default or fail
+		solanaConfig.WSEndpoint = wsURL
+		usdcMint, err := solanago.PublicKeyFromBase58(usdcMintStr)
+		if err != nil {
+			logger.Error("Failed to parse USDC Mint address", "env_var", EnvSolanaUSDCMint, "error", err)
+			return nil, fmt.Errorf("failed to parse USDC mint address: %w", err)
+		}
+		solanaConfig.USDCMintAddress = usdcMint
 		solanaConfig.TreasuryWallet = treasuryWalletStr
-		solanaConfig.USDCMintAddress = usdcMintStr
 
 		escrowPrivateKey, err := solanago.PrivateKeyFromBase58(escrowPrivateKeyStr)
 		if err != nil {

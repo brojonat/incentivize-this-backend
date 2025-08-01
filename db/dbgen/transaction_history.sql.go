@@ -12,7 +12,7 @@ import (
 )
 
 const getLatestSolanaTransactionForRecipient = `-- name: GetLatestSolanaTransactionForRecipient :one
-SELECT signature, slot, block_time, bounty_id, funder_wallet, recipient_wallet, amount_lamports, memo, created_at FROM solana_transactions
+SELECT signature, slot, block_time, bounty_id, funder_wallet, recipient_wallet, amount_smallest_unit, memo, created_at FROM solana_transactions
 WHERE recipient_wallet = $1
 ORDER BY block_time DESC
 LIMIT 1
@@ -28,7 +28,7 @@ func (q *Queries) GetLatestSolanaTransactionForRecipient(ctx context.Context, re
 		&i.BountyID,
 		&i.FunderWallet,
 		&i.RecipientWallet,
-		&i.AmountLamports,
+		&i.AmountSmallestUnit,
 		&i.Memo,
 		&i.CreatedAt,
 	)
@@ -36,7 +36,7 @@ func (q *Queries) GetLatestSolanaTransactionForRecipient(ctx context.Context, re
 }
 
 const getSolanaTransactionsByBountyID = `-- name: GetSolanaTransactionsByBountyID :many
-SELECT signature, slot, block_time, bounty_id, funder_wallet, recipient_wallet, amount_lamports, memo, created_at FROM solana_transactions
+SELECT signature, slot, block_time, bounty_id, funder_wallet, recipient_wallet, amount_smallest_unit, memo, created_at FROM solana_transactions
 WHERE bounty_id = $1
 `
 
@@ -56,7 +56,7 @@ func (q *Queries) GetSolanaTransactionsByBountyID(ctx context.Context, bountyID 
 			&i.BountyID,
 			&i.FunderWallet,
 			&i.RecipientWallet,
-			&i.AmountLamports,
+			&i.AmountSmallestUnit,
 			&i.Memo,
 			&i.CreatedAt,
 		); err != nil {
@@ -78,24 +78,24 @@ INSERT INTO solana_transactions (
     bounty_id,
     funder_wallet,
     recipient_wallet,
-    amount_lamports,
+    amount_smallest_unit,
     memo
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8
 )
 ON CONFLICT (signature) DO NOTHING
-RETURNING signature, slot, block_time, bounty_id, funder_wallet, recipient_wallet, amount_lamports, memo, created_at
+RETURNING signature, slot, block_time, bounty_id, funder_wallet, recipient_wallet, amount_smallest_unit, memo, created_at
 `
 
 type InsertSolanaTransactionParams struct {
-	Signature       string             `json:"signature"`
-	Slot            int64              `json:"slot"`
-	BlockTime       pgtype.Timestamptz `json:"block_time"`
-	BountyID        pgtype.Text        `json:"bounty_id"`
-	FunderWallet    string             `json:"funder_wallet"`
-	RecipientWallet string             `json:"recipient_wallet"`
-	AmountLamports  int64              `json:"amount_lamports"`
-	Memo            pgtype.Text        `json:"memo"`
+	Signature          string             `json:"signature"`
+	Slot               int64              `json:"slot"`
+	BlockTime          pgtype.Timestamptz `json:"block_time"`
+	BountyID           pgtype.Text        `json:"bounty_id"`
+	FunderWallet       string             `json:"funder_wallet"`
+	RecipientWallet    string             `json:"recipient_wallet"`
+	AmountSmallestUnit int64              `json:"amount_smallest_unit"`
+	Memo               pgtype.Text        `json:"memo"`
 }
 
 func (q *Queries) InsertSolanaTransaction(ctx context.Context, arg InsertSolanaTransactionParams) (SolanaTransaction, error) {
@@ -106,7 +106,7 @@ func (q *Queries) InsertSolanaTransaction(ctx context.Context, arg InsertSolanaT
 		arg.BountyID,
 		arg.FunderWallet,
 		arg.RecipientWallet,
-		arg.AmountLamports,
+		arg.AmountSmallestUnit,
 		arg.Memo,
 	)
 	var i SolanaTransaction
@@ -117,7 +117,7 @@ func (q *Queries) InsertSolanaTransaction(ctx context.Context, arg InsertSolanaT
 		&i.BountyID,
 		&i.FunderWallet,
 		&i.RecipientWallet,
-		&i.AmountLamports,
+		&i.AmountSmallestUnit,
 		&i.Memo,
 		&i.CreatedAt,
 	)
