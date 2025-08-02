@@ -70,7 +70,7 @@ func (a *Activities) PostSolanaTransaction(ctx context.Context, tx api.SolanaTra
 		return fmt.Errorf("failed to marshal transaction: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", bountiesURL, bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, bountiesURL, bytes.NewBuffer(body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -104,7 +104,7 @@ func (a *Activities) QueryForTransaction(ctx context.Context, bountyID string) (
 	}
 
 	reqURL := fmt.Sprintf("%s/bounties/%s/transactions", strings.TrimSuffix(cfg.ABBServerConfig.APIEndpoint, "/"), bountyID)
-	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -145,7 +145,7 @@ func (a *Activities) GetLatestSolanaTransactionForRecipient(ctx context.Context,
 	}
 
 	reqURL := fmt.Sprintf("%s/solana/transactions/latest/%s", strings.TrimSuffix(cfg.ABBServerConfig.APIEndpoint, "/"), recipientWallet)
-	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -157,16 +157,12 @@ func (a *Activities) GetLatestSolanaTransactionForRecipient(ctx context.Context,
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNoContent {
+		return nil, nil
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		// if we get a 204, that's okay, just means there are no transactions
-		if resp.StatusCode == http.StatusNoContent {
-			return nil, nil
-		}
-		// if the body is nil or empty, it means there are no transactions
-		if len(bodyBytes) == 0 || string(bodyBytes) == "null" {
-			return nil, nil
-		}
 		return nil, fmt.Errorf("get latest transaction request returned status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
