@@ -44,3 +44,15 @@ type ConfigResponse struct {
 	USDCMintAddress string `json:"usdc_mint_address"`
 	EscrowWallet    string `json:"escrow_wallet"`
 }
+
+type SolanaTransaction struct {
+	Signature          string    `json:"signature"`
+	Slot               int64     `json:"slot"`
+	BlockTime          time.Time `json:"block_time"`
+	BountyID           *string   `json:"bounty_id,omitempty"`
+	FunderWallet       string    `json:"funder_wallet"`
+	RecipientWallet    string    `json:"recipient_wallet"`
+	AmountSmallestUnit int64     `json:"amount_smallest_unit"`
+	Memo               *string   `json:"memo,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+}

@@ -66,6 +66,8 @@ const (
 	EnvTwitchClientID     = "TWITCH_CLIENT_ID"
 	EnvTwitchClientSecret = "TWITCH_CLIENT_SECRET"
 
+	EnvOpenDotaAPIKey = "OPENDOTA_API_KEY"
+
 	EnvLLMImageProvider                        = "LLM_IMAGE_PROVIDER"
 	EnvLLMImageAPIKey                          = "LLM_IMAGE_API_KEY"
 	EnvLLMImageModel                           = "LLM_IMAGE_MODEL"
@@ -105,16 +107,20 @@ const (
 	PlatformInstagram       PlatformKind = "instagram"
 	PlatformIncentivizeThis PlatformKind = "incentivizethis"
 	PlatformTripAdvisor     PlatformKind = "tripadvisor"
+	PlatformSteam           PlatformKind = "steam"
+	PlatformGitHub          PlatformKind = "github"
 
-	ContentKindPost    ContentKind = "post"
-	ContentKindComment ContentKind = "comment"
-	ContentKindVideo   ContentKind = "video"
-	ContentKindClip    ContentKind = "clip"
-	ContentKindBounty  ContentKind = "bounty"
-	ContentKindReview  ContentKind = "review"
+	ContentKindPost      ContentKind = "post"
+	ContentKindComment   ContentKind = "comment"
+	ContentKindVideo     ContentKind = "video"
+	ContentKindClip      ContentKind = "clip"
+	ContentKindBounty    ContentKind = "bounty"
+	ContentKindReview    ContentKind = "review"
+	ContentKindDota2Chat ContentKind = "dota2chat"
+	ContentKindIssue     ContentKind = "issue"
 
-	PlatformGumroad PaymentPlatformKind = "gumroad"
-	PlatformBMC     PaymentPlatformKind = "bmc"
+	PaymentPlatformGumroad PaymentPlatformKind = "gumroad"
+	PaymentPlatformBMC     PaymentPlatformKind = "bmc"
 )
 
 // SolanaConfig holds the necessary configuration for Solana interactions.
@@ -123,8 +129,8 @@ type SolanaConfig struct {
 	WSEndpoint       string               `json:"ws_endpoint"`
 	EscrowPrivateKey *solanago.PrivateKey `json:"escrow_private_key"`
 	EscrowWallet     solanago.PublicKey   `json:"escrow_token_account"`
-	TreasuryWallet   string               `json:"treasury_wallet"`
-	USDCMintAddress  string               `json:"usdc_mint_address"`
+	TreasuryWallet   *solanago.PublicKey  `json:"treasury_wallet,omitempty"`
+	USDCMintAddress  solanago.PublicKey   `json:"usdc_mint_address"`
 }
 
 // AbbServerConfig holds configuration related to the ABB server itself.
@@ -157,6 +163,7 @@ type Configuration struct {
 	InstagramDeps                    InstagramDependencies       `json:"instagram_deps"`
 	IncentivizeThisDeps              IncentivizeThisDependencies `json:"incentivizethis_deps"`
 	TripadvisorDeps                  TripadvisorDependencies     `json:"tripadvisor_deps"`
+	SteamDeps                        SteamDependencies           `json:"steam_deps"`
 	DiscordConfig                    DiscordConfig               `json:"discord_config"`
 	CheckContentRequirementsPrompt   string                      `json:"check_content_requirements_prompt"`
 	ValidatePayoutWalletPrompt       string                      `json:"validate_payout_wallet_prompt"`
@@ -166,6 +173,7 @@ type Configuration struct {
 	PublishTargetSubreddit           string                      `json:"publish_target_subreddit"`
 	Environment                      string                      `json:"environment"`
 	RedditFlairID                    string                      `json:"reddit_flair_id"`
+	GitHubDeps                       GitHubDependencies          `json:"github_deps"`
 }
 
 // Activities holds all activity implementations and their dependencies
@@ -222,13 +230,13 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 	if currentEnv == "test" {
 		logger.Info("ENV is 'test', using dummy Solana configuration.")
 		dummyEscrowWallet := solanago.NewWallet()
-		solanaConfig.RPCEndpoint = "https://api.devnet.solana.com"                    // Default to devnet for local/test
-		solanaConfig.WSEndpoint = "wss://api.devnet.solana.com"                       // Default to devnet for local/test
-		solanaConfig.EscrowPrivateKey = &dummyEscrowWallet.PrivateKey                 // Dummy key
-		solanaConfig.EscrowWallet = dummyEscrowWallet.PublicKey()                     // Corresponding dummy pubkey
-		solanaConfig.USDCMintAddress = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" // Common USDC mint
-		dummyTreasury := solanago.NewWallet()                                         // Dummy treasury
-		solanaConfig.TreasuryWallet = dummyTreasury.PublicKey().String()
+		solanaConfig.RPCEndpoint = "https://api.devnet.solana.com"
+		solanaConfig.WSEndpoint = "wss://api.devnet.solana.com"
+		solanaConfig.EscrowPrivateKey = &dummyEscrowWallet.PrivateKey
+		solanaConfig.EscrowWallet = dummyEscrowWallet.PublicKey()
+		solanaConfig.USDCMintAddress = solanago.MustPublicKeyFromBase58("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+		dummyTreasury := solanago.NewWallet().PublicKey()
+		solanaConfig.TreasuryWallet = &dummyTreasury
 	} else {
 		// Production, development, or other modes that require real keys from env
 		escrowPrivateKeyStr := os.Getenv(EnvSolanaEscrowPrivateKey)
@@ -256,9 +264,13 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		}
 
 		solanaConfig.RPCEndpoint = rpcURL
-		solanaConfig.WSEndpoint = wsURL // If empty, downstream functions might default or fail
-		solanaConfig.TreasuryWallet = treasuryWalletStr
-		solanaConfig.USDCMintAddress = usdcMintStr
+		solanaConfig.WSEndpoint = wsURL
+		usdcMint, err := solanago.PublicKeyFromBase58(usdcMintStr)
+		if err != nil {
+			logger.Error("Failed to parse USDC Mint address", "env_var", EnvSolanaUSDCMint, "error", err)
+			return nil, fmt.Errorf("failed to parse USDC mint address: %w", err)
+		}
+		solanaConfig.USDCMintAddress = usdcMint
 
 		escrowPrivateKey, err := solanago.PrivateKeyFromBase58(escrowPrivateKeyStr)
 		if err != nil {
@@ -275,18 +287,15 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		solanaConfig.EscrowWallet = escrowWallet
 
 		if !escrowPrivateKey.PublicKey().Equals(escrowWallet) {
-			logger.Error("Escrow private key does not match escrow wallet address")
 			return nil, fmt.Errorf("escrow private key does not match escrow wallet address")
 		}
 
-		if treasuryWalletStr != "" {
-			if _, err := solanago.PublicKeyFromBase58(treasuryWalletStr); err != nil {
-				logger.Error("Failed to parse treasury wallet address", "env_var", EnvSolanaTreasuryWallet, "error", err)
-				return nil, fmt.Errorf("failed to parse treasury wallet address: %w", err)
-			}
-		} else {
-			logger.Info("Treasury wallet not set in environment (optional)", "env_var", EnvSolanaTreasuryWallet)
+		treasuryWallet, err := solanago.PublicKeyFromBase58(treasuryWalletStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse treasury wallet address: %w", err)
 		}
+		solanaConfig.TreasuryWallet = &treasuryWallet
+
 	}
 
 	// --- LLM Config ---
@@ -401,6 +410,11 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		APIKey: os.Getenv(EnvTripadvisorAPIKey),
 	}
 
+	// --- Steam Dependencies ---
+	steamDeps := SteamDependencies{
+		APIKey: os.Getenv(EnvOpenDotaAPIKey),
+	}
+
 	// --- Discord Config ---
 	discordConfig := DiscordConfig{
 		BotToken:  os.Getenv(EnvDiscordBotToken),
@@ -436,6 +450,7 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		InstagramDeps:                    instagramDeps,
 		IncentivizeThisDeps:              incentivizeThisDeps,
 		TripadvisorDeps:                  tripadvisorDeps,
+		SteamDeps:                        steamDeps,
 		DiscordConfig:                    discordConfig,
 		CheckContentRequirementsPrompt:   llmCheckContentRequirementsPromptBase,
 		ValidatePayoutWalletPrompt:       llmValidatePayoutWalletPromptBase,
@@ -445,6 +460,7 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		PublishTargetSubreddit:           targetSubreddit,
 		Environment:                      environmentToStore,
 		RedditFlairID:                    flairID,
+		GitHubDeps:                       GitHubDependencies{},
 	}
 	return config, nil
 }
@@ -917,6 +933,43 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 			return nil, fmt.Errorf("failed to marshal Tripadvisor content: %w", err)
 		}
 
+	case PlatformSteam:
+		logger.Debug("Executing Steam pull logic within PullContentActivity")
+		if input.ContentKind != ContentKindDota2Chat {
+			return nil, fmt.Errorf("unsupported content kind for Steam: %s. Only '%s' is supported", input.ContentKind, ContentKindDota2Chat)
+		}
+		steamContent, err := a.fetchDota2Chat(ctx, cfg.SteamDeps, input.ContentID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to pull Steam content: %w", err)
+		}
+		contentBytes, err = json.Marshal(steamContent)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal Steam content: %w", err)
+		}
+
+	case PlatformGitHub:
+		deps := cfg.GitHubDeps
+		if deps.Type() != PlatformGitHub {
+			// This is a sanity check and should never happen.
+			return nil, fmt.Errorf("internal configuration error: GitHubDeps type is not PlatformGitHub")
+		}
+		switch input.ContentKind {
+		case ContentKindIssue:
+			owner, repo, issueNum, err := a.parseGitHubURL(input.ContentID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse github url: %w", err)
+			}
+			content, err := a.getGitHubIssue(ctx, owner, repo, issueNum)
+			if err != nil {
+				return nil, err
+			}
+			contentBytes, err = json.Marshal(content)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal github issue: %w", err)
+			}
+		default:
+			return nil, fmt.Errorf("unsupported content kind for github: %s", input.ContentKind)
+		}
 	default:
 		err = fmt.Errorf("unsupported platform type in PullContentActivity: %s", input.PlatformType)
 	}

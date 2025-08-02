@@ -304,9 +304,21 @@ func processClaim(ctx workflow.Context, a *Activities, bountyState *BountyState,
 		return
 	}
 
+	tools := []Tool{GetContentDetailsTool, AnalyzeImageURLTool, DetectMaliciousContentTool, ValidatePayoutWalletTool, GetYoutubeChannelStatsTool, GetBlueskyUserStatsTool}
+	if signal.Platform == PlatformGitHub {
+		tools = []Tool{GetGitHubIssueTool, GetClosingPRTool, GetGitHubUserTool}
+	}
+	if signal.Platform == PlatformReddit {
+		tools = append(tools, GetRedditUserStatsTool)
+		tools = append(tools, GetSubredditStatsTool)
+	}
+	if signal.Platform == PlatformSteam {
+		tools = append(tools, GetSteamPlayerInfoTool)
+	}
+
 	var orchestratorResult OrchestratorWorkflowOutput
 	orchErr := workflow.ExecuteChildWorkflow(ctx, OrchestratorWorkflow, OrchestratorWorkflowInput{
-		Tools:         []Tool{GetContentDetailsTool, AnalyzeImageURLTool, DetectMaliciousContentTool, ValidatePayoutWalletTool},
+		Tools:         tools,
 		Bounty:        bountyInput,
 		InitialSignal: signal,
 	}).Get(ctx, &orchestratorResult)
@@ -330,8 +342,8 @@ func processClaim(ctx workflow.Context, a *Activities, bountyState *BountyState,
 		PayoutWallet: signal.PayoutWallet,
 		Amount:       payoutAmount,
 		Timestamp:    workflow.Now(ctx),
-		Platform:     bountyState.Platform,
-		ContentKind:  bountyState.ContentKind,
+		Platform:     signal.Platform,
+		ContentKind:  signal.ContentKind,
 	}
 
 	// Execute immediate payout
@@ -420,12 +432,130 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
 						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
 					} else {
+						// Ensure the ContentKind from the signal is used, not from the bounty state
+						args.ContentKind = input.InitialSignal.ContentKind
 						var contentBytes []byte
 						activityErr := workflow.ExecuteActivity(ctx, a.PullContentActivity, args).Get(ctx, &contentBytes)
 						if activityErr != nil {
 							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
 						} else {
 							toolResult = string(contentBytes)
+						}
+					}
+				case "get_github_issue":
+					var args struct {
+						Owner       string `json:"owner"`
+						Repo        string `json:"repo"`
+						IssueNumber int    `json:"issue_number"`
+					}
+					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+					} else {
+						var result GitHubIssueContent
+						activityErr := workflow.ExecuteActivity(ctx, a.getGitHubIssue, args.Owner, args.Repo, args.IssueNumber).Get(ctx, &result)
+						if activityErr != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+						} else {
+							resultBytes, _ := json.Marshal(result)
+							toolResult = string(resultBytes)
+						}
+					}
+				case "get_closing_pr":
+					var args struct {
+						Owner       string `json:"owner"`
+						Repo        string `json:"repo"`
+						IssueNumber int    `json:"issue_number"`
+					}
+					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+					} else {
+						var result GitHubPullRequestContent
+						activityErr := workflow.ExecuteActivity(ctx, a.getClosingPR, args.Owner, args.Repo, args.IssueNumber).Get(ctx, &result)
+						if activityErr != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+						} else {
+							resultBytes, _ := json.Marshal(result)
+							toolResult = string(resultBytes)
+						}
+					}
+				case "get_github_user":
+					var args struct {
+						Username string `json:"username"`
+					}
+					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+					} else {
+						var result GitHubUserContent
+						activityErr := workflow.ExecuteActivity(ctx, a.getGitHubUser, args.Username).Get(ctx, &result)
+						if activityErr != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+						} else {
+							resultBytes, _ := json.Marshal(result)
+							toolResult = string(resultBytes)
+						}
+					}
+				case "get_reddit_user_stats":
+					var args struct {
+						Username string `json:"username"`
+					}
+					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+					} else {
+						var result RedditUserStats
+						activityErr := workflow.ExecuteActivity(ctx, a.GetRedditUserStats, args.Username).Get(ctx, &result)
+						if activityErr != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+						} else {
+							resultBytes, _ := json.Marshal(result)
+							toolResult = string(resultBytes)
+						}
+					}
+				case "get_subreddit_stats":
+					var args struct {
+						SubredditName string `json:"subreddit_name"`
+					}
+					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+					} else {
+						var result SubredditStats
+						activityErr := workflow.ExecuteActivity(ctx, a.GetSubredditStats, args.SubredditName).Get(ctx, &result)
+						if activityErr != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+						} else {
+							resultBytes, _ := json.Marshal(result)
+							toolResult = string(resultBytes)
+						}
+					}
+				case "get_youtube_channel_stats":
+					var args struct {
+						ChannelID string `json:"channel_id"`
+					}
+					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+					} else {
+						var result YouTubeChannelStats
+						activityErr := workflow.ExecuteActivity(ctx, a.GetYoutubeChannelStats, args.ChannelID).Get(ctx, &result)
+						if activityErr != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+						} else {
+							resultBytes, _ := json.Marshal(result)
+							toolResult = string(resultBytes)
+						}
+					}
+				case "get_bluesky_user_stats":
+					var args struct {
+						UserHandle string `json:"user_handle"`
+					}
+					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+					} else {
+						var result BlueskyUserStats
+						activityErr := workflow.ExecuteActivity(ctx, a.GetBlueskyUserStats, args.UserHandle).Get(ctx, &result)
+						if activityErr != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+						} else {
+							resultBytes, _ := json.Marshal(result)
+							toolResult = string(resultBytes)
 						}
 					}
 				case "analyze_image_url":
@@ -474,6 +604,22 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 						activityErr := workflow.ExecuteActivity(ctx, a.DetectMaliciousContent, args.ContentID, args.Prompt).Get(ctx, &result)
 						if activityErr != nil {
 							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+						} else {
+							resultBytes, _ := json.Marshal(result)
+							toolResult = string(resultBytes)
+						}
+					}
+				case "get_steam_player_info":
+					var args struct {
+						AccountID int `json:"account_id"`
+					}
+					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+					} else {
+						var result OpenDotaPlayerInfo
+						activityErr := workflow.ExecuteActivity(ctx, a.GetSteamPlayerInfo, args.AccountID).Get(ctx, &result)
+						if activityErr != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to execute activity: %v"}`, activityErr)
 						} else {
 							resultBytes, _ := json.Marshal(result)
 							toolResult = string(resultBytes)

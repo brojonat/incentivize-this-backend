@@ -40,12 +40,12 @@ type BountyBootstrapConfig struct {
 }
 
 type BountyDefinition struct {
-	Name          string  `yaml:"name"`
-	Requirements  string  `yaml:"requirements"`
-	TotalAmount   float64 `yaml:"total_amount"`
-	PerPostAmount float64 `yaml:"per_post_amount"`
-	Duration      string  `yaml:"duration,omitempty"`
-	FeePercentage float64 `yaml:"fee_percentage,omitempty"`
+	Name          string   `yaml:"name"`
+	Requirements  string   `yaml:"requirements"`
+	TotalAmount   float64  `yaml:"total_amount"`
+	PerPostAmount float64  `yaml:"per_post_amount"`
+	Duration      string   `yaml:"duration,omitempty"`
+	FeePercentage *float64 `yaml:"fee_percentage,omitempty"`
 }
 
 // Environment variables used by the CLI
@@ -943,8 +943,8 @@ func bootstrapBountiesAction(ctx *cli.Context) error {
 				"timeout_duration": bd.Duration,
 			}
 
-			if bd.FeePercentage > 0 {
-				createReqPayload["fee_percentage"] = bd.FeePercentage
+			if bd.FeePercentage != nil {
+				createReqPayload["fee_percentage"] = *bd.FeePercentage
 			}
 
 			payloadBytes, err := json.Marshal(createReqPayload)

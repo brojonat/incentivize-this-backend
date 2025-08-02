@@ -81,6 +81,21 @@ type YouTubeContent struct {
 	Transcript           string    `json:"transcript,omitempty"`
 }
 
+// YouTubeChannelStats represents the stats for a given YouTube channel
+type YouTubeChannelStats struct {
+	Kind  string `json:"kind"`
+	Items []struct {
+		Kind       string `json:"kind"`
+		ID         string `json:"id"`
+		Statistics struct {
+			ViewCount             string `json:"viewCount"`
+			SubscriberCount       string `json:"subscriberCount"`
+			HiddenSubscriberCount bool   `json:"hiddenSubscriberCount"`
+			VideoCount            string `json:"videoCount"`
+		} `json:"statistics"`
+	} `json:"items"`
+}
+
 // YouTubeVideoData represents the response from the YouTube Data API
 type YouTubeVideoData struct {
 	ID      string `json:"id"`
@@ -164,7 +179,7 @@ func (a *Activities) fetchYouTubeVideoMetadata(ctx context.Context, ytDeps YouTu
 	url := fmt.Sprintf("https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=%s&key=%s",
 		videoID, ytDeps.APIKey)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -204,6 +219,56 @@ func (a *Activities) fetchYouTubeVideoMetadata(ctx context.Context, ytDeps YouTu
 	return &result.Items[0], nil
 }
 
+// GetYoutubeChannelStats fetches channel stats from the YouTube Data API
+func (a *Activities) GetYoutubeChannelStats(ctx context.Context, channelID string) (*YouTubeChannelStats, error) {
+	logger := activity.GetLogger(ctx)
+	logger.Info("Fetching YouTube channel stats", "channel_id", channelID)
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get configuration: %w", err)
+	}
+	ytDeps := cfg.YouTubeDeps
+
+	url := fmt.Sprintf("https://www.googleapis.com/youtube/v3/channels?part=statistics&id=%s&key=%s",
+		channelID, ytDeps.APIKey)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if ytDeps.ApplicationName != "" {
+		req.Header.Set("X-Goog-Api-Key", ytDeps.APIKey)
+		req.Header.Set("X-Goog-Api-Client", ytDeps.ApplicationName)
+	}
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("YouTube API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result YouTubeChannelStats
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w (body: %s)", err, string(body))
+	}
+
+	if len(result.Items) == 0 {
+		return nil, fmt.Errorf("no channel found for ID %s", channelID)
+	}
+
+	return &result, nil
+}
+
 // FetchYouTubeTranscriptDirectly attempts to fetch a YouTube transcript by scraping the watch page.
 func (a *Activities) FetchYouTubeTranscriptDirectly(ctx context.Context, httpClient *http.Client, videoID string, preferredLanguage string) (string, error) {
 	logger := activity.GetLogger(ctx)
@@ -213,7 +278,7 @@ func (a *Activities) FetchYouTubeTranscriptDirectly(ctx context.Context, httpCli
 	logger.Info("Fetching YouTube transcript directly (scraping)", "video_id", videoID, "language", preferredLanguage)
 
 	watchURL := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
-	req, err := http.NewRequestWithContext(ctx, "GET", watchURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, watchURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request for watch page: %w", err)
 	}
@@ -323,7 +388,7 @@ endLoop:
 		return "", fmt.Errorf("no suitable caption track URL found for video %s", videoID)
 	}
 
-	captionReq, err := http.NewRequestWithContext(ctx, "GET", captionURL, nil)
+	captionReq, err := http.NewRequestWithContext(ctx, http.MethodGet, captionURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request for caption URL %s: %w", captionURL, err)
 	}

@@ -1,8 +1,11 @@
 package abb
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"time"
 )
 
@@ -91,7 +94,73 @@ type BlueskyEmbedRecordView struct {
 	Embeds *[]BlueskyEmbedView `json:"embeds,omitempty"` // Nested embeds within the quoted post
 }
 
+// BlueskyUserStats represents the stats for a given bluesky user
+type BlueskyUserStats struct {
+	Did            string        `json:"did"`
+	Handle         string        `json:"handle"`
+	DisplayName    string        `json:"displayName"`
+	Description    string        `json:"description"`
+	Avatar         string        `json:"avatar"`
+	Banner         string        `json:"banner"`
+	FollowsCount   int           `json:"followsCount"`
+	FollowersCount int           `json:"followersCount"`
+	PostsCount     int           `json:"postsCount"`
+	IndexedAt      time.Time     `json:"indexedAt"`
+	Labels         []interface{} `json:"labels"`
+}
+
 // BlueskyHandleResponse is used to parse the JSON response from com.atproto.identity.resolveHandle
 type BlueskyHandleResponse struct {
 	DID string `json:"did"`
+}
+
+// GetBlueskyUserStats fetches user stats from the Bluesky API
+func (a *Activities) GetBlueskyUserStats(ctx context.Context, userHandle string) (*BlueskyUserStats, error) {
+	// First, resolve the handle to a DID
+	handleURL := fmt.Sprintf("https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=%s", userHandle)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, handleURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create handle request: %w", err)
+	}
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make handle request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to resolve handle: %s", string(body))
+	}
+
+	var handleResp BlueskyHandleResponse
+	if err := json.NewDecoder(resp.Body).Decode(&handleResp); err != nil {
+		return nil, fmt.Errorf("failed to decode handle response: %w", err)
+	}
+
+	// Now get the profile
+	profileURL := fmt.Sprintf("https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=%s", handleResp.DID)
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, profileURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create profile request: %w", err)
+	}
+
+	resp, err = a.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make profile request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to get profile: %s", string(body))
+	}
+
+	var userStats BlueskyUserStats
+	if err := json.NewDecoder(resp.Body).Decode(&userStats); err != nil {
+		return nil, fmt.Errorf("failed to decode profile response: %w", err)
+	}
+
+	return &userStats, nil
 }

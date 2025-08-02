@@ -120,6 +120,157 @@ type RedditContent struct {
 	Thumbnail   string    `json:"thumbnail"` // Added Thumbnail field
 }
 
+// RedditUserStats represents the stats for a given reddit user
+type RedditUserStats struct {
+	Kind string `json:"kind"`
+	Data struct {
+		IsEmployee           bool        `json:"is_employee"`
+		IsFriend             bool        `json:"is_friend"`
+		Subreddit            interface{} `json:"subreddit"`
+		SnoovatarSize        []int       `json:"snoovatar_size"`
+		AwardeeKarma         int         `json:"awardee_karma"`
+		ID                   string      `json:"id"`
+		Verified             bool        `json:"verified"`
+		IsMod                bool        `json:"is_mod"`
+		AwarderKarma         int         `json:"awarder_karma"`
+		HasVerifiedEmail     bool        `json:"has_verified_email"`
+		IconImg              string      `json:"icon_img"`
+		Name                 string      `json:"name"`
+		IsSuspended          bool        `json:"is_suspended"`
+		TotalKarma           int         `json:"total_karma"`
+		CommentKarma         int         `json:"comment_karma"`
+		LinkKarma            int         `json:"link_karma"`
+		Created              float64     `json:"created"`
+		CreatedUTC           float64     `json:"created_utc"`
+		SnoovatarImg         string      `json:"snoovatar_img"`
+		AcceptFollowers      bool        `json:"accept_followers"`
+		HasSubscribed        bool        `json:"has_subscribed"`
+		IsBlocked            bool        `json:"is_blocked"`
+		PrefShowSnoovatar    bool        `json:"pref_show_snoovatar"`
+		IsGold               bool        `json:"is_gold"`
+		CanBeFollowed        bool        `json:"can_be_followed"`
+		IsSuspendedForViolat bool        `json:"is_suspended_for_violating_the_rules"`
+		HideFromRobots       bool        `json:"hide_from_robots"`
+		PrefVideoAutoplay    bool        `json:"pref_video_autoplay"`
+		HasModMail           bool        `json:"has_mod_mail"`
+		PrefNoProfanity      bool        `json:"pref_no_profanity"`
+		PrefTopKarmaSubreddi bool        `json:"pref_top_karma_subreddits"`
+		CanCreateSubreddit   bool        `json:"can_create_subreddit"`
+		Over18               bool        `json:"over_18"`
+	} `json:"data"`
+}
+
+// SubredditStats represents the stats for a given subreddit
+type SubredditStats struct {
+	Kind string `json:"kind"`
+	Data struct {
+		UserFlairBackgroundColor        interface{}   `json:"user_flair_background_color"`
+		SubmitTextHTML                  string        `json:"submit_text_html"`
+		RestrictPosting                 bool          `json:"restrict_posting"`
+		UserIsBanned                    bool          `json:"user_is_banned"`
+		FreeFormReports                 bool          `json:"free_form_reports"`
+		WikiEnabled                     bool          `json:"wiki_enabled"`
+		UserIsMuted                     bool          `json:"user_is_muted"`
+		UserCanFlairInSr                bool          `json:"user_can_flair_in_sr"`
+		DisplayName                     string        `json:"display_name"`
+		HeaderImg                       string        `json:"header_img"`
+		Title                           string        `json:"title"`
+		IconSize                        []int         `json:"icon_size"`
+		PrimaryColor                    string        `json:"primary_color"`
+		ActiveUserCount                 int           `json:"active_user_count"`
+		IconImg                         string        `json:"icon_img"`
+		DisplayNamePrefixed             string        `json:"display_name_prefixed"`
+		AccountsActive                  int           `json:"accounts_active"`
+		PublicTraffic                   bool          `json:"public_traffic"`
+		Subscribers                     int           `json:"subscribers"`
+		UserFlairRichtext               []interface{} `json:"user_flair_richtext"`
+		VideostreamLinksCount           int           `json:"videostream_links_count"`
+		Name                            string        `json:"name"`
+		Quarantine                      bool          `json:"quarantine"`
+		HideAds                         bool          `json:"hide_ads"`
+		PredictionLeaderboardEntryType  string        `json:"prediction_leaderboard_entry_type"`
+		EmojisEnabled                   bool          `json:"emojis_enabled"`
+		AdvertiserCategory              string        `json:"advertiser_category"`
+		PublicDescription               string        `json:"public_description"`
+		CommentScoreHideMins            int           `json:"comment_score_hide_mins"`
+		AllowTalks                      bool          `json:"allow_talks"`
+		UserHasFavorited                bool          `json:"user_has_favorited"`
+		UserFlairTemplateID             interface{}   `json:"user_flair_template_id"`
+		CommunityIcon                   string        `json:"community_icon"`
+		BannerBackgroundImage           string        `json:"banner_background_image"`
+		OriginalContentTagEnabled       bool          `json:"original_content_tag_enabled"`
+		SubmitText                      string        `json:"submit_text"`
+		DescriptionHTML                 string        `json:"description_html"`
+		SuggestCommentSort              interface{}   `json:"suggested_comment_sort"`
+		UserFlairPosition               string        `json:"user_flair_position"`
+		AllOriginalContent              bool          `json:"all_original_content"`
+		HasMenuWidget                   bool          `json:"has_menu_widget"`
+		IsEnrolledInNewModmail          interface{}   `json:"is_enrolled_in_new_modmail"`
+		KeyColor                        string        `json:"key_color"`
+		CanAssignUserFlair              bool          `json:"can_assign_user_flair"`
+		Created                         float64       `json:"created"`
+		WLS                             int           `json:"wls"`
+		ShowMediaPreview                bool          `json:"show_media_preview"`
+		SubmissionType                  string        `json:"submission_type"`
+		UserIsSubscriber                bool          `json:"user_is_subscriber"`
+		DisableContributorRequests      bool          `json:"disable_contributor_requests"`
+		AllowVideogifs                  bool          `json:"allow_videogifs"`
+		UserFlairType                   string        `json:"user_flair_type"`
+		CollapseDeletedComments         bool          `json:"collapse_deleted_comments"`
+		EmojisCustomSize                interface{}   `json:"emojis_custom_size"`
+		PublicDescriptionHTML           string        `json:"public_description_html"`
+		AllowGalleries                  bool          `json:"allow_galleries"`
+		UserFlairTextColor              interface{}   `json:"user_flair_text_color"`
+		BannerSize                      []int         `json:"banner_size"`
+		UserSrFlairEnabled              bool          `json:"user_sr_flair_enabled"`
+		ShowMedia                       bool          `json:"show_media"`
+		IsCrosspostableSubreddit        bool          `json:"is_crosspostable_subreddit"`
+		NotificationLevel               string        `json:"notification_level"`
+		CanAssignLinkFlair              bool          `json:"can_assign_link_flair"`
+		UserFlairEnabledInSr            bool          `json:"user_flair_enabled_in_sr"`
+		AllowDiscovery                  bool          `json:"allow_discovery"`
+		UserSrThemeEnabled              bool          `json:"user_sr_theme_enabled"`
+		LinkFlairPosition               string        `json:"link_flair_position"`
+		UserIsContributor               bool          `json:"user_is_contributor"`
+		RestrictCommenting              bool          `json:"restrict_commenting"`
+		AllowImages                     bool          `json:"allow_images"`
+		Lang                            string        `json:"lang"`
+		WhitelistStatus                 string        `json:"whitelist_status"`
+		URL                             string        `json:"url"`
+		CreatedUTC                      float64       `json:"created_utc"`
+		BannerImg                       string        `json:"banner_img"`
+		UserIsModerator                 bool          `json:"user_is_moderator"`
+		AllowPredictions                bool          `json:"allow_predictions"`
+		Over18                          bool          `json:"over18"`
+		HeaderSize                      []int         `json:"header_size"`
+		UserFlairCSSClass               interface{}   `json:"user_flair_css_class"`
+		SubmitLinkLabel                 string        `json:"submit_link_label"`
+		UserFlairText                   interface{}   `json:"user_flair_text"`
+		AllowPredictionsTournament      bool          `json:"allow_predictions_tournament"`
+		LinkFlairEnabled                bool          `json:"link_flair_enabled"`
+		SubredditType                   string        `json:"subreddit_type"`
+		ID                              string        `json:"id"`
+		AccountsActiveIsFuzzed          bool          `json:"accounts_active_is_fuzzed"`
+		AllowPolls                      bool          `json:"allow_polls"`
+		AllowVideos                     bool          `json:"allow_videos"`
+		SpoilersEnabled                 bool          `json:"spoilers_enabled"`
+		MobileBannerImage               string        `json:"mobile_banner_image"`
+		Description                     string        `json:"description"`
+		CommunityReviewed               bool          `json:"community_reviewed"`
+		HeaderTitle                     string        `json:"header_title"`
+		UserIsMutedInSr                 bool          `json:"user_is_muted_in_sr"`
+		IsChatPostFeatureEnabled        bool          `json:"is_chat_post_feature_enabled"`
+		AllowChatPostCreation           bool          `json:"allow_chat_post_creation"`
+		AllowPredictionContributors     bool          `json:"allow_prediction_contributors"`
+		IsAcceptingNewSentimentFeatures bool          `json:"is_accepting_new_sentiment_features"`
+		AcceptFollowers                 bool          `json:"accept_followers"`
+		UserFlairBackgroundColorInSr    interface{}   `json:"user_flair_background_color_in_sr"`
+		EventPostsEnabled               bool          `json:"event_posts_enabled"`
+		CommunityChatChannel            string        `json:"community_chat_channel"`
+		IsFollowing                     bool          `json:"is_following"`
+	} `json:"data"`
+}
+
 // UnmarshalJSON implements custom unmarshaling for RedditContent
 func (r *RedditContent) UnmarshalJSON(data []byte) error {
 	// First unmarshal into a map to handle the created_utc field flexibly
@@ -227,6 +378,98 @@ func (r *RedditContent) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// GetRedditUserStats fetches user stats from the Reddit API
+func (a *Activities) GetRedditUserStats(ctx context.Context, username string) (*RedditUserStats, error) {
+	logger := activity.GetLogger(ctx)
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get configuration: %w", err)
+	}
+
+	deps := &cfg.RedditDeps
+	if err := deps.ensureValidRedditToken(1 * time.Minute); err != nil {
+		return nil, fmt.Errorf("failed to ensure valid reddit token: %w", err)
+	}
+
+	url := fmt.Sprintf("https://oauth.reddit.com/user/%s/about", username)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+deps.RedditAuthToken)
+	req.Header.Set("User-Agent", deps.UserAgent)
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		logger.Error("failed to get user stats", "status", resp.StatusCode, "body", string(body))
+		return nil, fmt.Errorf("failed to get user stats: %s", string(body))
+	}
+
+	var userStats RedditUserStats
+	if err := json.Unmarshal(body, &userStats); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal user stats: %w", err)
+	}
+
+	return &userStats, nil
+}
+
+// GetSubredditStats fetches subreddit stats from the Reddit API
+func (a *Activities) GetSubredditStats(ctx context.Context, subredditName string) (*SubredditStats, error) {
+	logger := activity.GetLogger(ctx)
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get configuration: %w", err)
+	}
+
+	deps := &cfg.RedditDeps
+	if err := deps.ensureValidRedditToken(1 * time.Minute); err != nil {
+		return nil, fmt.Errorf("failed to ensure valid reddit token: %w", err)
+	}
+
+	url := fmt.Sprintf("https://oauth.reddit.com/r/%s/about", subredditName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+deps.RedditAuthToken)
+	req.Header.Set("User-Agent", deps.UserAgent)
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		logger.Error("failed to get subreddit stats", "status", resp.StatusCode, "body", string(body))
+		return nil, fmt.Errorf("failed to get subreddit stats: %s", string(body))
+	}
+
+	var subredditStats SubredditStats
+	if err := json.Unmarshal(body, &subredditStats); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal subreddit stats: %w", err)
+	}
+
+	return &subredditStats, nil
+}
+
 // getRedditAuthTokenForPull obtains an authentication token from Reddit (used by PullRedditContent)
 func getRedditAuthTokenForPull(client *http.Client, deps RedditDependencies) (string, error) {
 	form := url.Values{}
@@ -235,7 +478,7 @@ func getRedditAuthTokenForPull(client *http.Client, deps RedditDependencies) (st
 	form.Add("password", deps.Password)
 	encodedForm := form.Encode()
 
-	req, err := http.NewRequest("POST", "https://www.reddit.com/api/v1/access_token", strings.NewReader(encodedForm))
+	req, err := http.NewRequest(http.MethodPost, "https://www.reddit.com/api/v1/access_token", strings.NewReader(encodedForm))
 	if err != nil {
 		return "", fmt.Errorf("failed to create token request: %w", err)
 	}
@@ -341,7 +584,7 @@ func (a *Activities) getRedditToken(ctx context.Context, logger temporal_log.Log
 	form.Add("username", cfg.RedditDeps.Username)
 	form.Add("password", cfg.RedditDeps.Password)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", fmt.Errorf("failed to create reddit token request: %w", err)
 	}
@@ -395,7 +638,7 @@ func (a *Activities) postToReddit(ctx context.Context, logger temporal_log.Logge
 		form.Add("flair_id", flairID)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", submitURL, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, submitURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return fmt.Errorf("failed to create reddit submit request: %w", err)
 	}
@@ -450,7 +693,7 @@ func (a *Activities) postToReddit(ctx context.Context, logger temporal_log.Logge
 // fetchSingleBounty fetches a specific bounty by ID from the ABB server
 func (a *Activities) fetchSingleBounty(ctx context.Context, logger temporal_log.Logger, cfg *Configuration, client *http.Client, token, bountyID string) (*api.BountyListItem, error) {
 	bountyURL := fmt.Sprintf("%s/bounties/%s", strings.TrimSuffix(cfg.ABBServerConfig.APIEndpoint, "/"), bountyID)
-	req, err := http.NewRequestWithContext(ctx, "GET", bountyURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, bountyURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create bounty request: %w", err)
 	}
