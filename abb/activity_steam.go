@@ -7,6 +7,8 @@ import (
 	"net/http"
 )
 
+const dota2ChatLogMaxLength = 100
+
 // SteamDependencies holds dependencies for Steam activities.
 type SteamDependencies struct {
 	APIKey string `json:"api_key"`
@@ -87,7 +89,7 @@ func (a *Activities) fetchDota2Chat(ctx context.Context, deps SteamDependencies,
 	}
 
 	// Make the HTTP request
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create opendota api request: %w", err)
 	}
@@ -118,8 +120,8 @@ func (a *Activities) fetchDota2Chat(ctx context.Context, deps SteamDependencies,
 	response.ChatEvents = filteredChat
 
 	// Truncate chat log if it's too long
-	if len(response.ChatEvents) > 100 { // Limit to the last 100 messages
-		response.ChatEvents = response.ChatEvents[len(response.ChatEvents)-100:]
+	if len(response.ChatEvents) > dota2ChatLogMaxLength {
+		response.ChatEvents = response.ChatEvents[len(response.ChatEvents)-dota2ChatLogMaxLength:]
 	}
 
 	return &response, nil
@@ -139,7 +141,7 @@ func (a *Activities) GetSteamPlayerInfo(ctx context.Context, accountID int) (*Op
 		url = fmt.Sprintf("%s?api_key=%s", baseURL, deps.APIKey)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create opendota api request: %w", err)
 	}

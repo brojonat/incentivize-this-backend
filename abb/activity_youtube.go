@@ -179,7 +179,7 @@ func (a *Activities) fetchYouTubeVideoMetadata(ctx context.Context, ytDeps YouTu
 	url := fmt.Sprintf("https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=%s&key=%s",
 		videoID, ytDeps.APIKey)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -232,7 +232,7 @@ func (a *Activities) GetYoutubeChannelStats(ctx context.Context, channelID strin
 	url := fmt.Sprintf("https://www.googleapis.com/youtube/v3/channels?part=statistics&id=%s&key=%s",
 		channelID, ytDeps.APIKey)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -278,7 +278,7 @@ func (a *Activities) FetchYouTubeTranscriptDirectly(ctx context.Context, httpCli
 	logger.Info("Fetching YouTube transcript directly (scraping)", "video_id", videoID, "language", preferredLanguage)
 
 	watchURL := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
-	req, err := http.NewRequestWithContext(ctx, "GET", watchURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, watchURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request for watch page: %w", err)
 	}
@@ -388,7 +388,7 @@ endLoop:
 		return "", fmt.Errorf("no suitable caption track URL found for video %s", videoID)
 	}
 
-	captionReq, err := http.NewRequestWithContext(ctx, "GET", captionURL, nil)
+	captionReq, err := http.NewRequestWithContext(ctx, http.MethodGet, captionURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request for caption URL %s: %w", captionURL, err)
 	}

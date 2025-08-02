@@ -121,7 +121,7 @@ var GetGitHubIssueTool = Tool{
 }
 
 var GetClosingPRTool = Tool{
-	Name:        "get_closing_pr",
+	Name:        "get_githubclosing_pr",
 	Description: "Gets the details of the pull request that closed a GitHub issue.",
 	Parameters: map[string]any{
 		"type": "object",

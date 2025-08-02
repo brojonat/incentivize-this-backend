@@ -392,7 +392,7 @@ func (a *Activities) GetRedditUserStats(ctx context.Context, username string) (*
 	}
 
 	url := fmt.Sprintf("https://oauth.reddit.com/user/%s/about", username)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -438,7 +438,7 @@ func (a *Activities) GetSubredditStats(ctx context.Context, subredditName string
 	}
 
 	url := fmt.Sprintf("https://oauth.reddit.com/r/%s/about", subredditName)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -478,7 +478,7 @@ func getRedditAuthTokenForPull(client *http.Client, deps RedditDependencies) (st
 	form.Add("password", deps.Password)
 	encodedForm := form.Encode()
 
-	req, err := http.NewRequest("POST", "https://www.reddit.com/api/v1/access_token", strings.NewReader(encodedForm))
+	req, err := http.NewRequest(http.MethodPost, "https://www.reddit.com/api/v1/access_token", strings.NewReader(encodedForm))
 	if err != nil {
 		return "", fmt.Errorf("failed to create token request: %w", err)
 	}
@@ -584,7 +584,7 @@ func (a *Activities) getRedditToken(ctx context.Context, logger temporal_log.Log
 	form.Add("username", cfg.RedditDeps.Username)
 	form.Add("password", cfg.RedditDeps.Password)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", fmt.Errorf("failed to create reddit token request: %w", err)
 	}
@@ -638,7 +638,7 @@ func (a *Activities) postToReddit(ctx context.Context, logger temporal_log.Logge
 		form.Add("flair_id", flairID)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", submitURL, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, submitURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return fmt.Errorf("failed to create reddit submit request: %w", err)
 	}
@@ -693,7 +693,7 @@ func (a *Activities) postToReddit(ctx context.Context, logger temporal_log.Logge
 // fetchSingleBounty fetches a specific bounty by ID from the ABB server
 func (a *Activities) fetchSingleBounty(ctx context.Context, logger temporal_log.Logger, cfg *Configuration, client *http.Client, token, bountyID string) (*api.BountyListItem, error) {
 	bountyURL := fmt.Sprintf("%s/bounties/%s", strings.TrimSuffix(cfg.ABBServerConfig.APIEndpoint, "/"), bountyID)
-	req, err := http.NewRequestWithContext(ctx, "GET", bountyURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, bountyURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create bounty request: %w", err)
 	}

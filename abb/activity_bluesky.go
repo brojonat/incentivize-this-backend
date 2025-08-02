@@ -118,7 +118,7 @@ type BlueskyHandleResponse struct {
 func (a *Activities) GetBlueskyUserStats(ctx context.Context, userHandle string) (*BlueskyUserStats, error) {
 	// First, resolve the handle to a DID
 	handleURL := fmt.Sprintf("https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=%s", userHandle)
-	req, err := http.NewRequestWithContext(ctx, "GET", handleURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, handleURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create handle request: %w", err)
 	}
@@ -141,7 +141,7 @@ func (a *Activities) GetBlueskyUserStats(ctx context.Context, userHandle string)
 
 	// Now get the profile
 	profileURL := fmt.Sprintf("https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=%s", handleResp.DID)
-	req, err = http.NewRequestWithContext(ctx, "GET", profileURL, nil)
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, profileURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create profile request: %w", err)
 	}
