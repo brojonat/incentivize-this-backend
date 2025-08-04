@@ -56,12 +56,12 @@ refresh-token-debug: ## Refresh auth token for debugging (uses .env.server.debug
 run-http-server-local: ## Run the HTTP server locally (uses .env.server.debug)
 	$(call setup_env, .env.server.debug)
 	@$(MAKE) build-cli
-	./bin/abb run http-server --temporal-address ${TEMPORAL_ADDRESS} --temporal-namespace ${TEMPORAL_NAMESPACE}
+	./bin/abb run http-server --temporal-address ${TEMPORAL_ADDRESS} --temporal-namespace ${TEMPORAL_NAMESPACE} --log-level debug
 
 run-worker-local: ## Run the Temporal worker locally (uses .env.worker.debug)
 	$(call setup_env, .env.worker.debug)
 	@$(MAKE) build-cli
-	./bin/abb run worker --temporal-address ${TEMPORAL_ADDRESS} --temporal-namespace ${TEMPORAL_NAMESPACE}
+	./bin/abb run worker --temporal-address ${TEMPORAL_ADDRESS} --temporal-namespace ${TEMPORAL_NAMESPACE} --log-level debug
 
 # Deployment targets
 .PHONY: deploy-server deploy-worker deploy-all delete-server delete-worker delete-all

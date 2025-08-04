@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -175,7 +176,7 @@ func (a *Activities) getClosingPR(ctx context.Context, owner, repo string, issue
 	return prContent, nil
 }
 
-func (a *Activities) getGitHubUser(ctx context.Context, username string) (*GitHubUserContent, error) {
+func (a *Activities) GetGitHubUser(ctx context.Context, username string) (*GitHubUserContent, error) {
 	client := github.NewClient(nil)
 	user, _, err := client.Users.Get(ctx, username)
 	if err != nil {
@@ -191,4 +192,25 @@ func (a *Activities) getGitHubUser(ctx context.Context, username string) (*GitHu
 		Blog:      user.GetBlog(),
 		CreatedAt: user.GetCreatedAt().Unix(),
 	}, nil
+}
+
+func (a *Activities) GetWalletAddressFromGitHubProfile(ctx context.Context, username string) (string, error) {
+	user, err := a.GetGitHubUser(ctx, username)
+	if err != nil {
+		return "", fmt.Errorf("failed to get user: %w", err)
+	}
+
+	// Search for a Solana wallet address in the user's bio, location, and blog.
+	re := regexp.MustCompile(`[1-9A-HJ-NP-Za-km-z]{32,44}`)
+	if walletAddress := re.FindString(user.Bio); walletAddress != "" {
+		return walletAddress, nil
+	}
+	if walletAddress := re.FindString(user.Location); walletAddress != "" {
+		return walletAddress, nil
+	}
+	if walletAddress := re.FindString(user.Blog); walletAddress != "" {
+		return walletAddress, nil
+	}
+
+	return "", fmt.Errorf("no wallet address found in profile for user %s", username)
 }

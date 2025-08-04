@@ -188,7 +188,7 @@ var GetSubredditStatsTool = Tool{
 	},
 }
 
-var GetYoutubeChannelStatsTool = Tool{
+var GetYouTubeChannelStatsTool = Tool{
 	Name:        "get_youtube_channel_stats",
 	Description: "Gets the statistics of a YouTube channel, such as subscriber count.",
 	Parameters: map[string]any{
@@ -232,3 +232,117 @@ var GetSteamPlayerInfoTool = Tool{
 		"required": []string{"account_id"},
 	},
 }
+
+var GetWalletAddressFromRedditProfileTool = Tool{
+	Name:        "get_wallet_address_from_reddit_profile",
+	Description: "Gets a Solana wallet address from a Reddit user's profile description.",
+	Parameters: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"username": map[string]any{
+				"type":        "string",
+				"description": "The username of the Reddit user.",
+			},
+		},
+		"required": []string{"username"},
+	},
+}
+
+var GetWalletAddressFromGitHubProfileTool = Tool{
+	Name:        "get_wallet_address_from_github_profile",
+	Description: "Gets a Solana wallet address from a GitHub user's profile.",
+	Parameters: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"username": map[string]any{
+				"type":        "string",
+				"description": "The username of the GitHub user.",
+			},
+		},
+		"required": []string{"username"},
+	},
+}
+
+var GetWalletAddressFromBlueskyProfileTool = Tool{
+	Name:        "get_wallet_address_from_bluesky_profile",
+	Description: "Gets a Solana wallet address from a Bluesky user's profile.",
+	Parameters: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"user_handle": map[string]any{
+				"type":        "string",
+				"description": "The handle of the Bluesky user.",
+			},
+		},
+		"required": []string{"user_handle"},
+	},
+}
+
+var GetWalletAddressFromInstagramProfileTool = Tool{
+	Name:        "get_wallet_address_from_instagram_profile",
+	Description: "Gets a Solana wallet address from an Instagram user's profile.",
+	Parameters: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"username": map[string]any{
+				"type":        "string",
+				"description": "The username of the Instagram user.",
+			},
+		},
+		"required": []string{"username"},
+	},
+}
+
+var GetWalletAddressFromSteamProfileTool = Tool{
+	Name:        "get_wallet_address_from_steam_profile",
+	Description: "Gets a Solana wallet address from a Steam user's profile.",
+	Parameters: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"account_id": map[string]any{
+				"type":        "integer",
+				"description": "The player's Steam32 account ID.",
+			},
+		},
+		"required": []string{"account_id"},
+	},
+}
+
+var GetWalletAddressFromYouTubeProfileTool = Tool{
+	Name:        "get_wallet_address_from_youtube_profile",
+	Description: "Gets a Solana wallet address from a YouTube channel's description.",
+	Parameters: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"channel_id": map[string]any{
+				"type":        "string",
+				"description": "The ID of the YouTube channel.",
+			},
+		},
+		"required": []string{"channel_id"},
+	},
+}
+
+var GetWalletAddressFromTwitchProfileTool = Tool{
+	Name:        "get_wallet_address_from_twitch_profile",
+	Description: "Gets a Solana wallet address from a Twitch user's profile.",
+	Parameters: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"username": map[string]any{
+				"type":        "string",
+				"description": "The username of the Twitch user.",
+			},
+		},
+		"required": []string{"username"},
+	},
+}
+
+// TODO: additional tools to implement:
+// - Get wallet address from reddit profile
+// - Get wallet address from github profile
+// - Get wallet address from bluesky profile
+// - Get wallet address from instagram profile
+// - Get wallet address from steam profile
+// - Get wallet address from youtube profile
+// - Get wallet address from twitch profile

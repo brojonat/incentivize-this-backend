@@ -166,14 +166,18 @@ func (a *Activities) GetLatestSolanaTransactionForRecipient(ctx context.Context,
 		return nil, fmt.Errorf("get latest transaction request returned status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read latest transaction response body: %w", err)
+	}
+
+	if len(bodyBytes) == 0 || string(bodyBytes) == "null\n" {
+		return nil, nil
+	}
+
 	var transaction api.SolanaTransaction
-	if err := json.NewDecoder(resp.Body).Decode(&transaction); err != nil {
-		bodyBytes, _ := io.ReadAll(resp.Body)
+	if err := json.Unmarshal(bodyBytes, &transaction); err != nil {
 		logger.Error("Failed to decode latest transaction response", "error", err, "response_body", string(bodyBytes))
-		// if the body is nil or empty, it means there are no transactions
-		if len(bodyBytes) == 0 || string(bodyBytes) == "null\n" {
-			return nil, nil
-		}
 		return nil, fmt.Errorf("failed to decode latest transaction response: %w", err)
 	}
 

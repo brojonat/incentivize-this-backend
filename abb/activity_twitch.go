@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -240,4 +241,68 @@ func (a *Activities) fetchTwitchVideo(ctx context.Context, deps TwitchDependenci
 	video.ThumbnailURL = strings.ReplaceAll(video.ThumbnailURL, "%{width}", "320")
 	video.ThumbnailURL = strings.ReplaceAll(video.ThumbnailURL, "%{height}", "180")
 	return video, nil
+}
+
+func (a *Activities) GetWalletAddressFromTwitchProfile(ctx context.Context, username string) (string, error) {
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get configuration: %w", err)
+	}
+	deps := cfg.TwitchDeps
+
+	token, err := a.getTwitchAppAccessToken(ctx, deps, a.httpClient)
+	if err != nil {
+		return "", fmt.Errorf("failed to get twitch app access token: %w", err)
+	}
+
+	apiURL := fmt.Sprintf("https://api.twitch.tv/helix/users?login=%s", username)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create Twitch user request: %w", err)
+	}
+	req.Header.Add("Client-ID", deps.ClientID)
+	req.Header.Add("Authorization", "Bearer "+token)
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("Twitch user request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read Twitch user response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Twitch user request returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Data []struct {
+			Description string `json:"description"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("failed to decode Twitch user response: %w (body: %s)", err, string(body))
+	}
+
+	if len(result.Data) == 0 {
+		return "", fmt.Errorf("no Twitch user found for username %s", username)
+	}
+
+	description := result.Data[0].Description
+	if description == "" {
+		return "", fmt.Errorf("no description found for user %s", username)
+	}
+
+	re := regexp.MustCompile(`[1-9A-HJ-NP-Za-km-z]{32,44}`)
+	walletAddress := re.FindString(description)
+
+	if walletAddress == "" {
+		return "", fmt.Errorf("no wallet address found in profile description")
+	}
+
+	return walletAddress, nil
 }

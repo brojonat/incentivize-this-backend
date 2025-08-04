@@ -5,14 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"math"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Rhymond/go-money"
@@ -21,8 +19,6 @@ import (
 	"github.com/brojonat/affiliate-bounty-board/http/api"
 	"github.com/brojonat/affiliate-bounty-board/internal/stools"
 	"github.com/brojonat/affiliate-bounty-board/solana"
-	solanagrpc "github.com/gagliardetto/solana-go/rpc"
-	"github.com/gagliardetto/solana-go/rpc/jsonrpc"
 
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
@@ -83,8 +79,6 @@ type AssessContentResponse struct {
 	Satisfies bool   `json:"satisfies"`
 	Reason    string `json:"reason"`
 }
-
-var ErrRetryNeededAfterRateLimit = errors.New("rate limited, retry needed after wait")
 
 // handleCreateBounty handles the creation of a new bounty and starts a workflow
 func handleCreateBounty(
@@ -870,326 +864,81 @@ func handleAssessContent(l *slog.Logger, tc client.Client) http.HandlerFunc {
 	}
 }
 
-// handleListPaidBounties handles listing all paid bounties
-func handleListPaidBounties(
-	l *slog.Logger,
-	rpcClient *solanagrpc.Client,
-	escrowWallet solanago.PublicKey,
-	usdcMintAddress solanago.PublicKey,
-	cacheDuration time.Duration,
-) http.HandlerFunc {
-	// Local struct to represent a generic JSON-RPC response
-	// This is needed because the library doesn't export a generic jsonrpc.Response type
-	// for direct unmarshalling in the RPCCallWithCallback.
-	type jsonRPCResponseWrapper struct {
-		JSONRPC string            `json:"jsonrpc"`
-		ID      interface{}       `json:"id"` // Can be int or string
-		Result  json.RawMessage   `json:"result,omitempty"`
-		Error   *jsonrpc.RPCError `json:"error,omitempty"` // Using the exported RPCError from the library
-	}
-
-	// cache structure for paid bounties
-	type paidBountiesCache struct {
-		sync.RWMutex
-		data      []PaidBountyItem
-		timestamp time.Time
-	}
-
-	var listPaidBountiesCache paidBountiesCache
-	var initCacheOnce sync.Once         // For initializing the cache struct
-	var backgroundRefreshOnce sync.Once // For starting the background refresh goroutine
-
-	initCacheOnce.Do(func() { // Call Do on the instance
-		listPaidBountiesCache = paidBountiesCache{
-			data:      make([]PaidBountyItem, 0),
-			timestamp: time.Time{}, // Initialize timestamp to zero value
-		}
-	})
-
-	// refreshCacheContent contains the logic to fetch bounties and update the cache
-	refreshCacheContent := func() {
-		l.Debug("Starting background cache refresh for paid bounties")
-		const backgroundFetchLimit = 100 // Define a limit for background fetching
-
-		treasuryWalletAddress := os.Getenv(EnvSolanaTreasuryWallet)
-		if treasuryWalletAddress == "" {
-			l.Warn("Background refresh: SOLANA_TREASURY_WALLET env var not set. Treasury transaction filtering will be skipped.")
-		}
-		// Derive the Associated Token Account (ATA) for the escrow wallet
-		escrowATA, _, err := solanago.FindAssociatedTokenAddress(escrowWallet, usdcMintAddress)
-		if err != nil {
-			l.Error("Background refresh: failed to find escrow ATA", "error", err)
-			return
+// handleListPaidBounties handles listing all paid bounties from the database
+func handleListPaidBounties(l *slog.Logger, querier dbgen.Querier, escrowWallet string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Get limit from query parameter, default to 100
+		limit := int32(100)
+		if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+			if parsedLimit, err := strconv.ParseInt(limitStr, 10, 32); err == nil && parsedLimit > 0 {
+				limit = int32(parsedLimit)
+			}
 		}
 
-		// Fetch recent transaction signatures for the escrow ATA
-		fetchLimit := backgroundFetchLimit // Define variable for limit
-		signatures, err := rpcClient.GetSignaturesForAddressWithOpts(context.Background(), escrowATA, &solanagrpc.GetSignaturesForAddressOpts{
-			Limit:      &fetchLimit, // Use address of the variable
-			Commitment: solanagrpc.CommitmentFinalized,
+		// Get outgoing transactions from database
+		transactions, err := querier.GetOutgoingSolanaTransactions(r.Context(), dbgen.GetOutgoingSolanaTransactionsParams{
+			FunderWallet: escrowWallet,
+			Limit:        limit,
 		})
 		if err != nil {
-			l.Error("Background refresh: failed to get signatures for escrow ATA", "ata", escrowATA.String(), "error", err)
+			writeInternalError(l, w, fmt.Errorf("failed to get outgoing transactions: %w", err))
 			return
 		}
 
-		if len(signatures) == 0 {
-			l.Debug("Background refresh: no new signatures found for escrow ATA", "ata", escrowATA.String())
-			// Update cache with empty data if no signatures found, to reflect current state
-			listPaidBountiesCache.Lock()
-			listPaidBountiesCache.data = make([]PaidBountyItem, 0) // Explicitly set to empty, not nil
-			listPaidBountiesCache.timestamp = time.Now()
-			listPaidBountiesCache.Unlock()
-			l.Debug("Background refresh: cache updated with empty paid bounties list.")
-			return
-		}
+		// Get treasury wallet for filtering
+		treasuryWalletAddress := os.Getenv(EnvSolanaTreasuryWallet)
 
-		paidBounties := make([]PaidBountyItem, 0, len(signatures))
-		for _, sigInfo := range signatures {
-			if sigInfo.Err != nil {
-				l.Warn("Background refresh: Skipping signature with error", "signature", sigInfo.Signature.String(), "error", sigInfo.Err)
+		// Filter and convert transactions to PaidBountyItem format
+		paidBounties := make([]PaidBountyItem, 0)
+		for _, tx := range transactions {
+			// Skip transactions to treasury wallet
+			if treasuryWalletAddress != "" && tx.RecipientWallet == treasuryWalletAddress {
 				continue
 			}
 
-			var txDetails *solanagrpc.GetTransactionResult
-			var attemptError error
-
-			// Retry loop for the current signature
-			for {
-				maxSupportedTxVersion := uint64(0)
-				options := &solanagrpc.GetTransactionOpts{
-					Encoding:                       solanago.EncodingBase64,
-					Commitment:                     solanagrpc.CommitmentFinalized,
-					MaxSupportedTransactionVersion: &maxSupportedTxVersion,
+			// Check if this is a bounty payout (has bounty memo)
+			isBountyPayout := false
+			if tx.Memo.Valid && tx.Memo.String != "" {
+				var memoData map[string]interface{}
+				if err := json.Unmarshal([]byte(tx.Memo.String), &memoData); err == nil {
+					_, hasWorkflowID := memoData["bounty_id"]
+					_, hasContentID := memoData["content_id"]
+					isBountyPayout = hasWorkflowID && hasContentID
 				}
-				params := []interface{}{
-					sigInfo.Signature.String(),
-					options,
-				}
-
-				// Variable to store the result from the callback
-				var currentTxDetails *solanagrpc.GetTransactionResult
-
-				errCallback := rpcClient.RPCCallWithCallback(
-					context.Background(),
-					"getTransaction",
-					params,
-					func(httpRequest *http.Request, httpResponse *http.Response) error {
-						if httpResponse.StatusCode == http.StatusTooManyRequests { // 429
-							retryAfterHeader := httpResponse.Header.Get("Retry-After")
-							var sleepDuration time.Duration
-							if retryAfterHeader != "" {
-								seconds, errParse := strconv.Atoi(retryAfterHeader)
-								if errParse == nil {
-									sleepDuration = time.Duration(seconds) * time.Second
-								} else {
-									l.Warn("Background refresh: could not parse Retry-After header, using default", "header", retryAfterHeader, "error", errParse)
-									sleepDuration = 5 * time.Second // Default backoff
-								}
-							} else {
-								sleepDuration = 5 * time.Second // Default backoff
-							}
-							l.Info("Background refresh: rate limited, sleeping", "duration", sleepDuration, "signature", sigInfo.Signature.String())
-							time.Sleep(sleepDuration)
-							return ErrRetryNeededAfterRateLimit
-						}
-
-						if httpResponse.StatusCode >= 400 {
-							bodyBytes, _ := io.ReadAll(httpResponse.Body)
-							_ = httpResponse.Body.Close()
-							l.Error("Background refresh: HTTP error from RPC", "statusCode", httpResponse.StatusCode, "body", string(bodyBytes), "signature", sigInfo.Signature.String())
-							return fmt.Errorf("rpc http error: %d for signature %s", httpResponse.StatusCode, sigInfo.Signature.String())
-						}
-
-						bodyBytes, errRead := io.ReadAll(httpResponse.Body)
-						if errRead != nil {
-							_ = httpResponse.Body.Close()
-							return fmt.Errorf("background refresh: failed to read response body for %s: %w", sigInfo.Signature.String(), errRead)
-						}
-						_ = httpResponse.Body.Close()
-
-						var genericRpcResp jsonRPCResponseWrapper // Use the local wrapper type
-						if errUnmarshal := json.Unmarshal(bodyBytes, &genericRpcResp); errUnmarshal != nil {
-							return fmt.Errorf("background refresh: failed to unmarshal RPC response for %s: %w", sigInfo.Signature.String(), errUnmarshal)
-						}
-
-						if genericRpcResp.Error != nil {
-							return fmt.Errorf("background refresh: RPC error for %s: code=%d, message=%s", sigInfo.Signature.String(), genericRpcResp.Error.Code, genericRpcResp.Error.Message)
-						}
-
-						var specificResult solanagrpc.GetTransactionResult
-						if errUnmarshalResult := json.Unmarshal(genericRpcResp.Result, &specificResult); errUnmarshalResult != nil {
-							return fmt.Errorf("background refresh: failed to unmarshal GetTransactionResult for %s: %w", sigInfo.Signature.String(), errUnmarshalResult)
-						}
-						currentTxDetails = &specificResult
-						return nil
-					},
-				)
-
-				if errCallback == nil {
-					txDetails = currentTxDetails // Successfully fetched and decoded
-					attemptError = nil
-					break // Success, break retry loop
-				} else if errors.Is(errCallback, ErrRetryNeededAfterRateLimit) {
-					l.Info("Background refresh: retrying signature after rate limit wait", "signature", sigInfo.Signature.String())
-					attemptError = errCallback // Store this error, will be overwritten if next attempt succeeds
-					continue                   // Retry the same signature
-				} else {
-					// Any other error from RPCCallWithCallback or the callback itself
-					attemptError = errCallback
-					l.Error("Background refresh: failed to get transaction details, not retrying", "signature", sigInfo.Signature.String(), "error", attemptError)
-					break // Break retry loop, effectively skipping this signature
-				}
-			} // End retry loop
-
-			if attemptError != nil || txDetails == nil {
-				// If after retries (or on first non-retryable error) we still failed or txDetails is nil
-				if !errors.Is(attemptError, ErrRetryNeededAfterRateLimit) { // Avoid double logging if last attempt was rate limit
-					l.Error("Background refresh: Failed to get transaction details after attempts", "signature", sigInfo.Signature.String(), "final_error", attemptError)
-				}
-				continue // Move to the next signature
 			}
 
-			if txDetails == nil || txDetails.Meta == nil { // txDetails replaces 'tx' from original code
-				l.Warn("Background refresh: Skipping transaction without metadata", "signature", sigInfo.Signature.String())
+			if !isBountyPayout {
 				continue
 			}
 
-			var recipientOwnerWallet string
-			var transferAmountLamports uint64
+			// Convert amount from smallest unit to USDC
+			amountUSDC := float64(tx.AmountSmallestUnit) / math.Pow10(6)
 
-			for i, preBal := range txDetails.Meta.PreTokenBalances {
-				if i >= len(txDetails.Meta.PostTokenBalances) {
-					break
-				}
-				postBal := txDetails.Meta.PostTokenBalances[i]
-				if preBal.Mint.Equals(usdcMintAddress) && preBal.Owner.Equals(escrowWallet) {
-					preAmount, _ := strconv.ParseUint(preBal.UiTokenAmount.Amount, 10, 64)
-					postAmount, _ := strconv.ParseUint(postBal.UiTokenAmount.Amount, 10, 64)
-					if postAmount < preAmount {
-						transferAmountLamports = preAmount - postAmount
-						for j, destPreBal := range txDetails.Meta.PreTokenBalances {
-							if j >= len(txDetails.Meta.PostTokenBalances) {
-								break
-							}
-							destPostBal := txDetails.Meta.PostTokenBalances[j]
-							if destPreBal.Mint.Equals(usdcMintAddress) {
-								destPreAmount, _ := strconv.ParseUint(destPreBal.UiTokenAmount.Amount, 10, 64)
-								destPostAmount, _ := strconv.ParseUint(destPostBal.UiTokenAmount.Amount, 10, 64)
-								if destPostAmount > destPreAmount && (destPostAmount-destPreAmount) == transferAmountLamports {
-									recipientOwnerWallet = destPostBal.Owner.String()
-									break
-								}
-							}
-						}
-						break
-					}
-				}
+			paidBounty := PaidBountyItem{
+				Signature:            tx.Signature,
+				Timestamp:            tx.BlockTime.Time.UTC(),
+				RecipientOwnerWallet: tx.RecipientWallet,
+				Amount:               amountUSDC,
 			}
-
-			if recipientOwnerWallet != "" && transferAmountLamports > 0 {
-				// Skip transactions to the treasury wallet
-				if treasuryWalletAddress != "" && recipientOwnerWallet == treasuryWalletAddress {
-					l.Debug("Background refresh: Skipping transaction to treasury wallet", "signature", sigInfo.Signature.String(), "recipient", recipientOwnerWallet, "amount_lamports", transferAmountLamports)
-					continue
-				}
-
-				// Check if the memo indicates a bounty payout
-				isBountyPayout := false
-				if sigInfo.Memo != nil {
-					memoStr := *sigInfo.Memo
-					// Attempt to unmarshal the memo to check for specific fields
-					var memoData map[string]interface{}
-					if err := json.Unmarshal([]byte(memoStr), &memoData); err == nil {
-						_, hasWorkflowID := memoData["bounty_id"]
-						_, hasContentID := memoData["content_id"]
-						isBountyPayout = hasWorkflowID && hasContentID
-					} else {
-						// Fallback for memos that might not be JSON but still relevant (e.g. older formats or simple strings)
-						// For now, we are strict: only JSON memos with both fields are considered.
-						// If other memo types should be considered, this logic needs adjustment.
-						l.Debug("Background refresh: Memo is not valid JSON or does not contain expected fields, skipping as not a bounty payout", "signature", sigInfo.Signature.String(), "memo", memoStr)
-					}
-				}
-
-				if !isBountyPayout {
-					l.Debug("Background refresh: Skipping transaction as it does not appear to be a bounty payout based on memo", "signature", sigInfo.Signature.String(), "memo", sigInfo.Memo)
-					continue
-				}
-
-				amountUSDC := float64(transferAmountLamports) / math.Pow10(6)
-				paidBounty := PaidBountyItem{
-					Signature:            sigInfo.Signature.String(),
-					Timestamp:            time.Unix(int64(*sigInfo.BlockTime), 0).UTC(),
-					RecipientOwnerWallet: recipientOwnerWallet,
-					Amount:               amountUSDC,
-				}
-				if sigInfo.Memo != nil {
-					paidBounty.Memo = *sigInfo.Memo
-				}
-				paidBounties = append(paidBounties, paidBounty)
-			} else {
-				l.Debug("Background refresh: No outgoing USDC transfer from escrow ATA found in transaction", "signature", sigInfo.Signature.String())
+			if tx.Memo.Valid {
+				paidBounty.Memo = tx.Memo.String
 			}
+			paidBounties = append(paidBounties, paidBounty)
 		}
 
-		l.Info("Background refresh: Finished processing signatures", "found_payments", len(paidBounties))
-
-		listPaidBountiesCache.Lock()
-		listPaidBountiesCache.data = paidBounties
-		listPaidBountiesCache.timestamp = time.Now()
-		listPaidBountiesCache.Unlock()
-		l.Info("Background refresh: Updated paid bounties cache")
-	}
-	backgroundRefreshOnce.Do(func() {
-		go func() {
-			// Perform initial refresh
-			refreshCacheContent()
-
-			// Start periodic refresh
-			ticker := time.NewTicker(cacheDuration)
-			defer ticker.Stop()
-
-			// Refresh the cache every cacheDuration. This is a little janky because
-			// there's no way to stop the ticker, but it's fine for now.
-			for range time.Tick(cacheDuration) {
-				refreshCacheContent()
-			}
-		}()
-		l.Info("Background cache refresh goroutine started.")
-	})
-
-	return func(w http.ResponseWriter, r *http.Request) {
-
-		listPaidBountiesCache.RLock()
-		cachedData := listPaidBountiesCache.data
-		// cacheTime := listPaidBountiesCache.timestamp // Could be used for Last-Modified header
-		listPaidBountiesCache.RUnlock()
-
-		dataToServe := cachedData
-		if dataToServe == nil {
-			// This case means the cache struct is initialized, but the first refresh
-			// hasn't completed or resulted in nil (which it shouldn't with make).
-			// More likely, refreshCacheContent hasn't run or is in progress for the very first time.
-			// Returning an empty list is safe.
-			l.Debug("Serving paid bounties: cache is nil (likely pre-initialization or empty state), returning empty list.")
-			dataToServe = make([]PaidBountyItem, 0) // Ensure it's an empty slice, not nil for JSON
-		}
-
-		// Limit to the 10 most recent bounties
+		// Apply final limit for response
 		recentBountyCountLimit := 10
 		if r.URL.Query().Get("limit") != "" {
-			limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
-			if err == nil && limit > 0 {
-				recentBountyCountLimit = limit
+			if parsedLimit, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && parsedLimit > 0 {
+				recentBountyCountLimit = parsedLimit
 			}
 		}
-		if len(dataToServe) > recentBountyCountLimit {
-			dataToServe = dataToServe[:recentBountyCountLimit]
+		if len(paidBounties) > recentBountyCountLimit {
+			paidBounties = paidBounties[:recentBountyCountLimit]
 		}
 
-		l.Debug("Serving paid bounties from cache", "item_count", len(dataToServe))
-		writeJSONResponse(w, dataToServe, http.StatusOK)
+		l.Debug("Serving paid bounties from database", "item_count", len(paidBounties))
+		writeJSONResponse(w, paidBounties, http.StatusOK)
 	}
 }
 

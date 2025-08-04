@@ -35,6 +35,114 @@ func (q *Queries) GetLatestSolanaTransactionForRecipient(ctx context.Context, re
 	return i, err
 }
 
+const getLatestSolanaTransactionForWallet = `-- name: GetLatestSolanaTransactionForWallet :one
+SELECT signature, slot, block_time, bounty_id, funder_wallet, recipient_wallet, amount_smallest_unit, memo, created_at FROM solana_transactions
+WHERE funder_wallet = $1 OR recipient_wallet = $1
+ORDER BY block_time DESC
+LIMIT 1
+`
+
+func (q *Queries) GetLatestSolanaTransactionForWallet(ctx context.Context, funderWallet string) (SolanaTransaction, error) {
+	row := q.db.QueryRow(ctx, getLatestSolanaTransactionForWallet, funderWallet)
+	var i SolanaTransaction
+	err := row.Scan(
+		&i.Signature,
+		&i.Slot,
+		&i.BlockTime,
+		&i.BountyID,
+		&i.FunderWallet,
+		&i.RecipientWallet,
+		&i.AmountSmallestUnit,
+		&i.Memo,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getOutgoingSolanaTransactions = `-- name: GetOutgoingSolanaTransactions :many
+SELECT signature, slot, block_time, bounty_id, funder_wallet, recipient_wallet, amount_smallest_unit, memo, created_at FROM solana_transactions
+WHERE funder_wallet = $1
+ORDER BY block_time DESC
+LIMIT $2
+`
+
+type GetOutgoingSolanaTransactionsParams struct {
+	FunderWallet string `json:"funder_wallet"`
+	Limit        int32  `json:"limit"`
+}
+
+func (q *Queries) GetOutgoingSolanaTransactions(ctx context.Context, arg GetOutgoingSolanaTransactionsParams) ([]SolanaTransaction, error) {
+	rows, err := q.db.Query(ctx, getOutgoingSolanaTransactions, arg.FunderWallet, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SolanaTransaction
+	for rows.Next() {
+		var i SolanaTransaction
+		if err := rows.Scan(
+			&i.Signature,
+			&i.Slot,
+			&i.BlockTime,
+			&i.BountyID,
+			&i.FunderWallet,
+			&i.RecipientWallet,
+			&i.AmountSmallestUnit,
+			&i.Memo,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getOutgoingSolanaTransactionsForBounty = `-- name: GetOutgoingSolanaTransactionsForBounty :many
+SELECT signature, slot, block_time, bounty_id, funder_wallet, recipient_wallet, amount_smallest_unit, memo, created_at FROM solana_transactions
+WHERE bounty_id = $1
+ORDER BY block_time DESC
+LIMIT $2
+`
+
+type GetOutgoingSolanaTransactionsForBountyParams struct {
+	BountyID pgtype.Text `json:"bounty_id"`
+	Limit    int32       `json:"limit"`
+}
+
+func (q *Queries) GetOutgoingSolanaTransactionsForBounty(ctx context.Context, arg GetOutgoingSolanaTransactionsForBountyParams) ([]SolanaTransaction, error) {
+	rows, err := q.db.Query(ctx, getOutgoingSolanaTransactionsForBounty, arg.BountyID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SolanaTransaction
+	for rows.Next() {
+		var i SolanaTransaction
+		if err := rows.Scan(
+			&i.Signature,
+			&i.Slot,
+			&i.BlockTime,
+			&i.BountyID,
+			&i.FunderWallet,
+			&i.RecipientWallet,
+			&i.AmountSmallestUnit,
+			&i.Memo,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getSolanaTransactionsByBountyID = `-- name: GetSolanaTransactionsByBountyID :many
 SELECT signature, slot, block_time, bounty_id, funder_wallet, recipient_wallet, amount_smallest_unit, memo, created_at FROM solana_transactions
 WHERE bounty_id = $1

@@ -234,7 +234,18 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		solanaConfig.WSEndpoint = "wss://api.devnet.solana.com"
 		solanaConfig.EscrowPrivateKey = &dummyEscrowWallet.PrivateKey
 		solanaConfig.EscrowWallet = dummyEscrowWallet.PublicKey()
-		solanaConfig.USDCMintAddress = solanago.MustPublicKeyFromBase58("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+		// Use devnet USDC mint for test mode, or respect environment variable if set
+		usdcMintStr := os.Getenv(EnvSolanaUSDCMint)
+		if usdcMintStr == "" {
+			solanaConfig.USDCMintAddress = solanago.MustPublicKeyFromBase58("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU") // Devnet USDC
+		} else {
+			usdcMint, err := solanago.PublicKeyFromBase58(usdcMintStr)
+			if err != nil {
+				logger.Error("Failed to parse USDC Mint address in test mode", "env_var", EnvSolanaUSDCMint, "error", err)
+				return nil, fmt.Errorf("failed to parse USDC mint address in test mode: %w", err)
+			}
+			solanaConfig.USDCMintAddress = usdcMint
+		}
 		dummyTreasury := solanago.NewWallet().PublicKey()
 		solanaConfig.TreasuryWallet = &dummyTreasury
 	} else {

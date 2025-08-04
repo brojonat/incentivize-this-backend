@@ -20,6 +20,9 @@ type Querier interface {
 	GetContactUsSubmission(ctx context.Context, id int32) (ContactUsSubmission, error)
 	GetExistingGumroadSaleIDs(ctx context.Context, saleIds []string) ([]string, error)
 	GetLatestSolanaTransactionForRecipient(ctx context.Context, recipientWallet string) (SolanaTransaction, error)
+	GetLatestSolanaTransactionForWallet(ctx context.Context, funderWallet string) (SolanaTransaction, error)
+	GetOutgoingSolanaTransactions(ctx context.Context, arg GetOutgoingSolanaTransactionsParams) ([]SolanaTransaction, error)
+	GetOutgoingSolanaTransactionsForBounty(ctx context.Context, arg GetOutgoingSolanaTransactionsForBountyParams) ([]SolanaTransaction, error)
 	GetSolanaTransactionsByBountyID(ctx context.Context, bountyID pgtype.Text) ([]SolanaTransaction, error)
 	GetUnnotifiedGumroadSales(ctx context.Context) ([]GumroadSale, error)
 	InsertEmbedding(ctx context.Context, arg InsertEmbeddingParams) error

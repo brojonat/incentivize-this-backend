@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 )
 
 const dota2ChatLogMaxLength = 100
@@ -162,4 +163,25 @@ func (a *Activities) GetSteamPlayerInfo(ctx context.Context, accountID int) (*Op
 	}
 
 	return &playerInfo, nil
+}
+
+func (a *Activities) GetWalletAddressFromSteamProfile(ctx context.Context, accountID int) (string, error) {
+	playerInfo, err := a.GetSteamPlayerInfo(ctx, accountID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get player info: %w", err)
+	}
+
+	if playerInfo.Profile.Personaname == "" {
+		return "", fmt.Errorf("no personaname found on user profile")
+	}
+
+	// Use a regex to find a Solana wallet address
+	re := regexp.MustCompile(`[1-9A-HJ-NP-Za-km-z]{32,44}`)
+	walletAddress := re.FindString(playerInfo.Profile.Personaname)
+
+	if walletAddress == "" {
+		return "", fmt.Errorf("no wallet address found in profile description")
+	}
+
+	return walletAddress, nil
 }

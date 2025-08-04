@@ -1,16 +1,23 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/brojonat/affiliate-bounty-board/abb"
+	"github.com/google/uuid"
 	"github.com/urfave/cli/v2"
+	"go.temporal.io/sdk/client"
+	sdklog "go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/worker"
 )
 
 func debugCommands() []*cli.Command {
@@ -65,6 +72,77 @@ func debugCommands() []*cli.Command {
 				},
 			},
 			Action: checkHealth,
+		},
+		{
+			Name:  "run-activity",
+			Usage: "Run a single activity for debugging",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:     "activity-name",
+					Aliases:  []string{"a"},
+					Required: true,
+					Usage:    "Name of the activity to run",
+				},
+				&cli.StringFlag{
+					Name:     "data",
+					Aliases:  []string{"d"},
+					Required: true,
+					Usage:    "JSON data to pass to the activity",
+				},
+				&cli.BoolFlag{
+					Name:  "wait-result",
+					Value: true,
+					Usage: "Wait for the workflow to complete and print the result",
+				},
+				&cli.StringFlag{
+					Name:    "temporal-address",
+					Aliases: []string{"ta"},
+					Usage:   "Temporal server address",
+					EnvVars: []string{"TEMPORAL_ADDRESS"},
+					Value:   "localhost:7233",
+				},
+				&cli.StringFlag{
+					Name:    "temporal-namespace",
+					Aliases: []string{"tn"},
+					Usage:   "Temporal namespace",
+					EnvVars: []string{"TEMPORAL_NAMESPACE"},
+					Value:   "default",
+				},
+				&cli.StringFlag{
+					Name:    "task-queue",
+					Aliases: []string{"tq"},
+					Usage:   "Temporal task queue name",
+					Value:   "affiliate_bounty_board_debug",
+				},
+			},
+			Action: runActivity,
+		},
+		{
+			Name:  "debug-worker",
+			Usage: "Run a worker that only registers the debug workflow",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:    "temporal-address",
+					Aliases: []string{"ta"},
+					Usage:   "Temporal server address",
+					EnvVars: []string{"TEMPORAL_ADDRESS"},
+					Value:   "localhost:7233",
+				},
+				&cli.StringFlag{
+					Name:    "temporal-namespace",
+					Aliases: []string{"tn"},
+					Usage:   "Temporal namespace",
+					EnvVars: []string{"TEMPORAL_NAMESPACE"},
+					Value:   "default",
+				},
+				&cli.StringFlag{
+					Name:    "task-queue",
+					Aliases: []string{"tq"},
+					Usage:   "Temporal task queue name",
+					Value:   "affiliate_bounty_board_debug",
+				},
+			},
+			Action: runDebugWorker,
 		},
 	}
 }
@@ -165,4 +243,115 @@ func checkHealth(c *cli.Context) error {
 	}
 
 	return nil
+}
+
+func runActivity(c *cli.Context) error {
+	activityName := c.String("activity-name")
+	data := c.String("data")
+	waitResult := c.Bool("wait-result")
+	temporalAddr := c.String("temporal-address")
+	temporalNamespace := c.String("temporal-namespace")
+	taskQueue := c.String("task-queue")
+
+	// --- Create a new slog.Logger for Temporal, configured to LevelWarn ---
+	temporalSlogHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelWarn,
+	})
+	temporalLogger := sdklog.NewStructuredLogger(slog.New(temporalSlogHandler))
+	// --- End Temporal logger setup ---
+
+	// Create Temporal client
+	cl, err := client.Dial(client.Options{
+		Logger:    temporalLogger,
+		HostPort:  temporalAddr,
+		Namespace: temporalNamespace,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to create Temporal client: %w", err)
+	}
+	defer cl.Close()
+
+	// Prepare workflow options
+	workflowID := "debug-activity-" + uuid.New().String()
+	workflowOptions := client.StartWorkflowOptions{
+		ID:        workflowID,
+		TaskQueue: taskQueue,
+	}
+
+	// Start workflow
+	we, err := cl.ExecuteWorkflow(
+		context.Background(),
+		workflowOptions,
+		abb.DebugWorkflow,
+		activityName,
+		json.RawMessage(data),
+	)
+	if err != nil {
+		return fmt.Errorf("unable to execute workflow: %w", err)
+	}
+
+	fmt.Printf("Started workflow; WorkflowID: %s, RunID: %s\n", we.GetID(), we.GetRunID())
+
+	// Wait for result if requested
+	if waitResult {
+		var result interface{}
+		err := we.Get(context.Background(), &result)
+		if err != nil {
+			return fmt.Errorf("workflow failed: %w", err)
+		}
+
+		// Pretty print the result
+		resultJSON, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal result to JSON: %w", err)
+		}
+		fmt.Println("Workflow result:")
+		fmt.Println(string(resultJSON))
+	}
+
+	return nil
+}
+
+func runDebugWorker(c *cli.Context) error {
+	temporalAddr := c.String("temporal-address")
+	temporalNamespace := c.String("temporal-namespace")
+	taskQueue := c.String("task-queue")
+
+	// --- Create a new slog.Logger for Temporal, configured to LevelWarn ---
+	temporalSlogHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelWarn,
+	})
+	temporalLogger := sdklog.NewStructuredLogger(slog.New(temporalSlogHandler))
+	l := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: new(slog.LevelVar)}))
+	// --- End Temporal logger setup ---
+
+	// connect to temporal
+	cl, err := client.Dial(client.Options{
+		Logger:    temporalLogger,
+		HostPort:  temporalAddr,
+		Namespace: temporalNamespace,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to create Temporal client: %w", err)
+	}
+	defer cl.Close()
+
+	// Create activities struct
+	activities, err := abb.NewActivities()
+	if err != nil {
+		return fmt.Errorf("failed to create activities: %w", err)
+	}
+
+	// Create the worker
+	w := worker.New(cl, taskQueue, worker.Options{})
+
+	// Register the debug workflow and all activities
+	w.RegisterWorkflow(abb.DebugWorkflow)
+	w.RegisterActivity(activities)
+
+	// Run the worker
+	l.Info("Starting debug worker", "TaskQueue", taskQueue)
+	err = w.Run(worker.InterruptCh())
+	l.Info("Debug worker stopped")
+	return err
 }

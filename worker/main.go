@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/abb"
@@ -15,12 +14,8 @@ import (
 
 // RunWorker runs the worker with the specified options
 func RunWorker(ctx context.Context, l *slog.Logger, thp, tns, tq string) error {
-	// --- Create a new slog.Logger for Temporal, configured to LevelWarn ---
-	temporalSlogHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelWarn,
-	})
-	temporalLogger := sdklog.NewStructuredLogger(slog.New(temporalSlogHandler))
-	// --- End Temporal logger setup ---
+	// Use the logger passed into the function for the Temporal client.
+	temporalLogger := sdklog.NewStructuredLogger(l)
 
 	// connect to temporal with retries
 	var c client.Client
@@ -65,6 +60,7 @@ func RunWorker(ctx context.Context, l *slog.Logger, thp, tns, tq string) error {
 	w.RegisterWorkflow(abb.GumroadNotifyWorkflow)
 	w.RegisterWorkflow(abb.ContactUsNotifyWorkflow)
 	w.RegisterWorkflow(abb.EmailTokenWorkflow)
+	w.RegisterWorkflow(abb.PollSolanaTransactionsWorkflow)
 
 	// Register all activities on the activities struct
 	w.RegisterActivity(activities)
@@ -79,10 +75,8 @@ func RunWorker(ctx context.Context, l *slog.Logger, thp, tns, tq string) error {
 // CheckConnection attempts to connect to Temporal and returns an error if it fails.
 // This is intended for use in health checks.
 func CheckConnection(ctx context.Context, l *slog.Logger, thp, tns string) error {
-	temporalSlogHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelWarn,
-	})
-	temporalLogger := sdklog.NewStructuredLogger(slog.New(temporalSlogHandler))
+	// Use the logger passed into the function for the Temporal client.
+	temporalLogger := sdklog.NewStructuredLogger(l)
 
 	// For a health check, we just need to dial and then close.
 	c, err := client.Dial(client.Options{

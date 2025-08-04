@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -267,6 +268,66 @@ func (a *Activities) GetYoutubeChannelStats(ctx context.Context, channelID strin
 	}
 
 	return &result, nil
+}
+
+func (a *Activities) GetWalletAddressFromYouTubeProfile(ctx context.Context, channelID string) (string, error) {
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get configuration: %w", err)
+	}
+	ytDeps := cfg.YouTubeDeps
+
+	url := fmt.Sprintf("https://www.googleapis.com/youtube/v3/channels?part=snippet&id=%s&key=%s",
+		channelID, ytDeps.APIKey)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("YouTube API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Items []struct {
+			Snippet struct {
+				Description string `json:"description"`
+			} `json:"snippet"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w (body: %s)", err, string(body))
+	}
+
+	if len(result.Items) == 0 {
+		return "", fmt.Errorf("no channel found for ID %s", channelID)
+	}
+
+	description := result.Items[0].Snippet.Description
+	if description == "" {
+		return "", fmt.Errorf("no description found for channel %s", channelID)
+	}
+
+	re := regexp.MustCompile(`[1-9A-HJ-NP-Za-km-z]{32,44}`)
+	walletAddress := re.FindString(description)
+
+	if walletAddress == "" {
+		return "", fmt.Errorf("no wallet address found in profile description")
+	}
+
+	return walletAddress, nil
 }
 
 // FetchYouTubeTranscriptDirectly attempts to fetch a YouTube transcript by scraping the watch page.

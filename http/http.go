@@ -445,7 +445,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	))
 
 	mux.HandleFunc("GET /bounties/paid", stools.AdaptHandler(
-		handleListPaidBounties(logger, rpcClient, cfg.Solana.EscrowWallet, cfg.Solana.USDCMintAddress, 10*time.Minute),
+		handleListPaidBounties(logger, querier, cfg.Solana.EscrowWallet.String()),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
