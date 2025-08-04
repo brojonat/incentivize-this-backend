@@ -36,8 +36,14 @@ WHERE funder_wallet = $1
 ORDER BY block_time DESC
 LIMIT $2;
 
--- name: GetOutgoingSolanaTransactionsForBounty :many
+-- name: GetSolanaTransactionsForBounty :many
 SELECT * FROM solana_transactions
 WHERE bounty_id = $1
+ORDER BY block_time DESC
+LIMIT $2;
+
+-- name: GetIncomingSolanaTransactions :many
+SELECT * FROM solana_transactions
+WHERE recipient_wallet = $1
 ORDER BY block_time DESC
 LIMIT $2;

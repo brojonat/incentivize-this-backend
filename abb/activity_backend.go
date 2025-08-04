@@ -91,7 +91,7 @@ func (a *Activities) PostSolanaTransaction(ctx context.Context, tx api.SolanaTra
 	return nil
 }
 
-func (a *Activities) QueryForTransaction(ctx context.Context, bountyID string) ([]api.SolanaTransaction, error) {
+func (a *Activities) QueryForBountyTransactions(ctx context.Context, bountyID string) ([]api.SolanaTransaction, error) {
 	logger := activity.GetLogger(ctx)
 	cfg, err := getConfiguration(ctx)
 	if err != nil {

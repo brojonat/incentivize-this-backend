@@ -60,7 +60,6 @@ func (a *Activities) PollAndStoreTransactionsActivity(ctx context.Context, input
 	if err != nil {
 		return fmt.Errorf("failed to derive USDC ATA: %w", err)
 	}
-	logger.Debug("Derived USDC ATA", "escrowWallet", escrowPubKey.String(), "usdcATA", usdcATA.String())
 
 	// get the latest transaction to use as a watermark
 	latestTx, err := a.GetLatestSolanaTransactionForRecipient(ctx, input.EscrowWallet)
@@ -80,7 +79,7 @@ func (a *Activities) PollAndStoreTransactionsActivity(ctx context.Context, input
 		// This is the first time we're polling this wallet.
 		// We only fetch the single most recent transaction to establish a starting point.
 		// This avoids pulling and processing thousands of historical transactions unnecessarily.
-		logger.Info("No previous transaction found. Fetching only the most recent transaction to establish a watermark.", "wallet", input.EscrowWallet, "usdcATA", usdcATA.String())
+		logger.Warn("No watermark transaction found. Fetching recent transactions to establish a watermark.", "wallet", input.EscrowWallet, "usdcATA", usdcATA.String())
 		limit := 100
 		opts.Limit = &limit
 	}
@@ -89,7 +88,7 @@ func (a *Activities) PollAndStoreTransactionsActivity(ctx context.Context, input
 	if err != nil {
 		return fmt.Errorf("failed to get signatures for address: %w", err)
 	}
-	logger.Info("Fetched transaction signatures", "count", len(signatures), "address", usdcATA.String())
+	logger.Debug("Fetched transaction signatures", "count", len(signatures), "address", usdcATA.String())
 
 	for _, sigInfo := range signatures {
 		// Add a small delay to avoid overwhelming the RPC endpoint.
@@ -262,7 +261,7 @@ func (a *Activities) PollAndStoreTransactionsActivity(ctx context.Context, input
 
 		// If we have a valid transaction, store it.
 		if amount > 0 && funderWallet != "" && recipientWallet != "" {
-			logger.Info("Storing transaction", "signature", sigInfo.Signature.String(), "funder", funderWallet, "recipient", recipientWallet, "amount", amount, "memo", memo)
+			logger.Debug("Storing transaction", "signature", sigInfo.Signature.String(), "funder", funderWallet, "recipient", recipientWallet, "amount", amount, "memo", memo)
 			bountyID := parseBountyIDFromMemo(memo)
 			solanaTx := api.SolanaTransaction{
 				Signature:          sigInfo.Signature.String(),
@@ -285,10 +284,10 @@ func (a *Activities) PollAndStoreTransactionsActivity(ctx context.Context, input
 
 func parseBountyIDFromMemo(memo string) string {
 	// a json object may be embedded in the memo, so we need to extract it
-	re := regexp.MustCompile(`bounty-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})`)
+	re := regexp.MustCompile(`(bounty-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})`)
 	matches := re.FindStringSubmatch(memo)
 	if len(matches) > 1 {
-		return matches[1]
+		return matches[1] // Now returns the full "bounty-{uuid}" format
 	}
 	return ""
 }

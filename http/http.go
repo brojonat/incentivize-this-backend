@@ -764,8 +764,7 @@ func setupSolanaPollerSchedule(ctx context.Context, logger *slog.Logger, tc clie
 	scheduleOptions := client.ScheduleOptions{
 		ID: scheduleID,
 		Spec: client.ScheduleSpec{
-			// Run every minute
-			Intervals: []client.ScheduleIntervalSpec{{Every: 1 * time.Minute}},
+			Intervals: []client.ScheduleIntervalSpec{{Every: 10 * time.Second}},
 		},
 		Action: &client.ScheduleWorkflowAction{
 			Workflow:  abb.PollSolanaTransactionsWorkflow,
