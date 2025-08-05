@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/abb"
@@ -143,6 +144,33 @@ func debugCommands() []*cli.Command {
 				},
 			},
 			Action: runDebugWorker,
+		},
+		{
+			Name:  "integration-test",
+			Usage: "Run a suite of integration tests for all tool calls",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:    "temporal-address",
+					Aliases: []string{"ta"},
+					Usage:   "Temporal server address",
+					EnvVars: []string{"TEMPORAL_ADDRESS"},
+					Value:   "localhost:7233",
+				},
+				&cli.StringFlag{
+					Name:    "temporal-namespace",
+					Aliases: []string{"tn"},
+					Usage:   "Temporal namespace",
+					EnvVars: []string{"TEMPORAL_NAMESPACE"},
+					Value:   "default",
+				},
+				&cli.StringFlag{
+					Name:    "task-queue",
+					Aliases: []string{"tq"},
+					Usage:   "Temporal task queue name",
+					Value:   "affiliate_bounty_board_debug",
+				},
+			},
+			Action: runIntegrationTests,
 		},
 	}
 }
@@ -354,4 +382,137 @@ func runDebugWorker(c *cli.Context) error {
 	err = w.Run(worker.InterruptCh())
 	l.Info("Debug worker stopped")
 	return err
+}
+
+type toolTestResult struct {
+	Name    string
+	Success bool
+	Output  string
+	Error   error
+}
+
+func runIntegrationTests(c *cli.Context) error {
+	temporalAddr := c.String("temporal-address")
+	temporalNamespace := c.String("temporal-namespace")
+	taskQueue := c.String("task-queue")
+
+	temporalSlogHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelWarn,
+	})
+	temporalLogger := sdklog.NewStructuredLogger(slog.New(temporalSlogHandler))
+
+	cl, err := client.Dial(client.Options{
+		Logger:    temporalLogger,
+		HostPort:  temporalAddr,
+		Namespace: temporalNamespace,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to create Temporal client: %w", err)
+	}
+	defer cl.Close()
+
+	type toolTest struct {
+		Name  string
+		Input string
+	}
+
+	tests := []toolTest{
+		{abb.ToolNamePullContent, `{"platform": "github", "content_kind": "issue", "content_id": "octocat/Spoon-Knife/1"}`},
+		{abb.ToolNamePullContent, `{"platform": "reddit", "content_kind": "post", "content_id": "t3_123456"}`},
+		{abb.ToolNamePullContent, `{"platform": "youtube", "content_kind": "video", "content_id": "dQw4w9WgXcQ"}`},
+		{abb.ToolNameGetGitHubIssue, `{"owner": "octocat", "repo": "Spoon-Knife", "issue_number": 1}`},
+		{abb.ToolNameGetClosingPR, `{"owner": "octocat", "repo": "Spoon-Knife", "issue_number": 1}`},
+		{abb.ToolNameGetGitHubUser, `{"username": "octocat"}`},
+		{abb.ToolNameGetRedditUserStats, `{"username": "spez"}`},
+		{abb.ToolNameGetSubredditStats, `{"subreddit_name": "golang"}`},
+		{abb.ToolNameGetYouTubeChannelStats, `{"channel_id": "UC_x5XG1OV2P6wXH5K2FAOGQ"}`},
+		{abb.ToolNameGetBlueskyUserStats, `{"user_handle": "bsky.app"}`},
+		{abb.ToolNameAnalyzeImageURL, `{"image_url": "https://example.com/image.jpg", "prompt": "Does it contain a cat?"}`},
+		{abb.ToolNameValidatePayoutWallet, `{"payout_wallet": "stub_wallet_address", "validation_prompt": "Is this a valid Solana address?"}`},
+		{abb.ToolNameDetectMaliciousContent, `{"content": "This is benign content."}`},
+		{abb.ToolNameGetSteamPlayerInfo, `{"account_id": 76561197960265728}`},
+		{abb.ToolNameGetWalletAddressFromRedditProfile, `{"username": "spez"}`},
+		{abb.ToolNameGetWalletAddressFromGitHubProfile, `{"username": "octocat"}`},
+		{abb.ToolNameGetWalletAddressFromBlueskyProfile, `{"user_handle": "bsky.app"}`},
+		{abb.ToolNameGetWalletAddressFromInstagramProfile, `{"username": "instagram"}`},
+		{abb.ToolNameGetWalletAddressFromSteamProfile, `{"account_id": 76561197960265728}`},
+		{abb.ToolNameGetWalletAddressFromYouTubeProfile, `{"channel_id": "UC_x5XG1OV2P6wXH5K2FAOGQ"}`},
+		{abb.ToolNameGetWalletAddressFromTwitchProfile, `{"username": "twitch"}`},
+		{abb.ToolNameSubmitDecision, `{"is_approved": true, "reason": "Content meets all requirements."}`},
+		{abb.ToolNameSubmitDecision, `{"is_approved": false, "reason": "Content does not meet requirements."}`},
+	}
+
+	fmt.Println("Starting integration test suite...")
+
+	var wg sync.WaitGroup
+	resultsChan := make(chan toolTestResult)
+
+	for _, test := range tests {
+		wg.Add(1)
+		go func(test toolTest) {
+			defer wg.Done()
+
+			workflowID := fmt.Sprintf("integration-test-%s-%s", test.Name, uuid.New().String())
+			workflowOptions := client.StartWorkflowOptions{
+				ID:        workflowID,
+				TaskQueue: taskQueue,
+			}
+
+			var testRes toolTestResult
+			testRes.Name = test.Name
+
+			we, err := cl.ExecuteWorkflow(
+				context.Background(),
+				workflowOptions,
+				abb.DebugWorkflow,
+				test.Name,
+				json.RawMessage(test.Input),
+			)
+			if err != nil {
+				testRes.Success = false
+				testRes.Error = fmt.Errorf("error starting workflow: %w", err)
+				resultsChan <- testRes
+				return
+			}
+
+			var result interface{}
+			err = we.Get(context.Background(), &result)
+			if err != nil {
+				testRes.Success = false
+				testRes.Error = fmt.Errorf("workflow failed: %w", err)
+				resultsChan <- testRes
+				return
+			}
+
+			resultJSON, err := json.MarshalIndent(result, "", "  ")
+			if err != nil {
+				testRes.Success = false
+				testRes.Error = fmt.Errorf("failed to marshal result to JSON: %w", err)
+				resultsChan <- testRes
+				return
+			}
+
+			testRes.Success = true
+			testRes.Output = string(resultJSON)
+			resultsChan <- testRes
+
+		}(test)
+	}
+
+	// Wait for all goroutines to finish and then close the channel
+	go func() {
+		wg.Wait()
+		close(resultsChan)
+	}()
+
+	// Collect and print results
+	for res := range resultsChan {
+		fmt.Printf("\n--- Test for: %s ---\n", res.Name)
+		if !res.Success {
+			fmt.Printf("Status: FAILED\nError: %v\n", res.Error)
+		}
+	}
+
+	fmt.Println("\nIntegration test suite completed.")
+	return nil
 }
