@@ -95,7 +95,7 @@ func (a *Activities) parseGitHubURL(contentID string) (owner, repo string, issue
 	return owner, repo, issueNum, nil
 }
 
-func (a *Activities) getGitHubIssue(ctx context.Context, owner, repo string, issueNumber int) (*GitHubIssueContent, error) {
+func (a *Activities) GetGitHubIssue(ctx context.Context, owner, repo string, issueNumber int) (*GitHubIssueContent, error) {
 	client := github.NewClient(nil)
 	issue, _, err := client.Issues.Get(ctx, owner, repo, issueNumber)
 	if err != nil {
@@ -124,7 +124,7 @@ func (a *Activities) getGitHubIssue(ctx context.Context, owner, repo string, iss
 	return content, nil
 }
 
-func (a *Activities) getClosingPR(ctx context.Context, owner, repo string, issueNumber int) (*GitHubPullRequestContent, error) {
+func (a *Activities) GetClosingPullRequest(ctx context.Context, owner, repo string, issueNumber int) (*GitHubPullRequestContent, error) {
 	client := github.NewClient(nil)
 	events, _, err := client.Issues.ListIssueEvents(ctx, owner, repo, issueNumber, nil)
 	if err != nil {

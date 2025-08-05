@@ -311,7 +311,7 @@ func processClaim(ctx workflow.Context, a *Activities, bountyState *BountyState,
 	}
 
 	tools := []Tool{
-		GetContentDetailsTool,
+		PullContentTool,
 		AnalyzeImageURLTool,
 		DetectMaliciousContentTool,
 		ValidatePayoutWalletTool,
@@ -449,7 +449,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 			for _, toolCall := range llmResponse.ToolCalls {
 				var toolResult string
 				switch toolCall.Name {
-				case "get_content_details":
+				case ToolNamePullContent:
 					var args PullContentInput
 					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
 						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
@@ -464,7 +464,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = string(contentBytes)
 						}
 					}
-				case "get_github_issue":
+				case ToolNameGetGitHubIssue:
 					var args struct {
 						Owner       string `json:"owner"`
 						Repo        string `json:"repo"`
@@ -474,7 +474,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
 					} else {
 						var result GitHubIssueContent
-						activityErr := workflow.ExecuteActivity(ctx, a.getGitHubIssue, args.Owner, args.Repo, args.IssueNumber).Get(ctx, &result)
+						activityErr := workflow.ExecuteActivity(ctx, a.GetGitHubIssue, args.Owner, args.Repo, args.IssueNumber).Get(ctx, &result)
 						if activityErr != nil {
 							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
 						} else {
@@ -482,7 +482,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = string(resultBytes)
 						}
 					}
-				case "get_closing_pr":
+				case ToolNameGetClosingPR:
 					var args struct {
 						Owner       string `json:"owner"`
 						Repo        string `json:"repo"`
@@ -492,7 +492,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
 					} else {
 						var result GitHubPullRequestContent
-						activityErr := workflow.ExecuteActivity(ctx, a.getClosingPR, args.Owner, args.Repo, args.IssueNumber).Get(ctx, &result)
+						activityErr := workflow.ExecuteActivity(ctx, a.GetClosingPullRequest, args.Owner, args.Repo, args.IssueNumber).Get(ctx, &result)
 						if activityErr != nil {
 							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
 						} else {
@@ -500,7 +500,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = string(resultBytes)
 						}
 					}
-				case "get_github_user":
+				case ToolNameGetGitHubUser:
 					var args struct {
 						Username string `json:"username"`
 					}
@@ -516,7 +516,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = string(resultBytes)
 						}
 					}
-				case "get_reddit_user_stats":
+				case ToolNameGetRedditUserStats:
 					var args struct {
 						Username string `json:"username"`
 					}
@@ -532,7 +532,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = string(resultBytes)
 						}
 					}
-				case "get_subreddit_stats":
+				case ToolNameGetSubredditStats:
 					var args struct {
 						SubredditName string `json:"subreddit_name"`
 					}
@@ -548,7 +548,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = string(resultBytes)
 						}
 					}
-				case "get_youtube_channel_stats":
+				case ToolNameGetYouTubeChannelStats:
 					var args struct {
 						ChannelID string `json:"channel_id"`
 					}
@@ -564,7 +564,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = string(resultBytes)
 						}
 					}
-				case "get_bluesky_user_stats":
+				case ToolNameGetBlueskyUserStats:
 					var args struct {
 						UserHandle string `json:"user_handle"`
 					}
@@ -580,7 +580,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = string(resultBytes)
 						}
 					}
-				case "analyze_image_url":
+				case ToolNameAnalyzeImageURL:
 					var args struct {
 						ImageURL string `json:"image_url"`
 						Prompt   string `json:"prompt"`
@@ -597,7 +597,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = string(resultBytes)
 						}
 					}
-				case "validate_payout_wallet":
+				case ToolNameValidatePayoutWallet:
 					var args struct {
 						PayoutWallet     string `json:"payout_wallet"`
 						ValidationPrompt string `json:"validation_prompt"`
@@ -614,16 +614,15 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = string(resultBytes)
 						}
 					}
-				case "detect_malicious_content":
+				case ToolNameDetectMaliciousContent:
 					var args struct {
-						ContentID string `json:"content_id"`
-						Prompt    string `json:"prompt"`
+						Content string `json:"content"`
 					}
 					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
 						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
 					} else {
 						var result DetectMaliciousContentResult
-						activityErr := workflow.ExecuteActivity(ctx, a.DetectMaliciousContent, args.ContentID, args.Prompt).Get(ctx, &result)
+						activityErr := workflow.ExecuteActivity(ctx, a.DetectMaliciousContent, args.Content).Get(ctx, &result)
 						if activityErr != nil {
 							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
 						} else {
@@ -631,7 +630,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = string(resultBytes)
 						}
 					}
-				case "get_steam_player_info":
+				case ToolNameGetSteamPlayerInfo:
 					var args struct {
 						AccountID int `json:"account_id"`
 					}
@@ -647,7 +646,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = string(resultBytes)
 						}
 					}
-				case "get_wallet_address_from_reddit_profile":
+				case ToolNameGetWalletAddressFromRedditProfile:
 					var args struct {
 						Username string `json:"username"`
 					}
@@ -662,7 +661,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = result
 						}
 					}
-				case "get_wallet_address_from_github_profile":
+				case ToolNameGetWalletAddressFromGitHubProfile:
 					var args struct {
 						Username string `json:"username"`
 					}
@@ -677,7 +676,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = result
 						}
 					}
-				case "get_wallet_address_from_bluesky_profile":
+				case ToolNameGetWalletAddressFromBlueskyProfile:
 					var args struct {
 						UserHandle string `json:"user_handle"`
 					}
@@ -692,7 +691,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = result
 						}
 					}
-				case "get_wallet_address_from_instagram_profile":
+				case ToolNameGetWalletAddressFromInstagramProfile:
 					var args struct {
 						Username string `json:"username"`
 					}
@@ -707,7 +706,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = result
 						}
 					}
-				case "get_wallet_address_from_steam_profile":
+				case ToolNameGetWalletAddressFromSteamProfile:
 					var args struct {
 						AccountID int `json:"account_id"`
 					}
@@ -722,7 +721,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = result
 						}
 					}
-				case "get_wallet_address_from_youtube_profile":
+				case ToolNameGetWalletAddressFromYouTubeProfile:
 					var args struct {
 						ChannelID string `json:"channel_id"`
 					}
@@ -737,7 +736,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = result
 						}
 					}
-				case "get_wallet_address_from_twitch_profile":
+				case ToolNameGetWalletAddressFromTwitchProfile:
 					var args struct {
 						Username string `json:"username"`
 					}
@@ -752,7 +751,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = result
 						}
 					}
-				case "submit_decision":
+				case ToolNameSubmitDecision:
 					// This is the final decision from the LLM.
 					var decisionArgs struct {
 						IsApproved bool   `json:"is_approved"`

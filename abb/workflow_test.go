@@ -101,7 +101,7 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_Rejection() {
 }
 
 func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Success() {
-	input := OrchestratorWorkflowInput{Tools: []Tool{GetContentDetailsTool}}
+	input := OrchestratorWorkflowInput{Tools: []Tool{PullContentTool}}
 	prompt := "Get content details for post 123"
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return(prompt, nil)
 
@@ -137,7 +137,7 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Success() {
 }
 
 func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Failure() {
-	input := OrchestratorWorkflowInput{Tools: []Tool{GetContentDetailsTool}}
+	input := OrchestratorWorkflowInput{Tools: []Tool{PullContentTool}}
 	prompt := "Get content details for invalid post"
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return(prompt, nil)
 
@@ -173,7 +173,7 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Failure() {
 }
 
 func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_UnknownTool() {
-	input := OrchestratorWorkflowInput{Tools: []Tool{GetContentDetailsTool}}
+	input := OrchestratorWorkflowInput{Tools: []Tool{PullContentTool}}
 	prompt := "Do something"
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return(prompt, nil)
 
@@ -207,7 +207,7 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_UnknownTool() {
 }
 
 func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_AnalyzeImageURL_Success() {
-	input := OrchestratorWorkflowInput{Tools: []Tool{GetContentDetailsTool, AnalyzeImageURLTool}}
+	input := OrchestratorWorkflowInput{Tools: []Tool{PullContentTool, AnalyzeImageURLTool}}
 	prompt := "Analyze image"
 	imageURL := "http://example.com/cat.jpg"
 	analysisPrompt := "contains a cat"
@@ -236,7 +236,7 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_AnalyzeImageURL_Success() 
 }
 
 func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_MaxTurnsExceeded() {
-	input := OrchestratorWorkflowInput{Tools: []Tool{GetContentDetailsTool}}
+	input := OrchestratorWorkflowInput{Tools: []Tool{PullContentTool}}
 	prompt := "Keep calling tools forever"
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return(prompt, nil)
 

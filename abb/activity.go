@@ -970,7 +970,7 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse github url: %w", err)
 			}
-			content, err := a.getGitHubIssue(ctx, owner, repo, issueNum)
+			content, err := a.GetGitHubIssue(ctx, owner, repo, issueNum)
 			if err != nil {
 				return nil, err
 			}

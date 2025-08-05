@@ -1,7 +1,30 @@
 package abb
 
-var GetContentDetailsTool = Tool{
-	Name:        "get_content_details",
+const (
+	ToolNamePullContent                          = "pull_content"
+	ToolNameSubmitDecision                       = "submit_decision"
+	ToolNameAnalyzeImageURL                      = "analyze_image_url"
+	ToolNameDetectMaliciousContent               = "detect_malicious_content"
+	ToolNameValidatePayoutWallet                 = "validate_payout_wallet"
+	ToolNameGetGitHubIssue                       = "get_github_issue"
+	ToolNameGetClosingPR                         = "get_githubclosing_pr"
+	ToolNameGetGitHubUser                        = "get_github_user"
+	ToolNameGetRedditUserStats                   = "get_reddit_user_stats"
+	ToolNameGetSubredditStats                    = "get_subreddit_stats"
+	ToolNameGetYouTubeChannelStats               = "get_youtube_channel_stats"
+	ToolNameGetBlueskyUserStats                  = "get_bluesky_user_stats"
+	ToolNameGetSteamPlayerInfo                   = "get_steam_player_info"
+	ToolNameGetWalletAddressFromRedditProfile    = "get_wallet_address_from_reddit_profile"
+	ToolNameGetWalletAddressFromGitHubProfile    = "get_wallet_address_from_github_profile"
+	ToolNameGetWalletAddressFromBlueskyProfile   = "get_wallet_address_from_bluesky_profile"
+	ToolNameGetWalletAddressFromInstagramProfile = "get_wallet_address_from_instagram_profile"
+	ToolNameGetWalletAddressFromSteamProfile     = "get_wallet_address_from_steam_profile"
+	ToolNameGetWalletAddressFromYouTubeProfile   = "get_wallet_address_from_youtube_profile"
+	ToolNameGetWalletAddressFromTwitchProfile    = "get_wallet_address_from_twitch_profile"
+)
+
+var PullContentTool = Tool{
+	Name:        ToolNamePullContent,
 	Description: "Fetches the full details of a piece of content (like a post, comment, or video) from a specified platform. This is the primary way to get information about content.",
 	Parameters: map[string]interface{}{
 		"type": "object",
@@ -26,7 +49,7 @@ var GetContentDetailsTool = Tool{
 }
 
 var SubmitDecisionTool = Tool{
-	Name:        "submit_decision",
+	Name:        ToolNameSubmitDecision,
 	Description: "Submits the final decision on whether the content is approved for the bounty, along with the reason and payout amount.",
 	Parameters: map[string]interface{}{
 		"type": "object",
@@ -45,7 +68,7 @@ var SubmitDecisionTool = Tool{
 }
 
 var AnalyzeImageURLTool = Tool{
-	Name:        "analyze_image_url",
+	Name:        ToolNameAnalyzeImageURL,
 	Description: "Analyzes an image from a URL to determine if it meets the bounty requirements. This is useful for bounties that require specific types of images.",
 	Parameters: map[string]interface{}{
 		"type": "object",
@@ -64,7 +87,7 @@ var AnalyzeImageURLTool = Tool{
 }
 
 var DetectMaliciousContentTool = Tool{
-	Name:        "detect_malicious_content",
+	Name:        ToolNameDetectMaliciousContent,
 	Description: "Detects if a piece of content contains a prompt injection attack or other malicious content.",
 	Parameters: map[string]interface{}{
 		"type": "object",
@@ -79,7 +102,7 @@ var DetectMaliciousContentTool = Tool{
 }
 
 var ValidatePayoutWalletTool = Tool{
-	Name:        "validate_payout_wallet",
+	Name:        ToolNameValidatePayoutWallet,
 	Description: "Validates if a payout wallet is eligible for a bounty based on the content and bounty prompt.",
 	Parameters: map[string]interface{}{
 		"type": "object",
@@ -98,7 +121,7 @@ var ValidatePayoutWalletTool = Tool{
 }
 
 var GetGitHubIssueTool = Tool{
-	Name:        "get_github_issue",
+	Name:        ToolNameGetGitHubIssue,
 	Description: "Gets the details of a GitHub issue.",
 	Parameters: map[string]any{
 		"type": "object",
@@ -121,7 +144,7 @@ var GetGitHubIssueTool = Tool{
 }
 
 var GetClosingPRTool = Tool{
-	Name:        "get_githubclosing_pr",
+	Name:        ToolNameGetClosingPR,
 	Description: "Gets the details of the pull request that closed a GitHub issue.",
 	Parameters: map[string]any{
 		"type": "object",
@@ -144,7 +167,7 @@ var GetClosingPRTool = Tool{
 }
 
 var GetGitHubUserTool = Tool{
-	Name:        "get_github_user",
+	Name:        ToolNameGetGitHubUser,
 	Description: "Gets the details of a GitHub user.",
 	Parameters: map[string]any{
 		"type": "object",
@@ -159,7 +182,7 @@ var GetGitHubUserTool = Tool{
 }
 
 var GetRedditUserStatsTool = Tool{
-	Name:        "get_reddit_user_stats",
+	Name:        ToolNameGetRedditUserStats,
 	Description: "Gets the statistics of a Reddit user, such as karma and account age.",
 	Parameters: map[string]any{
 		"type": "object",
@@ -174,7 +197,7 @@ var GetRedditUserStatsTool = Tool{
 }
 
 var GetSubredditStatsTool = Tool{
-	Name:        "get_subreddit_stats",
+	Name:        ToolNameGetSubredditStats,
 	Description: "Gets the statistics of a subreddit, such as subscriber count.",
 	Parameters: map[string]any{
 		"type": "object",
@@ -189,7 +212,7 @@ var GetSubredditStatsTool = Tool{
 }
 
 var GetYouTubeChannelStatsTool = Tool{
-	Name:        "get_youtube_channel_stats",
+	Name:        ToolNameGetYouTubeChannelStats,
 	Description: "Gets the statistics of a YouTube channel, such as subscriber count.",
 	Parameters: map[string]any{
 		"type": "object",
@@ -204,7 +227,7 @@ var GetYouTubeChannelStatsTool = Tool{
 }
 
 var GetBlueskyUserStatsTool = Tool{
-	Name:        "get_bluesky_user_stats",
+	Name:        ToolNameGetBlueskyUserStats,
 	Description: "Gets the statistics of a Bluesky user, such as follower count.",
 	Parameters: map[string]any{
 		"type": "object",
@@ -219,7 +242,7 @@ var GetBlueskyUserStatsTool = Tool{
 }
 
 var GetSteamPlayerInfoTool = Tool{
-	Name:        "get_steam_player_info",
+	Name:        ToolNameGetSteamPlayerInfo,
 	Description: "Gets player information from OpenDota using their Steam32 account ID.",
 	Parameters: map[string]any{
 		"type": "object",
@@ -234,7 +257,7 @@ var GetSteamPlayerInfoTool = Tool{
 }
 
 var GetWalletAddressFromRedditProfileTool = Tool{
-	Name:        "get_wallet_address_from_reddit_profile",
+	Name:        ToolNameGetWalletAddressFromRedditProfile,
 	Description: "Gets a Solana wallet address from a Reddit user's profile description.",
 	Parameters: map[string]any{
 		"type": "object",
@@ -249,7 +272,7 @@ var GetWalletAddressFromRedditProfileTool = Tool{
 }
 
 var GetWalletAddressFromGitHubProfileTool = Tool{
-	Name:        "get_wallet_address_from_github_profile",
+	Name:        ToolNameGetWalletAddressFromGitHubProfile,
 	Description: "Gets a Solana wallet address from a GitHub user's profile.",
 	Parameters: map[string]any{
 		"type": "object",
@@ -264,7 +287,7 @@ var GetWalletAddressFromGitHubProfileTool = Tool{
 }
 
 var GetWalletAddressFromBlueskyProfileTool = Tool{
-	Name:        "get_wallet_address_from_bluesky_profile",
+	Name:        ToolNameGetWalletAddressFromBlueskyProfile,
 	Description: "Gets a Solana wallet address from a Bluesky user's profile.",
 	Parameters: map[string]any{
 		"type": "object",
@@ -279,7 +302,7 @@ var GetWalletAddressFromBlueskyProfileTool = Tool{
 }
 
 var GetWalletAddressFromInstagramProfileTool = Tool{
-	Name:        "get_wallet_address_from_instagram_profile",
+	Name:        ToolNameGetWalletAddressFromInstagramProfile,
 	Description: "Gets a Solana wallet address from an Instagram user's profile.",
 	Parameters: map[string]any{
 		"type": "object",
@@ -294,7 +317,7 @@ var GetWalletAddressFromInstagramProfileTool = Tool{
 }
 
 var GetWalletAddressFromSteamProfileTool = Tool{
-	Name:        "get_wallet_address_from_steam_profile",
+	Name:        ToolNameGetWalletAddressFromSteamProfile,
 	Description: "Gets a Solana wallet address from a Steam user's profile.",
 	Parameters: map[string]any{
 		"type": "object",
@@ -309,7 +332,7 @@ var GetWalletAddressFromSteamProfileTool = Tool{
 }
 
 var GetWalletAddressFromYouTubeProfileTool = Tool{
-	Name:        "get_wallet_address_from_youtube_profile",
+	Name:        ToolNameGetWalletAddressFromYouTubeProfile,
 	Description: "Gets a Solana wallet address from a YouTube channel's description.",
 	Parameters: map[string]any{
 		"type": "object",
@@ -324,7 +347,7 @@ var GetWalletAddressFromYouTubeProfileTool = Tool{
 }
 
 var GetWalletAddressFromTwitchProfileTool = Tool{
-	Name:        "get_wallet_address_from_twitch_profile",
+	Name:        ToolNameGetWalletAddressFromTwitchProfile,
 	Description: "Gets a Solana wallet address from a Twitch user's profile.",
 	Parameters: map[string]any{
 		"type": "object",
@@ -337,12 +360,3 @@ var GetWalletAddressFromTwitchProfileTool = Tool{
 		"required": []string{"username"},
 	},
 }
-
-// TODO: additional tools to implement:
-// - Get wallet address from reddit profile
-// - Get wallet address from github profile
-// - Get wallet address from bluesky profile
-// - Get wallet address from instagram profile
-// - Get wallet address from steam profile
-// - Get wallet address from youtube profile
-// - Get wallet address from twitch profile
