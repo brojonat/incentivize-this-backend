@@ -180,7 +180,7 @@ func (a *Activities) GetWalletAddressFromSteamProfile(ctx context.Context, accou
 	walletAddress := re.FindString(playerInfo.Profile.Personaname)
 
 	if walletAddress == "" {
-		return "", fmt.Errorf("no wallet address found in profile description")
+		return "", ErrWalletNotFound
 	}
 
 	return walletAddress, nil

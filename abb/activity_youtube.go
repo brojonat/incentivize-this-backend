@@ -324,7 +324,7 @@ func (a *Activities) GetWalletAddressFromYouTubeProfile(ctx context.Context, cha
 	walletAddress := re.FindString(description)
 
 	if walletAddress == "" {
-		return "", fmt.Errorf("no wallet address found in profile description")
+		return "", ErrWalletNotFound
 	}
 
 	return walletAddress, nil

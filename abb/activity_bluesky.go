@@ -115,8 +115,8 @@ type BlueskyHandleResponse struct {
 	DID string `json:"did"`
 }
 
-// GetBlueskyUserStats fetches user stats from the Bluesky API
-func (a *Activities) GetBlueskyUserStats(ctx context.Context, userHandle string) (*BlueskyUserStats, error) {
+// GetBlueSkyUserStats fetches user stats from the Bluesky API
+func (a *Activities) GetBlueSkyUserStats(ctx context.Context, userHandle string) (*BlueskyUserStats, error) {
 	// First, resolve the handle to a DID
 	handleURL := fmt.Sprintf("https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=%s", userHandle)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, handleURL, nil)
@@ -167,7 +167,7 @@ func (a *Activities) GetBlueskyUserStats(ctx context.Context, userHandle string)
 }
 
 func (a *Activities) GetWalletAddressFromBlueskyProfile(ctx context.Context, userHandle string) (string, error) {
-	userStats, err := a.GetBlueskyUserStats(ctx, userHandle)
+	userStats, err := a.GetBlueSkyUserStats(ctx, userHandle)
 	if err != nil {
 		return "", fmt.Errorf("failed to get user stats: %w", err)
 	}
@@ -181,7 +181,7 @@ func (a *Activities) GetWalletAddressFromBlueskyProfile(ctx context.Context, use
 	walletAddress := re.FindString(userStats.Description)
 
 	if walletAddress == "" {
-		return "", fmt.Errorf("no wallet address found in profile description")
+		return "", ErrWalletNotFound
 	}
 
 	return walletAddress, nil

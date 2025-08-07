@@ -89,6 +89,8 @@ const (
 	DefaultLLMMaxTokens             = 10000 // Default max tokens if not set
 )
 
+var ErrWalletNotFound = fmt.Errorf("no wallet address found in profile description")
+
 // --- Start Platform Agnostic Content Structures ---
 
 // ContentKind defines the type of content (e.g., post, comment, video)

@@ -1,0 +1,33 @@
+Starting integration test suite...
+
+--- Test for: detect_malicious_content ---
+Status: FAILED
+Error: workflow failed: workflow execution error (type: DebugWorkflow, workflowID: integration-test-detect_malicious_content-72b1ff7d-dda8-4256-8c60-3a5317f7c2f5, runID: 019882d6-103e-72ff-aaf4-b8731422673f): activity error (type: DetectMaliciousContent, scheduledEventID: 5, startedEventID: 6, identity: 33421@genichiro@): unable to decode the activity function input payload with error: payload item 0: unable to decode: illegal base64 data at input byte 4 for function name: DetectMaliciousContent (type: wrapError, retryable: true): payload item 0: unable to decode: illegal base64 data at input byte 4 (type: wrapError, retryable: true): unable to decode: illegal base64 data at input byte 4 (type: wrapError, retryable: true): unable to decode
+
+--- Test for: get_githubclosing_pr ---
+Status: FAILED
+Error: workflow failed: workflow execution error (type: DebugWorkflow, workflowID: integration-test-get_githubclosing_pr-5b1f9676-0cc3-4e13-b46d-f57d8cfaa849, runID: 019882d6-103a-7816-9a2a-daef6a84bf9d): activity error (type: GetClosingPullRequest, scheduledEventID: 5, startedEventID: 6, identity: 33421@genichiro@): could not find a closing PR for issue #6637
+
+--- Test for: get_steam_player_info ---
+Status: FAILED
+Error: workflow failed: workflow execution error (type: DebugWorkflow, workflowID: integration-test-get_steam_player_info-d7545c89-47ec-4e2b-8fb3-cdbcca44fc87, runID: 019882d6-1041-7922-9024-98cf4b6eae8b): activity error (type: GetSteamPlayerInfo, scheduledEventID: 5, startedEventID: 6, identity: 33421@genichiro@): opendota api returned status 404
+
+--- Test for: analyze_image_url ---
+Status: FAILED
+Error: workflow failed: workflow execution error (type: DebugWorkflow, workflowID: integration-test-analyze_image_url-624f0dba-472f-4e9c-8f42-7d9ca8bf0830, runID: 019882d6-1042-7157-8b52-93226551d9d1): activity error (type: AnalyzeImageURL, scheduledEventID: 5, startedEventID: 6, identity: 33421@genichiro@): image LLM analysis failed: OpenAI Vision API returned status 400: {
+  "error": {
+    "message": "You uploaded an unsupported image. Please make sure your image has of one the following formats: ['png', 'jpeg', 'gif', 'webp'].",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": "invalid_image_format"
+  }
+} (type: wrapError, retryable: true): OpenAI Vision API returned status 400: {
+  "error": {
+    "message": "You uploaded an unsupported image. Please make sure your image has of one the following formats: ['png', 'jpeg', 'gif', 'webp'].",
+    "type": "invalid_request_error",
+    "param": null,
+    "code": "invalid_image_format"
+  }
+}
+
+Integration test suite completed.

@@ -454,8 +454,6 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
 						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
 					} else {
-						// Ensure the ContentKind from the signal is used, not from the bounty state
-						args.ContentKind = input.InitialSignal.ContentKind
 						var contentBytes []byte
 						activityErr := workflow.ExecuteActivity(ctx, a.PullContentActivity, args).Get(ctx, &contentBytes)
 						if activityErr != nil {
@@ -572,7 +570,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
 					} else {
 						var result BlueskyUserStats
-						activityErr := workflow.ExecuteActivity(ctx, a.GetBlueskyUserStats, args.UserHandle).Get(ctx, &result)
+						activityErr := workflow.ExecuteActivity(ctx, a.GetBlueSkyUserStats, args.UserHandle).Get(ctx, &result)
 						if activityErr != nil {
 							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
 						} else {

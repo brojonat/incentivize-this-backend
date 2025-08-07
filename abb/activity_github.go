@@ -75,21 +75,36 @@ type GitHubUserContent struct {
 }
 
 func (a *Activities) parseGitHubURL(contentID string) (owner, repo string, issueNum int, err error) {
-	parsedURL, err := url.Parse(contentID)
-	if err != nil {
-		return "", "", 0, fmt.Errorf("invalid URL: %w", err)
-	}
+	// Try parsing as a full URL first
+	if strings.HasPrefix(contentID, "http://") || strings.HasPrefix(contentID, "https://") {
+		parsedURL, err := url.Parse(contentID)
+		if err != nil {
+			return "", "", 0, fmt.Errorf("invalid URL: %w", err)
+		}
 
-	pathParts := strings.Split(strings.Trim(parsedURL.Path, "/"), "/")
-	if len(pathParts) < 4 || pathParts[2] != "issues" {
-		return "", "", 0, fmt.Errorf("URL format must be https://github.com/owner/repo/issues/number")
-	}
+		pathParts := strings.Split(strings.Trim(parsedURL.Path, "/"), "/")
+		if len(pathParts) < 4 || pathParts[2] != "issues" {
+			return "", "", 0, fmt.Errorf("URL format must be https://github.com/owner/repo/issues/number")
+		}
 
-	owner = pathParts[0]
-	repo = pathParts[1]
-	issueNum, err = strconv.Atoi(pathParts[3])
-	if err != nil {
-		return "", "", 0, fmt.Errorf("invalid issue number: %w", err)
+		owner = pathParts[0]
+		repo = pathParts[1]
+		issueNum, err = strconv.Atoi(pathParts[3])
+		if err != nil {
+			return "", "", 0, fmt.Errorf("invalid issue number in URL: %w", err)
+		}
+	} else {
+		// Assume owner/repo/issue_number format
+		parts := strings.Split(contentID, "/")
+		if len(parts) != 3 {
+			return "", "", 0, fmt.Errorf("invalid content ID format: expected owner/repo/issue_number or full URL")
+		}
+		owner = parts[0]
+		repo = parts[1]
+		issueNum, err = strconv.Atoi(parts[2])
+		if err != nil {
+			return "", "", 0, fmt.Errorf("invalid issue number in shorthand: %w", err)
+		}
 	}
 
 	return owner, repo, issueNum, nil
@@ -212,5 +227,5 @@ func (a *Activities) GetWalletAddressFromGitHubProfile(ctx context.Context, user
 		return walletAddress, nil
 	}
 
-	return "", fmt.Errorf("no wallet address found in profile for user %s", username)
+	return "", ErrWalletNotFound
 }

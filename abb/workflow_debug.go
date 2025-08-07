@@ -2,15 +2,21 @@ package abb
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
 func DebugWorkflow(ctx workflow.Context, activityName string, input json.RawMessage) (interface{}, error) {
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
+		// these activities should only get one attempt
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 1,
+		},
 	}
 	ctx = workflow.WithActivityOptions(ctx, ao)
 
@@ -99,7 +105,7 @@ func DebugWorkflow(ctx workflow.Context, activityName string, input json.RawMess
 			return nil, fmt.Errorf("invalid input for %s: %w", ToolNameGetBlueskyUserStats, err)
 		}
 		var res *BlueskyUserStats
-		err = workflow.ExecuteActivity(ctx, a.GetBlueskyUserStats, params.UserHandle).Get(ctx, &res)
+		err = workflow.ExecuteActivity(ctx, a.GetBlueSkyUserStats, params.UserHandle+".bsky.social").Get(ctx, &res)
 		result = res
 	case ToolNameAnalyzeImageURL:
 		var params struct {
@@ -152,6 +158,13 @@ func DebugWorkflow(ctx workflow.Context, activityName string, input json.RawMess
 		}
 		var res string
 		err = workflow.ExecuteActivity(ctx, a.GetWalletAddressFromRedditProfile, params.Username).Get(ctx, &res)
+		var appErr *temporal.ApplicationError
+		if err != nil && errors.As(err, &appErr) {
+			result = ""
+			err = nil
+		} else if err != nil {
+			return nil, err
+		}
 		result = res
 	case ToolNameGetWalletAddressFromGitHubProfile:
 		var params struct {
@@ -162,6 +175,13 @@ func DebugWorkflow(ctx workflow.Context, activityName string, input json.RawMess
 		}
 		var res string
 		err = workflow.ExecuteActivity(ctx, a.GetWalletAddressFromGitHubProfile, params.Username).Get(ctx, &res)
+		var appErr *temporal.ApplicationError
+		if err != nil && errors.As(err, &appErr) {
+			result = ""
+			err = nil
+		} else if err != nil {
+			return nil, err
+		}
 		result = res
 	case ToolNameGetWalletAddressFromBlueskyProfile:
 		var params struct {
@@ -172,6 +192,13 @@ func DebugWorkflow(ctx workflow.Context, activityName string, input json.RawMess
 		}
 		var res string
 		err = workflow.ExecuteActivity(ctx, a.GetWalletAddressFromBlueskyProfile, params.UserHandle).Get(ctx, &res)
+		var appErr *temporal.ApplicationError
+		if err != nil && errors.As(err, &appErr) {
+			result = ""
+			err = nil
+		} else if err != nil {
+			return nil, err
+		}
 		result = res
 	case ToolNameGetWalletAddressFromInstagramProfile:
 		var params struct {
@@ -182,6 +209,13 @@ func DebugWorkflow(ctx workflow.Context, activityName string, input json.RawMess
 		}
 		var res string
 		err = workflow.ExecuteActivity(ctx, a.GetWalletAddressFromInstagramProfile, params.Username).Get(ctx, &res)
+		var appErr *temporal.ApplicationError
+		if err != nil && errors.As(err, &appErr) {
+			result = ""
+			err = nil
+		} else if err != nil {
+			return nil, err
+		}
 		result = res
 	case ToolNameGetWalletAddressFromSteamProfile:
 		var params struct {
@@ -192,6 +226,13 @@ func DebugWorkflow(ctx workflow.Context, activityName string, input json.RawMess
 		}
 		var res string
 		err = workflow.ExecuteActivity(ctx, a.GetWalletAddressFromSteamProfile, params.AccountID).Get(ctx, &res)
+		var appErr *temporal.ApplicationError
+		if err != nil && errors.As(err, &appErr) {
+			result = ""
+			err = nil
+		} else if err != nil {
+			return nil, err
+		}
 		result = res
 	case ToolNameGetWalletAddressFromYouTubeProfile:
 		var params struct {
@@ -202,6 +243,13 @@ func DebugWorkflow(ctx workflow.Context, activityName string, input json.RawMess
 		}
 		var res string
 		err = workflow.ExecuteActivity(ctx, a.GetWalletAddressFromYouTubeProfile, params.ChannelID).Get(ctx, &res)
+		var appErr *temporal.ApplicationError
+		if err != nil && errors.As(err, &appErr) {
+			result = ""
+			err = nil
+		} else if err != nil {
+			return nil, err
+		}
 		result = res
 	case ToolNameGetWalletAddressFromTwitchProfile:
 		var params struct {
@@ -212,6 +260,13 @@ func DebugWorkflow(ctx workflow.Context, activityName string, input json.RawMess
 		}
 		var res string
 		err = workflow.ExecuteActivity(ctx, a.GetWalletAddressFromTwitchProfile, params.Username).Get(ctx, &res)
+		var appErr *temporal.ApplicationError
+		if err != nil && errors.As(err, &appErr) {
+			result = ""
+			err = nil
+		} else if err != nil {
+			return nil, err
+		}
 		result = res
 	case ToolNameSubmitDecision:
 		// This is the final decision from the LLM.

@@ -151,7 +151,7 @@ func (a *Activities) GetWalletAddressFromInstagramProfile(ctx context.Context, u
 	apiURL := url.URL{
 		Scheme: instagramAPIScheme,
 		Host:   instagramAPIHost,
-		Path:   "/get_user_info.php",
+		Path:   "/ig_get_fb_profile_v3.php",
 	}
 	q := apiURL.Query()
 	q.Set("username", username)
@@ -201,7 +201,7 @@ func (a *Activities) GetWalletAddressFromInstagramProfile(ctx context.Context, u
 	walletAddress := re.FindString(userInfo.Bio)
 
 	if walletAddress == "" {
-		return "", fmt.Errorf("no wallet address found in profile description")
+		return "", ErrWalletNotFound
 	}
 
 	return walletAddress, nil

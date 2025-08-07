@@ -35,7 +35,7 @@ func (deps *RedditDependencies) ensureValidRedditToken(minRemaining time.Duratio
 		client := &http.Client{
 			Timeout: 10 * time.Second,
 		}
-		token, err := getRedditAuthTokenForPull(client, *deps) // Renamed function
+		token, err := getRedditAuthTokenForPull(client, *deps)
 		if err != nil {
 			return fmt.Errorf("failed to get Reddit token: %w", err)
 		}
@@ -187,7 +187,7 @@ func (a *Activities) GetWalletAddressFromRedditProfile(ctx context.Context, user
 	walletAddress := re.FindString(description)
 
 	if walletAddress == "" {
-		return "", fmt.Errorf("no wallet address found in profile description")
+		return "", ErrWalletNotFound
 	}
 
 	return walletAddress, nil
@@ -221,7 +221,7 @@ type SubredditStats struct {
 		Name                            string        `json:"name"`
 		Quarantine                      bool          `json:"quarantine"`
 		HideAds                         bool          `json:"hide_ads"`
-		PredictionLeaderboardEntryType  string        `json:"prediction_leaderboard_entry_type"`
+		PredictionLeaderboardEntryType  interface{}   `json:"prediction_leaderboard_entry_type"`
 		EmojisEnabled                   bool          `json:"emojis_enabled"`
 		AdvertiserCategory              string        `json:"advertiser_category"`
 		PublicDescription               string        `json:"public_description"`

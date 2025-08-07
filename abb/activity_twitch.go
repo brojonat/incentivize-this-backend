@@ -301,7 +301,7 @@ func (a *Activities) GetWalletAddressFromTwitchProfile(ctx context.Context, user
 	walletAddress := re.FindString(description)
 
 	if walletAddress == "" {
-		return "", fmt.Errorf("no wallet address found in profile description")
+		return "", ErrWalletNotFound
 	}
 
 	return walletAddress, nil

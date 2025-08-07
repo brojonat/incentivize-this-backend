@@ -107,7 +107,7 @@ func debugCommands() []*cli.Command {
 					Aliases: []string{"tn"},
 					Usage:   "Temporal namespace",
 					EnvVars: []string{"TEMPORAL_NAMESPACE"},
-					Value:   "default",
+					Value:   "affiliate-bounty-board",
 				},
 				&cli.StringFlag{
 					Name:    "task-queue",
@@ -119,7 +119,7 @@ func debugCommands() []*cli.Command {
 			Action: runActivity,
 		},
 		{
-			Name:  "debug-worker",
+			Name:  "run-debug-worker",
 			Usage: "Run a worker that only registers the debug workflow",
 			Flags: []cli.Flag{
 				&cli.StringFlag{
@@ -134,7 +134,7 @@ func debugCommands() []*cli.Command {
 					Aliases: []string{"tn"},
 					Usage:   "Temporal namespace",
 					EnvVars: []string{"TEMPORAL_NAMESPACE"},
-					Value:   "default",
+					Value:   "affiliate-bounty-board",
 				},
 				&cli.StringFlag{
 					Name:    "task-queue",
@@ -146,7 +146,7 @@ func debugCommands() []*cli.Command {
 			Action: runDebugWorker,
 		},
 		{
-			Name:  "integration-test",
+			Name:  "run-integration-tests",
 			Usage: "Run a suite of integration tests for all tool calls",
 			Flags: []cli.Flag{
 				&cli.StringFlag{
@@ -161,7 +161,7 @@ func debugCommands() []*cli.Command {
 					Aliases: []string{"tn"},
 					Usage:   "Temporal namespace",
 					EnvVars: []string{"TEMPORAL_NAMESPACE"},
-					Value:   "default",
+					Value:   "affiliate-bounty-board",
 				},
 				&cli.StringFlag{
 					Name:    "task-queue",
@@ -417,27 +417,27 @@ func runIntegrationTests(c *cli.Context) error {
 	}
 
 	tests := []toolTest{
-		{abb.ToolNamePullContent, `{"platform": "github", "content_kind": "issue", "content_id": "octocat/Spoon-Knife/1"}`},
+		{abb.ToolNamePullContent, `{"platform": "github", "content_kind": "issue", "content_id": "astral-sh/uv/6637"}`},
 		{abb.ToolNamePullContent, `{"platform": "reddit", "content_kind": "post", "content_id": "t3_123456"}`},
 		{abb.ToolNamePullContent, `{"platform": "youtube", "content_kind": "video", "content_id": "dQw4w9WgXcQ"}`},
-		{abb.ToolNameGetGitHubIssue, `{"owner": "octocat", "repo": "Spoon-Knife", "issue_number": 1}`},
-		{abb.ToolNameGetClosingPR, `{"owner": "octocat", "repo": "Spoon-Knife", "issue_number": 1}`},
-		{abb.ToolNameGetGitHubUser, `{"username": "octocat"}`},
-		{abb.ToolNameGetRedditUserStats, `{"username": "spez"}`},
+		{abb.ToolNameGetGitHubIssue, `{"owner": "astral-sh", "repo": "uv", "issue_number": 6637}`},
+		{abb.ToolNameGetClosingPR, `{"owner": "astral-sh", "repo": "uv", "issue_number": 6637}`},
+		{abb.ToolNameGetGitHubUser, `{"username": "astral-sh"}`},
+		{abb.ToolNameGetRedditUserStats, `{"username": "graearg"}`},
 		{abb.ToolNameGetSubredditStats, `{"subreddit_name": "golang"}`},
-		{abb.ToolNameGetYouTubeChannelStats, `{"channel_id": "UC_x5XG1OV2P6wXH5K2FAOGQ"}`},
-		{abb.ToolNameGetBlueskyUserStats, `{"user_handle": "bsky.app"}`},
-		{abb.ToolNameAnalyzeImageURL, `{"image_url": "https://example.com/image.jpg", "prompt": "Does it contain a cat?"}`},
+		{abb.ToolNameGetYouTubeChannelStats, `{"channel_id": "UCfQgsKhHjSyRLOp9mnffqVg"}`},
+		{abb.ToolNameGetBlueskyUserStats, `{"user_handle": "incentivizethis"}`},
+		{abb.ToolNameAnalyzeImageURL, `{"image_url": "https://en.wikipedia.org/wiki/Lenna#/media/File:Lenna_(test_image).png", "prompt": "Does it contain a lady?"}`},
 		{abb.ToolNameValidatePayoutWallet, `{"payout_wallet": "stub_wallet_address", "validation_prompt": "Is this a valid Solana address?"}`},
 		{abb.ToolNameDetectMaliciousContent, `{"content": "This is benign content."}`},
-		{abb.ToolNameGetSteamPlayerInfo, `{"account_id": 76561197960265728}`},
-		{abb.ToolNameGetWalletAddressFromRedditProfile, `{"username": "spez"}`},
-		{abb.ToolNameGetWalletAddressFromGitHubProfile, `{"username": "octocat"}`},
-		{abb.ToolNameGetWalletAddressFromBlueskyProfile, `{"user_handle": "bsky.app"}`},
-		{abb.ToolNameGetWalletAddressFromInstagramProfile, `{"username": "instagram"}`},
-		{abb.ToolNameGetWalletAddressFromSteamProfile, `{"account_id": 76561197960265728}`},
-		{abb.ToolNameGetWalletAddressFromYouTubeProfile, `{"channel_id": "UC_x5XG1OV2P6wXH5K2FAOGQ"}`},
-		{abb.ToolNameGetWalletAddressFromTwitchProfile, `{"username": "twitch"}`},
+		{abb.ToolNameGetSteamPlayerInfo, `{"account_id": 76561198035677990}`},
+		{abb.ToolNameGetWalletAddressFromRedditProfile, `{"username": "graearg"}`},
+		{abb.ToolNameGetWalletAddressFromGitHubProfile, `{"username": "brojonat"}`},
+		{abb.ToolNameGetWalletAddressFromBlueskyProfile, `{"user_handle": "incentivizethis"}`},
+		{abb.ToolNameGetWalletAddressFromInstagramProfile, `{"username": "incentivizethis"}`},
+		{abb.ToolNameGetWalletAddressFromSteamProfile, `{"account_id": 76561198035677990}`},
+		{abb.ToolNameGetWalletAddressFromYouTubeProfile, `{"channel_id": "UCfQgsKhHjSyRLOp9mnffqVg"}`},
+		{abb.ToolNameGetWalletAddressFromTwitchProfile, `{"username": "esl_dota2"}`},
 		{abb.ToolNameSubmitDecision, `{"is_approved": true, "reason": "Content meets all requirements."}`},
 		{abb.ToolNameSubmitDecision, `{"is_approved": false, "reason": "Content does not meet requirements."}`},
 	}
@@ -507,9 +507,14 @@ func runIntegrationTests(c *cli.Context) error {
 
 	// Collect and print results
 	for res := range resultsChan {
-		fmt.Printf("\n--- Test for: %s ---\n", res.Name)
+		// fmt.Printf("\n--- Test for: %s ---\n", res.Name)
+		// if res.Success {
+		// 	// we'll remove this after we've verified the tests are working
+		// 	fmt.Printf("Status: SUCCESS\nResult:\n%s\n", res.Output)
+		// 	continue
+		// }
 		if !res.Success {
-			fmt.Printf("Status: FAILED\nError: %v\n", res.Error)
+			fmt.Printf("\n--- Test for: %s ---\nStatus: FAILED\nError: %v\n", res.Name, res.Error)
 		}
 	}
 
