@@ -317,25 +317,7 @@ func processClaim(ctx workflow.Context, a *Activities, bountyState *BountyState,
 		ValidatePayoutWalletTool,
 	}
 	if signal.Platform == PlatformGitHub {
-		tools = []Tool{GetGitHubIssueTool, GetClosingPRTool, GetGitHubUserTool, GetWalletAddressFromGitHubProfileTool}
-	}
-	if signal.Platform == PlatformReddit {
-		tools = append(tools, GetRedditUserStatsTool, GetWalletAddressFromRedditProfileTool)
-	}
-	if signal.Platform == PlatformSteam {
-		tools = append(tools, GetSteamPlayerInfoTool, GetWalletAddressFromSteamProfileTool)
-	}
-	if signal.Platform == PlatformBluesky {
-		tools = append(tools, GetBlueskyUserStatsTool, GetWalletAddressFromBlueskyProfileTool)
-	}
-	if signal.Platform == PlatformInstagram {
-		tools = append(tools, GetWalletAddressFromInstagramProfileTool)
-	}
-	if signal.Platform == PlatformYouTube {
-		tools = append(tools, GetYouTubeChannelStatsTool, GetWalletAddressFromYouTubeProfileTool)
-	}
-	if signal.Platform == PlatformTwitch {
-		tools = append(tools, GetWalletAddressFromTwitchProfileTool)
+		tools = append(tools, GetClosingPRTool)
 	}
 
 	var orchestratorResult OrchestratorWorkflowOutput
@@ -462,24 +444,6 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = string(contentBytes)
 						}
 					}
-				case ToolNameGetGitHubIssue:
-					var args struct {
-						Owner       string `json:"owner"`
-						Repo        string `json:"repo"`
-						IssueNumber int    `json:"issue_number"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result GitHubIssueContent
-						activityErr := workflow.ExecuteActivity(ctx, a.GetGitHubIssue, args.Owner, args.Repo, args.IssueNumber).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							resultBytes, _ := json.Marshal(result)
-							toolResult = string(resultBytes)
-						}
-					}
 				case ToolNameGetClosingPR:
 					var args struct {
 						Owner       string `json:"owner"`
@@ -498,86 +462,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = string(resultBytes)
 						}
 					}
-				case ToolNameGetGitHubUser:
-					var args struct {
-						Username string `json:"username"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result GitHubUserContent
-						activityErr := workflow.ExecuteActivity(ctx, a.GetGitHubUser, args.Username).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							resultBytes, _ := json.Marshal(result)
-							toolResult = string(resultBytes)
-						}
-					}
-				case ToolNameGetRedditUserStats:
-					var args struct {
-						Username string `json:"username"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result RedditUserStats
-						activityErr := workflow.ExecuteActivity(ctx, a.GetRedditUserStats, args.Username).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							resultBytes, _ := json.Marshal(result)
-							toolResult = string(resultBytes)
-						}
-					}
-				case ToolNameGetSubredditStats:
-					var args struct {
-						SubredditName string `json:"subreddit_name"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result SubredditStats
-						activityErr := workflow.ExecuteActivity(ctx, a.GetSubredditStats, args.SubredditName).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							resultBytes, _ := json.Marshal(result)
-							toolResult = string(resultBytes)
-						}
-					}
-				case ToolNameGetYouTubeChannelStats:
-					var args struct {
-						ChannelID string `json:"channel_id"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result YouTubeChannelStats
-						activityErr := workflow.ExecuteActivity(ctx, a.GetYoutubeChannelStats, args.ChannelID).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							resultBytes, _ := json.Marshal(result)
-							toolResult = string(resultBytes)
-						}
-					}
-				case ToolNameGetBlueskyUserStats:
-					var args struct {
-						UserHandle string `json:"user_handle"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result BlueskyUserStats
-						activityErr := workflow.ExecuteActivity(ctx, a.GetBlueSkyUserStats, args.UserHandle).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							resultBytes, _ := json.Marshal(result)
-							toolResult = string(resultBytes)
-						}
-					}
+
 				case ToolNameAnalyzeImageURL:
 					var args struct {
 						ImageURL string `json:"image_url"`
@@ -626,127 +511,6 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 						} else {
 							resultBytes, _ := json.Marshal(result)
 							toolResult = string(resultBytes)
-						}
-					}
-				case ToolNameGetSteamPlayerInfo:
-					var args struct {
-						AccountID int `json:"account_id"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result OpenDotaPlayerInfo
-						activityErr := workflow.ExecuteActivity(ctx, a.GetSteamPlayerInfo, args.AccountID).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute activity: %v"}`, activityErr)
-						} else {
-							resultBytes, _ := json.Marshal(result)
-							toolResult = string(resultBytes)
-						}
-					}
-				case ToolNameGetWalletAddressFromRedditProfile:
-					var args struct {
-						Username string `json:"username"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result string
-						activityErr := workflow.ExecuteActivity(ctx, a.GetWalletAddressFromRedditProfile, args.Username).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							toolResult = result
-						}
-					}
-				case ToolNameGetWalletAddressFromGitHubProfile:
-					var args struct {
-						Username string `json:"username"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result string
-						activityErr := workflow.ExecuteActivity(ctx, a.GetWalletAddressFromGitHubProfile, args.Username).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							toolResult = result
-						}
-					}
-				case ToolNameGetWalletAddressFromBlueskyProfile:
-					var args struct {
-						UserHandle string `json:"user_handle"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result string
-						activityErr := workflow.ExecuteActivity(ctx, a.GetWalletAddressFromBlueskyProfile, args.UserHandle).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							toolResult = result
-						}
-					}
-				case ToolNameGetWalletAddressFromInstagramProfile:
-					var args struct {
-						Username string `json:"username"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result string
-						activityErr := workflow.ExecuteActivity(ctx, a.GetWalletAddressFromInstagramProfile, args.Username).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							toolResult = result
-						}
-					}
-				case ToolNameGetWalletAddressFromSteamProfile:
-					var args struct {
-						AccountID int `json:"account_id"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result string
-						activityErr := workflow.ExecuteActivity(ctx, a.GetWalletAddressFromSteamProfile, args.AccountID).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							toolResult = result
-						}
-					}
-				case ToolNameGetWalletAddressFromYouTubeProfile:
-					var args struct {
-						ChannelID string `json:"channel_id"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result string
-						activityErr := workflow.ExecuteActivity(ctx, a.GetWalletAddressFromYouTubeProfile, args.ChannelID).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							toolResult = result
-						}
-					}
-				case ToolNameGetWalletAddressFromTwitchProfile:
-					var args struct {
-						Username string `json:"username"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result string
-						activityErr := workflow.ExecuteActivity(ctx, a.GetWalletAddressFromTwitchProfile, args.Username).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							toolResult = result
 						}
 					}
 				case ToolNameSubmitDecision:

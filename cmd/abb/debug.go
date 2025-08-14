@@ -169,6 +169,11 @@ func debugCommands() []*cli.Command {
 					Usage:   "Temporal task queue name",
 					Value:   "affiliate_bounty_board_debug",
 				},
+				&cli.StringSliceFlag{
+					Name:    "tool",
+					Aliases: []string{"t", "test"},
+					Usage:   "Only run the specified tool(s). Repeat flag to include multiple. Example: --tool detect_malicious_content --tool pull_content",
+				},
 			},
 			Action: runIntegrationTests,
 		},
@@ -387,6 +392,7 @@ func runDebugWorker(c *cli.Context) error {
 type toolTestResult struct {
 	Name    string
 	Success bool
+	Input   string
 	Output  string
 	Error   error
 }
@@ -417,29 +423,49 @@ func runIntegrationTests(c *cli.Context) error {
 	}
 
 	tests := []toolTest{
+		// PullContent coverage across platforms/kinds
 		{abb.ToolNamePullContent, `{"platform": "github", "content_kind": "issue", "content_id": "astral-sh/uv/6637"}`},
-		{abb.ToolNamePullContent, `{"platform": "reddit", "content_kind": "post", "content_id": "t3_123456"}`},
+		{abb.ToolNamePullContent, `{"platform": "github", "content_kind": "user", "content_id": "brojonat"}`},
 		{abb.ToolNamePullContent, `{"platform": "youtube", "content_kind": "video", "content_id": "dQw4w9WgXcQ"}`},
-		{abb.ToolNameGetGitHubIssue, `{"owner": "astral-sh", "repo": "uv", "issue_number": 6637}`},
+		{abb.ToolNamePullContent, `{"platform": "youtube", "content_kind": "channel", "content_id": "UCfQgsKhHjSyRLOp9mnffqVg"}`},
+		{abb.ToolNamePullContent, `{"platform": "reddit", "content_kind": "post", "content_id": "t3_j6ed00"}`},
+		{abb.ToolNamePullContent, `{"platform": "reddit", "content_kind": "comment", "content_id": "t1_mhyb41q"}`},
+		{abb.ToolNamePullContent, `{"platform": "reddit", "content_kind": "subreddit", "content_id": "golang"}`},
+		{abb.ToolNamePullContent, `{"platform": "hackernews", "content_kind": "post", "content_id": "44434011"}`},
+		{abb.ToolNamePullContent, `{"platform": "hackernews", "content_kind": "comment", "content_id": "44434103"}`},
+		{abb.ToolNamePullContent, `{"platform": "twitch", "content_kind": "video", "content_id": "2251568150"}`},
+		{abb.ToolNamePullContent, `{"platform": "twitch", "content_kind": "clip", "content_id": "CheerfulCheerfulSaladStinkyCheese-5X0KAkC-NfJJia1y"}`},
+		// Bluesky post can be provided as bsky URL or at:// URI; sample may fail depending on availability
+		{abb.ToolNamePullContent, `{"platform": "bluesky", "content_kind": "post", "content_id": "https://bsky.app/profile/incentivizethis.bsky.social/post/3ltvkbhevvc2c"}`},
+		{abb.ToolNamePullContent, `{"platform": "steam", "content_kind": "dota2chat", "content_id": "8416080116"}`},
+		{abb.ToolNamePullContent, `{"platform": "steam", "content_kind": "user", "content_id": "75412262"}`},
+		// Replaced dedicated tools with pull_content coverage; keeping GetClosingPR for now
 		{abb.ToolNameGetClosingPR, `{"owner": "astral-sh", "repo": "uv", "issue_number": 6637}`},
-		{abb.ToolNameGetGitHubUser, `{"username": "astral-sh"}`},
-		{abb.ToolNameGetRedditUserStats, `{"username": "graearg"}`},
-		{abb.ToolNameGetSubredditStats, `{"subreddit_name": "golang"}`},
-		{abb.ToolNameGetYouTubeChannelStats, `{"channel_id": "UCfQgsKhHjSyRLOp9mnffqVg"}`},
-		{abb.ToolNameGetBlueskyUserStats, `{"user_handle": "incentivizethis"}`},
-		{abb.ToolNameAnalyzeImageURL, `{"image_url": "https://en.wikipedia.org/wiki/Lenna#/media/File:Lenna_(test_image).png", "prompt": "Does it contain a lady?"}`},
+		{abb.ToolNameAnalyzeImageURL, `{"image_url": "https://upload.wikimedia.org/wikipedia/en/7/7d/Lenna_%28test_image%29.png", "prompt": "Does it contain a lady?"}`},
 		{abb.ToolNameValidatePayoutWallet, `{"payout_wallet": "stub_wallet_address", "validation_prompt": "Is this a valid Solana address?"}`},
 		{abb.ToolNameDetectMaliciousContent, `{"content": "This is benign content."}`},
-		{abb.ToolNameGetSteamPlayerInfo, `{"account_id": 76561198035677990}`},
-		{abb.ToolNameGetWalletAddressFromRedditProfile, `{"username": "graearg"}`},
-		{abb.ToolNameGetWalletAddressFromGitHubProfile, `{"username": "brojonat"}`},
-		{abb.ToolNameGetWalletAddressFromBlueskyProfile, `{"user_handle": "incentivizethis"}`},
-		{abb.ToolNameGetWalletAddressFromInstagramProfile, `{"username": "incentivizethis"}`},
-		{abb.ToolNameGetWalletAddressFromSteamProfile, `{"account_id": 76561198035677990}`},
-		{abb.ToolNameGetWalletAddressFromYouTubeProfile, `{"channel_id": "UCfQgsKhHjSyRLOp9mnffqVg"}`},
-		{abb.ToolNameGetWalletAddressFromTwitchProfile, `{"username": "esl_dota2"}`},
 		{abb.ToolNameSubmitDecision, `{"is_approved": true, "reason": "Content meets all requirements."}`},
 		{abb.ToolNameSubmitDecision, `{"is_approved": false, "reason": "Content does not meet requirements."}`},
+	}
+
+	// Filter tests if specific tools were requested
+	selectedTools := c.StringSlice("tool")
+	if len(selectedTools) > 0 {
+		allowed := make(map[string]struct{}, len(selectedTools))
+		for _, name := range selectedTools {
+			allowed[name] = struct{}{}
+		}
+		filtered := make([]toolTest, 0, len(tests))
+		for _, t := range tests {
+			if _, ok := allowed[t.Name]; ok {
+				filtered = append(filtered, t)
+			}
+		}
+		if len(filtered) == 0 {
+			fmt.Println("No matching tools found for provided --tool flags; nothing to run.")
+			return nil
+		}
+		tests = filtered
 	}
 
 	fmt.Println("Starting integration test suite...")
@@ -458,8 +484,11 @@ func runIntegrationTests(c *cli.Context) error {
 				TaskQueue: taskQueue,
 			}
 
-			var testRes toolTestResult
-			testRes.Name = test.Name
+			testRes := toolTestResult{
+				Name:    test.Name,
+				Input:   test.Input,
+				Success: false,
+			}
 
 			we, err := cl.ExecuteWorkflow(
 				context.Background(),
@@ -506,6 +535,7 @@ func runIntegrationTests(c *cli.Context) error {
 	}()
 
 	// Collect and print results
+	successCount := 0
 	for res := range resultsChan {
 		// fmt.Printf("\n--- Test for: %s ---\n", res.Name)
 		// if res.Success {
@@ -514,10 +544,12 @@ func runIntegrationTests(c *cli.Context) error {
 		// 	continue
 		// }
 		if !res.Success {
-			fmt.Printf("\n--- Test for: %s ---\nStatus: FAILED\nError: %v\n", res.Name, res.Error)
+			fmt.Printf("\n--- Test for: %s ---\nInput: %s\nStatus: FAILED\nError: %v\n", res.Name, res.Input, res.Error)
+		} else {
+			successCount++
 		}
 	}
 
-	fmt.Println("\nIntegration test suite completed.")
+	fmt.Printf("\nIntegration test suite completed: %d/%d passed.\n", successCount, len(tests))
 	return nil
 }

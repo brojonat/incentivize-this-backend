@@ -223,7 +223,7 @@ start-dev-session: build-cli ## Start a new tmux development session with port-f
 	@/usr/local/bin/tmux send-keys -t $(TMUX_SESSION):0.1 'echo "Server Pane ^ (top-right)"' C-m
 
 	# Pane 0.0 (Top-Left)
-	@/usr/local/bin/tmux send-keys -t $(TMUX_SESSION):0.0 'set -o allexport; source .env.server.debug; set +o allexport; export PATH=$$(pwd)/bin:$$PATH; echo "CLI Pane - .env sourced & ./bin added to PATH (top-left)."' C-m
+	@/usr/local/bin/tmux send-keys -t $(TMUX_SESSION):0.0 'set -o allexport; source .env.worker.debug; set +o allexport; export PATH=$$(pwd)/bin:$$PATH; echo "CLI Pane - .env sourced & ./bin added to PATH (top-left)."' C-m
 
 
 	# Pane 0.2 (User's Visual Bottom-Left): CLI Setup

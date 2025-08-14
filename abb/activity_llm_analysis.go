@@ -135,20 +135,19 @@ type DetectMaliciousContentResult struct {
 
 // DetectMaliciousContent uses an LLM to determine if the provided content contains
 // prompt injection or other attempts to manipulate a downstream AI.
-func (a *Activities) DetectMaliciousContent(ctx context.Context, content []byte) (DetectMaliciousContentResult, error) {
+func (a *Activities) DetectMaliciousContent(ctx context.Context, content string) (DetectMaliciousContentResult, error) {
 	logger := activity.GetLogger(ctx)
 	cfg, err := getConfiguration(ctx)
 	if err != nil {
 		return DetectMaliciousContentResult{IsMalicious: true, Reason: "Configuration error"}, fmt.Errorf("failed to get configuration: %w", err)
 	}
 
-	contentStr := string(content)
-	if len(contentStr) > MaxContentCharsForLLMCheck {
-		logger.Warn("Content exceeds maximum character limit, truncating for malicious content check", "original_length", len(contentStr), "max_length", MaxContentCharsForLLMCheck)
-		contentStr = contentStr[:MaxContentCharsForLLMCheck]
+	if len(content) > MaxContentCharsForLLMCheck {
+		logger.Warn("Content exceeds maximum character limit, truncating for malicious content check", "original_length", len(content), "max_length", MaxContentCharsForLLMCheck)
+		content = content[:MaxContentCharsForLLMCheck]
 	}
 
-	prompt := fmt.Sprintf(cfg.MaliciousContentPrompt, contentStr)
+	prompt := fmt.Sprintf(cfg.MaliciousContentPrompt, content)
 
 	logger.Info("Sending prompt to LLM for malicious content detection", "estimated_tokens", len(prompt)/4)
 

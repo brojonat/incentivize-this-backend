@@ -92,6 +92,7 @@ func handleCreateBounty(
 		InferBountyTitle   string
 		InferContentParams string
 		ContentModeration  string
+		HardenBounty       string
 	},
 ) http.HandlerFunc {
 	// Define a local struct for parsing the LLM's JSON response for content parameters
@@ -334,7 +335,7 @@ func handleCreateBounty(
 						"type": "string",
 						"description": `The kind of content that the bounty is for. This is platform dependent. The valid options are:
 - Reddit: post, comment
-- YouTube: video, comment
+- YouTube: video
 - Twitch: video, clip
 - Hacker News: post, comment
 - Bluesky: post
@@ -622,6 +623,91 @@ func handleCreateBounty(
 			TotalCharged:            input.TotalCharged.ToUSDC(),
 			PaymentTimeoutExpiresAt: now.Add(input.PaymentTimeout),
 		}, http.StatusOK)
+	}
+}
+
+// handleHardenBounty uses the LLM to harden user-provided bounty requirements.
+// It enforces a current-date requirement and discourages astroturfing/inauthentic content.
+func handleHardenBounty(
+	logger *slog.Logger,
+	llmProvider abb.LLMProvider,
+	prompts struct {
+		HardenBounty string
+	},
+) http.HandlerFunc {
+	type hardenRequest struct {
+		Requirements string `json:"requirements"`
+	}
+	type hardenResponse struct {
+		Requirements string `json:"requirements"`
+	}
+
+	// Tool schema returned by LLM
+	schema := map[string]interface{}{
+		"name":   "harden_bounty",
+		"strict": true,
+		"schema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"requirements": map[string]interface{}{
+					"type":        "string",
+					"description": "Final hardened bounty requirements as a single string (newline-separated if needed).",
+				},
+			},
+			"required":             []string{"requirements"},
+			"additionalProperties": false,
+		},
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req hardenRequest
+		if err := stools.DecodeJSONBody(r, &req); err != nil {
+			writeBadRequestError(w, fmt.Errorf("invalid request: %w", err))
+			return
+		}
+		if strings.TrimSpace(req.Requirements) == "" {
+			writeBadRequestError(w, fmt.Errorf("requirements is required"))
+			return
+		}
+
+		// Prepare prompt with current date context
+		today := time.Now().UTC().Format("2006-01-02")
+		base := prompts.HardenBounty
+		if base == "" {
+			writeInternalError(logger, w, fmt.Errorf("harden bounty prompt not configured"))
+			return
+		}
+		userReq := req.Requirements
+		prompt := fmt.Sprintf(base, today, userReq)
+
+		messages := []abb.Message{{Role: "user", Content: prompt}}
+		tools := []abb.Tool{{
+			Name:        "harden_bounty",
+			Description: "Returns a hardened list of bounty requirements with a current-date requirement and authenticity safeguards.",
+			Parameters:  schema["schema"].(map[string]interface{}),
+		}}
+
+		resp, err := llmProvider.GenerateResponse(r.Context(), messages, tools)
+		if err != nil {
+			writeInternalError(logger, w, fmt.Errorf("failed to harden bounty: %w", err))
+			return
+		}
+		if len(resp.ToolCalls) == 0 {
+			writeInternalError(logger, w, fmt.Errorf("LLM did not return a tool call for hardening"))
+			return
+		}
+
+		var out hardenResponse
+		if err := json.Unmarshal([]byte(resp.ToolCalls[0].Arguments), &out); err != nil {
+			writeInternalError(logger, w, fmt.Errorf("failed to parse harden response: %w", err))
+			return
+		}
+		if strings.TrimSpace(out.Requirements) == "" {
+			writeBadRequestError(w, fmt.Errorf("LLM returned empty hardened requirements"))
+			return
+		}
+
+		writeJSONResponse(w, out, http.StatusOK)
 	}
 }
 

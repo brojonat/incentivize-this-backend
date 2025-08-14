@@ -82,12 +82,22 @@ type YouTubeContent struct {
 	Transcript           string    `json:"transcript,omitempty"`
 }
 
-// YouTubeChannelStats represents the stats for a given YouTube channel
-type YouTubeChannelStats struct {
+// YouTubeChannelInfo represents snippet + statistics for a YouTube channel
+type YouTubeChannelInfo struct {
 	Kind  string `json:"kind"`
 	Items []struct {
-		Kind       string `json:"kind"`
-		ID         string `json:"id"`
+		Kind    string `json:"kind"`
+		ID      string `json:"id"`
+		Snippet struct {
+			Title       string    `json:"title"`
+			Description string    `json:"description"`
+			CustomURL   string    `json:"customUrl"`
+			PublishedAt time.Time `json:"publishedAt"`
+			Thumbnails  map[string]struct {
+				URL string `json:"url"`
+			} `json:"thumbnails"`
+			Country string `json:"country"`
+		} `json:"snippet"`
 		Statistics struct {
 			ViewCount             string `json:"viewCount"`
 			SubscriberCount       string `json:"subscriberCount"`
@@ -220,17 +230,17 @@ func (a *Activities) fetchYouTubeVideoMetadata(ctx context.Context, ytDeps YouTu
 	return &result.Items[0], nil
 }
 
-// GetYoutubeChannelStats fetches channel stats from the YouTube Data API
-func (a *Activities) GetYoutubeChannelStats(ctx context.Context, channelID string) (*YouTubeChannelStats, error) {
+// GetYoutubeChannel fetches channel snippet + statistics from the YouTube Data API
+func (a *Activities) GetYoutubeChannel(ctx context.Context, channelID string) (*YouTubeChannelInfo, error) {
 	logger := activity.GetLogger(ctx)
-	logger.Info("Fetching YouTube channel stats", "channel_id", channelID)
+	logger.Info("Fetching YouTube channel details", "channel_id", channelID)
 	cfg, err := getConfiguration(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get configuration: %w", err)
 	}
 	ytDeps := cfg.YouTubeDeps
 
-	url := fmt.Sprintf("https://www.googleapis.com/youtube/v3/channels?part=statistics&id=%s&key=%s",
+	url := fmt.Sprintf("https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&id=%s&key=%s",
 		channelID, ytDeps.APIKey)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -258,7 +268,7 @@ func (a *Activities) GetYoutubeChannelStats(ctx context.Context, channelID strin
 		return nil, fmt.Errorf("YouTube API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var result YouTubeChannelStats
+	var result YouTubeChannelInfo
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w (body: %s)", err, string(body))
 	}

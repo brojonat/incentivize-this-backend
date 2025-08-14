@@ -120,6 +120,9 @@ const (
 	ContentKindReview    ContentKind = "review"
 	ContentKindDota2Chat ContentKind = "dota2chat"
 	ContentKindIssue     ContentKind = "issue"
+	ContentKindUser      ContentKind = "user"
+	ContentKindSubreddit ContentKind = "subreddit"
+	ContentKindChannel   ContentKind = "channel"
 
 	PaymentPlatformGumroad PaymentPlatformKind = "gumroad"
 	PaymentPlatformBMC     PaymentPlatformKind = "bmc"
@@ -524,7 +527,25 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 			contentID = "t3_" + strings.TrimPrefix(contentID, "t3_")
 		case ContentKindComment:
 			contentID = "t1_" + strings.TrimPrefix(contentID, "t1_")
-			// Add default case or error handling for unknown ContentKind if necessary
+		case ContentKindSubreddit:
+			stats, statErr := a.GetSubreddit(ctx, contentID)
+			if statErr != nil {
+				return nil, fmt.Errorf("failed to get subreddit stats: %w", statErr)
+			}
+			contentBytes, err = json.Marshal(map[string]any{
+				"platform":   string(PlatformReddit),
+				"kind":       string(ContentKindSubreddit),
+				"id":         contentID,
+				"stats":      stats,
+				"source_url": fmt.Sprintf("https://reddit.com/r/%s/about", contentID),
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal subreddit stats: %w", err)
+			}
+			// Subreddits are not returned by /api/info; return immediately
+			return contentBytes, nil
+		default:
+			return nil, fmt.Errorf("unsupported content kind for reddit: %s", input.ContentKind)
 		}
 
 		token, tokenErr := getRedditAuthTokenForPull(a.httpClient, redditDeps) // Assumes helper exists
@@ -617,57 +638,75 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 	case PlatformYouTube:
 		// --- Start YouTube Logic (from activity_youtube.go/PullYouTubeContent) ---
 		logger.Debug("Executing YouTube pull logic within PullContentActivity")
-		ytDeps := cfg.YouTubeDeps
-		videoID := strings.TrimPrefix(input.ContentID, "yt_") // Assuming ContentID is prefixed like "yt_VIDEOID"
-
-		// Fetch metadata - assuming fetchYouTubeVideoMetadata is now internal/accessible
-		videoData, metaErr := a.fetchYouTubeVideoMetadata(ctx, ytDeps, a.httpClient, videoID)
-		if metaErr != nil {
-			logger.Warn("Failed to fetch YouTube video metadata, attempting transcript only", "video_id", videoID, "error", metaErr)
-			// Attempt to fetch transcript only - assuming FetchYouTubeTranscriptDirectly is accessible
-			transcript, transcriptErr := a.FetchYouTubeTranscriptDirectly(ctx, a.httpClient, videoID, "en")
-			if transcriptErr != nil {
-				logger.Error("Failed to fetch YouTube transcript after metadata failure", "video_id", videoID, "transcript_error", transcriptErr, "metadata_error", metaErr)
-				return nil, fmt.Errorf("failed to fetch metadata (%v) and transcript (%v)", metaErr, transcriptErr)
-			}
-			// Create content with only transcript
-			content := &YouTubeContent{ID: videoID, Transcript: transcript}
-			contentBytes, err = json.Marshal(content)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal minimal YouTube content: %w", err)
-			}
-		} else {
-			// Populate content from metadata
-			content := &YouTubeContent{
-				ID:                   videoID,
-				Title:                videoData.Snippet.Title,
-				Description:          videoData.Snippet.Description,
-				ChannelID:            videoData.Snippet.ChannelID,
-				ChannelTitle:         videoData.Snippet.ChannelTitle,
-				PublishedAt:          videoData.Snippet.PublishedAt,
-				ViewCount:            videoData.Statistics.ViewCount,
-				LikeCount:            videoData.Statistics.LikeCount,
-				CommentCount:         videoData.Statistics.CommentCount,
-				Duration:             videoData.ContentDetails.Duration,
-				ThumbnailURL:         videoData.Snippet.Thumbnails.Default.URL,
-				Tags:                 videoData.Snippet.Tags,
-				CategoryID:           videoData.Snippet.CategoryID,
-				LiveBroadcastContent: videoData.Snippet.LiveBroadcastContent,
-			}
-			// Attempt to fetch transcript - assuming FetchYouTubeTranscriptDirectly is accessible
-			transcript, transcriptErr := a.FetchYouTubeTranscriptDirectly(ctx, a.httpClient, videoID, "en")
-			if transcriptErr != nil {
-				logger.Warn("Failed to fetch YouTube transcript directly (metadata succeeded)", "video_id", videoID, "error", transcriptErr)
-				// Proceed without transcript, maybe log?
+		switch input.ContentKind {
+		case ContentKindVideo:
+			ytDeps := cfg.YouTubeDeps
+			videoID := strings.TrimPrefix(input.ContentID, "yt_") // Assuming ContentID is prefixed like "yt_VIDEOID"
+			// Fetch metadata - assuming fetchYouTubeVideoMetadata is now internal/accessible
+			videoData, metaErr := a.fetchYouTubeVideoMetadata(ctx, ytDeps, a.httpClient, videoID)
+			if metaErr != nil {
+				logger.Warn("Failed to fetch YouTube video metadata, attempting transcript only", "video_id", videoID, "error", metaErr)
+				// Attempt to fetch transcript only - assuming FetchYouTubeTranscriptDirectly is accessible
+				transcript, transcriptErr := a.FetchYouTubeTranscriptDirectly(ctx, a.httpClient, videoID, "en")
+				if transcriptErr != nil {
+					logger.Error("Failed to fetch YouTube transcript after metadata failure", "video_id", videoID, "transcript_error", transcriptErr, "metadata_error", metaErr)
+					return nil, fmt.Errorf("failed to fetch metadata (%v) and transcript (%v)", metaErr, transcriptErr)
+				}
+				// Create content with only transcript
+				content := &YouTubeContent{ID: videoID, Transcript: transcript}
+				contentBytes, err = json.Marshal(content)
+				if err != nil {
+					return nil, fmt.Errorf("failed to marshal minimal YouTube content: %w", err)
+				}
 			} else {
-				content.Transcript = transcript
+				// Populate content from metadata
+				content := &YouTubeContent{
+					ID:                   videoID,
+					Title:                videoData.Snippet.Title,
+					Description:          videoData.Snippet.Description,
+					ChannelID:            videoData.Snippet.ChannelID,
+					ChannelTitle:         videoData.Snippet.ChannelTitle,
+					PublishedAt:          videoData.Snippet.PublishedAt,
+					ViewCount:            videoData.Statistics.ViewCount,
+					LikeCount:            videoData.Statistics.LikeCount,
+					CommentCount:         videoData.Statistics.CommentCount,
+					Duration:             videoData.ContentDetails.Duration,
+					ThumbnailURL:         videoData.Snippet.Thumbnails.Default.URL,
+					Tags:                 videoData.Snippet.Tags,
+					CategoryID:           videoData.Snippet.CategoryID,
+					LiveBroadcastContent: videoData.Snippet.LiveBroadcastContent,
+				}
+				// Attempt to fetch transcript - assuming FetchYouTubeTranscriptDirectly is accessible
+				transcript, transcriptErr := a.FetchYouTubeTranscriptDirectly(ctx, a.httpClient, videoID, "en")
+				if transcriptErr != nil {
+					logger.Warn("Failed to fetch YouTube transcript directly (metadata succeeded)", "video_id", videoID, "error", transcriptErr)
+					// Proceed without transcript, maybe log?
+				} else {
+					content.Transcript = transcript
+				}
+				contentBytes, err = json.Marshal(content)
+				if err != nil {
+					return nil, fmt.Errorf("failed to marshal full YouTube content: %w", err)
+				}
 			}
-			contentBytes, err = json.Marshal(content)
+		case ContentKindChannel:
+			channelInfo, chErr := a.GetYoutubeChannel(ctx, input.ContentID)
+			if chErr != nil {
+				return nil, fmt.Errorf("failed to get youtube channel: %w", chErr)
+			}
+			contentBytes, err = json.Marshal(map[string]any{
+				"platform":   string(PlatformYouTube),
+				"kind":       string(ContentKindChannel),
+				"id":         input.ContentID,
+				"channel":    channelInfo,
+				"source_url": fmt.Sprintf("https://www.youtube.com/channel/%s", input.ContentID),
+			})
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal full YouTube content: %w", err)
+				return nil, fmt.Errorf("failed to marshal youtube channel: %w", err)
 			}
+		default:
+			return nil, fmt.Errorf("unsupported content kind for youtube: %s", input.ContentKind)
 		}
-		// --- End YouTube Logic ---
 
 	case PlatformTwitch:
 		// --- Start Twitch Logic (from activity_twitch.go/PullTwitchContent) ---
@@ -948,16 +987,37 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 
 	case PlatformSteam:
 		logger.Debug("Executing Steam pull logic within PullContentActivity")
-		if input.ContentKind != ContentKindDota2Chat {
-			return nil, fmt.Errorf("unsupported content kind for Steam: %s. Only '%s' is supported", input.ContentKind, ContentKindDota2Chat)
-		}
-		steamContent, err := a.fetchDota2Chat(ctx, cfg.SteamDeps, input.ContentID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to pull Steam content: %w", err)
-		}
-		contentBytes, err = json.Marshal(steamContent)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal Steam content: %w", err)
+		if input.ContentKind == ContentKindDota2Chat {
+			steamContent, err := a.fetchDota2Chat(ctx, cfg.SteamDeps, input.ContentID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to pull Steam content: %w", err)
+			}
+			contentBytes, err = json.Marshal(steamContent)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal Steam content: %w", err)
+			}
+		} else if input.ContentKind == ContentKindUser {
+			// For Steam user, we use OpenDota player info. Expect content_id to be the account ID
+			accountID, convErr := strconv.Atoi(strings.TrimSpace(input.ContentID))
+			if convErr != nil {
+				return nil, fmt.Errorf("invalid Steam/OpenDota account_id '%s': %w", input.ContentID, convErr)
+			}
+			playerInfo, infoErr := a.GetOpenDotaPlayerInfo(ctx, accountID)
+			if infoErr != nil {
+				return nil, fmt.Errorf("failed to get OpenDota player info: %w", infoErr)
+			}
+			contentBytes, err = json.Marshal(map[string]any{
+				"platform":   string(PlatformSteam),
+				"kind":       string(ContentKindUser),
+				"id":         accountID,
+				"stats":      playerInfo,
+				"source_url": fmt.Sprintf("https://www.opendota.com/players/%d", accountID),
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal OpenDota player info: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("unsupported content kind for Steam: %s. Supported kinds: '%s', '%s'", input.ContentKind, ContentKindDota2Chat, ContentKindUser)
 		}
 
 	case PlatformGitHub:
@@ -980,6 +1040,22 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 			if err != nil {
 				return nil, fmt.Errorf("failed to marshal github issue: %w", err)
 			}
+		case ContentKindUser:
+			user, err := a.GetGitHubUser(ctx, input.ContentID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get github user: %w", err)
+			}
+			profile := map[string]any{
+				"platform":     string(PlatformGitHub),
+				"kind":         string(ContentKindUser),
+				"id":           user.Login,
+				"profile_text": strings.TrimSpace(strings.Join([]string{user.Bio, user.Location, user.Blog}, "\n")),
+				"source_url":   user.URL,
+			}
+			contentBytes, err = json.Marshal(profile)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal github user profile: %w", err)
+			}
 		default:
 			return nil, fmt.Errorf("unsupported content kind for github: %s", input.ContentKind)
 		}
@@ -988,7 +1064,7 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 	}
 
 	// Perform malicious content detection.
-	detectionResult, err := a.DetectMaliciousContent(ctx, contentBytes)
+	detectionResult, err := a.DetectMaliciousContent(ctx, string(contentBytes))
 	if err != nil {
 		// If the detection activity itself fails, we should not proceed.
 		logger.Error("Malicious content detection activity failed", "error", err)

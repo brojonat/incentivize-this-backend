@@ -128,8 +128,8 @@ func (a *Activities) fetchDota2Chat(ctx context.Context, deps SteamDependencies,
 	return &response, nil
 }
 
-// GetSteamPlayerInfo fetches player information from OpenDota.
-func (a *Activities) GetSteamPlayerInfo(ctx context.Context, accountID int) (*OpenDotaPlayerInfo, error) {
+// GetOpenDotaPlayerInfo fetches player information from OpenDota.
+func (a *Activities) GetOpenDotaPlayerInfo(ctx context.Context, accountID int) (*OpenDotaPlayerInfo, error) {
 	cfg, err := getConfiguration(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get configuration: %w", err)
@@ -166,7 +166,7 @@ func (a *Activities) GetSteamPlayerInfo(ctx context.Context, accountID int) (*Op
 }
 
 func (a *Activities) GetWalletAddressFromSteamProfile(ctx context.Context, accountID int) (string, error) {
-	playerInfo, err := a.GetSteamPlayerInfo(ctx, accountID)
+	playerInfo, err := a.GetOpenDotaPlayerInfo(ctx, accountID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get player info: %w", err)
 	}

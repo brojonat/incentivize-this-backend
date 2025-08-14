@@ -42,15 +42,13 @@ func handleInsertGumroadSales(logger *slog.Logger, querier dbgen.Querier) http.H
 		var insertedCount int
 		for _, saleParams := range req.Sales {
 			if err := querier.InsertGumroadSale(r.Context(), saleParams); err != nil {
-				if err != nil {
-					// Check for unique_violation error, which we can ignore because of ON CONFLICT
-					if !strings.Contains(err.Error(), "unique_violation") {
-						logger.Error("Failed to insert gumroad sale", "sale_id", saleParams.ID, "error", err)
-					}
-					continue // Continue to next sale even if this one fails insertion
+				// Check for unique_violation error, which we can ignore because of ON CONFLICT
+				if !strings.Contains(err.Error(), "unique_violation") {
+					logger.Error("Failed to insert gumroad sale", "sale_id", saleParams.ID, "error", err)
 				}
-				insertedCount++
+				continue // Continue to next sale even if this one fails insertion
 			}
+			insertedCount++
 		}
 		logger.Info("handleInsertGumroadSales finished", "attempted_sales", len(req.Sales), "inserted_sales", insertedCount)
 		writeOK(w)

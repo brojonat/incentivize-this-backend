@@ -141,51 +141,107 @@ func (a *Activities) GetGitHubIssue(ctx context.Context, owner, repo string, iss
 
 func (a *Activities) GetClosingPullRequest(ctx context.Context, owner, repo string, issueNumber int) (*GitHubPullRequestContent, error) {
 	client := github.NewClient(nil)
-	events, _, err := client.Issues.ListIssueEvents(ctx, owner, repo, issueNumber, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get issue events: %w", err)
+	// Paginate through all issue events to find the closing event, then
+	// resolve the closing PR via the closing commit SHA.
+	var closingPR *github.PullRequest
+	listOpts := &github.ListOptions{PerPage: 100}
+	for {
+		events, resp, err := client.Issues.ListIssueEvents(ctx, owner, repo, issueNumber, listOpts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get issue events: %w", err)
+		}
+
+		for _, event := range events {
+			if event.GetEvent() != "closed" {
+				continue
+			}
+			// When an issue is closed by merging a PR, GitHub sets CommitID on the event.
+			if sha := event.GetCommitID(); sha != "" {
+				prs, _, err := client.PullRequests.ListPullRequestsWithCommit(ctx, owner, repo, sha, nil)
+				if err != nil {
+					continue
+				}
+				if len(prs) > 0 {
+					// Prefer a merged PR if multiple are associated with the commit.
+					for _, p := range prs {
+						if p.GetMerged() {
+							closingPR = p
+							break
+						}
+					}
+					if closingPR == nil {
+						closingPR = prs[0]
+					}
+					break
+				}
+			}
+		}
+
+		if closingPR != nil || resp == nil || resp.NextPage == 0 {
+			break
+		}
+		listOpts.Page = resp.NextPage
 	}
 
-	var closingPRNumber int
-	for _, event := range events {
-		if event.GetEvent() == "closed" && event.GetIssue() != nil && event.GetIssue().GetPullRequestLinks() != nil {
-			prURL := event.GetIssue().GetPullRequestLinks().GetHTMLURL()
-			if prURL != "" {
-				urlParts := strings.Split(prURL, "/")
-				if len(urlParts) > 0 {
-					prNumberStr := urlParts[len(urlParts)-1]
-					prNum, err := strconv.Atoi(prNumberStr)
-					if err == nil {
-						closingPRNumber = prNum
-						break // Found the closing PR
-					}
+	if closingPR == nil {
+		// Fallback: use the issue timeline to find cross-referenced PRs (more reliable than events commit_id).
+		// The timeline includes entries where a PR cross-references the issue; the PR that actually closed it
+		// will appear here as well.
+		tListOpts := &github.ListOptions{PerPage: 100}
+		var candidatePRNumber int
+		for {
+			// Note: In recent GitHub API versions, timeline is generally available under the standard media type.
+			// go-github exposes this via Issues.ListIssueTimeline.
+			timeline, resp, err := client.Issues.ListIssueTimeline(ctx, owner, repo, issueNumber, tListOpts)
+			if err != nil {
+				break
+			}
+			for _, te := range timeline {
+				if te.GetEvent() != "cross-referenced" || te.Source == nil || te.Source.Issue == nil {
+					continue
 				}
+				iss := te.Source.Issue
+				if iss.GetNumber() > 0 && iss.GetPullRequestLinks() != nil {
+					candidatePRNumber = iss.GetNumber()
+				}
+			}
+			if resp == nil || resp.NextPage == 0 {
+				break
+			}
+			tListOpts.Page = resp.NextPage
+		}
+
+		if candidatePRNumber > 0 {
+			pr, _, err := client.PullRequests.Get(ctx, owner, repo, candidatePRNumber)
+			if err == nil {
+				closingPR = pr
 			}
 		}
 	}
 
-	if closingPRNumber == 0 {
+	if closingPR == nil {
 		return nil, fmt.Errorf("could not find a closing PR for issue #%d", issueNumber)
 	}
 
-	pr, _, err := client.PullRequests.Get(ctx, owner, repo, closingPRNumber)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get pull request #%d: %w", closingPRNumber, err)
-	}
-
 	prContent := &GitHubPullRequestContent{
-		ID:       pr.GetID(),
-		URL:      pr.GetHTMLURL(),
-		State:    pr.GetState(),
-		Title:    pr.GetTitle(),
-		Author:   pr.GetUser().GetLogin(),
-		IsMerged: pr.GetMerged(),
+		ID:       closingPR.GetID(),
+		URL:      closingPR.GetHTMLURL(),
+		State:    closingPR.GetState(),
+		Title:    closingPR.GetTitle(),
+		Author:   closingPR.GetUser().GetLogin(),
+		IsMerged: closingPR.GetMerged(),
+		CreatedAt: func() int64 {
+			if closingPR.CreatedAt != nil {
+				return closingPR.GetCreatedAt().Unix()
+			}
+			return 0
+		}(),
 	}
-	if pr.MergedBy != nil {
-		prContent.MergedBy = pr.GetMergedBy().GetLogin()
+	if closingPR.MergedBy != nil {
+		prContent.MergedBy = closingPR.GetMergedBy().GetLogin()
 	}
-	if pr.MergedAt != nil {
-		prContent.MergedAt = pr.GetMergedAt().Unix()
+	if closingPR.MergedAt != nil {
+		prContent.MergedAt = closingPR.GetMergedAt().Unix()
 	}
 
 	return prContent, nil

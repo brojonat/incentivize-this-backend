@@ -48,6 +48,7 @@ const (
 	EnvLLMInferBountyTitlePrompt         = "LLM_PROMPT_INFER_BOUNTY_TITLE_B64"
 	EnvLLMInferContentParamsPrompt       = "LLM_PROMPT_INFER_CONTENT_PARAMS_B64"
 	EnvLLMContentModerationPrompt        = "LLM_PROMPT_CONTENT_MODERATION_B64"
+	EnvLLMHardenBountyPrompt             = "LLM_PROMPT_HARDEN_BOUNTY_B64"
 	EnvDefaultRateLimitPerMinute         = "RATE_LIMIT_DEFAULT_PER_MINUTE"
 	EnvLLMRateLimitPerMinute             = "RATE_LIMIT_LLM_PER_MINUTE"
 
@@ -77,6 +78,7 @@ type Config struct {
 		InferBountyTitle   string
 		InferContentParams string
 		ContentModeration  string
+		HardenBounty       string
 	}
 	CORS struct {
 		AllowedOrigins []string
@@ -184,6 +186,13 @@ func NewConfigFromEnv(logger *slog.Logger) (*Config, error) {
 		return nil, fmt.Errorf("failed to decode %s: %w", EnvLLMContentModerationPrompt, err)
 	}
 	cfg.Prompts.ContentModeration = contentModerationPrompt
+
+	// Harden bounty prompt
+	hardenBountyPrompt, err := decodeBase64(os.Getenv(EnvLLMHardenBountyPrompt))
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode %s: %w", EnvLLMHardenBountyPrompt, err)
+	}
+	cfg.Prompts.HardenBounty = hardenBountyPrompt
 
 	// Rate Limiting Config
 	defaultRateLimitStr := os.Getenv(EnvDefaultRateLimitPerMinute)
@@ -460,6 +469,15 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	// create bounty routes
 	mux.HandleFunc("POST /bounties", stools.AdaptHandler(
 		handleCreateBounty(logger, tc, llmProvider, llmEmbedProvider, cfg.UserRevenueSharePct, cfg.Environment, cfg.Prompts),
+		apiMode(logger, llmRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
+		withLogging(logger),
+		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+		requireStatus(UserStatusDefault),
+	))
+
+	// LLM endpoint to harden user-provided bounty requirements
+	mux.HandleFunc("POST /bounties/harden", stools.AdaptHandler(
+		handleHardenBounty(logger, llmProvider, struct{ HardenBounty string }{HardenBounty: cfg.Prompts.HardenBounty}),
 		apiMode(logger, llmRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),

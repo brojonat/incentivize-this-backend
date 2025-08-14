@@ -193,8 +193,8 @@ func (a *Activities) GetWalletAddressFromRedditProfile(ctx context.Context, user
 	return walletAddress, nil
 }
 
-// SubredditStats represents the stats for a given subreddit
-type SubredditStats struct {
+// Subreddit represents the stats for a given subreddit
+type Subreddit struct {
 	Kind string `json:"kind"`
 	Data struct {
 		UserFlairBackgroundColor        interface{}   `json:"user_flair_background_color"`
@@ -457,8 +457,8 @@ func (a *Activities) GetRedditUserStats(ctx context.Context, username string) (*
 	return &userStats, nil
 }
 
-// GetSubredditStats fetches subreddit stats from the Reddit API
-func (a *Activities) GetSubredditStats(ctx context.Context, subredditName string) (*SubredditStats, error) {
+// GetSubreddit fetches subreddit stats from the Reddit API
+func (a *Activities) GetSubreddit(ctx context.Context, subredditName string) (*Subreddit, error) {
 	logger := activity.GetLogger(ctx)
 	cfg, err := getConfiguration(ctx)
 	if err != nil {
@@ -495,7 +495,7 @@ func (a *Activities) GetSubredditStats(ctx context.Context, subredditName string
 		return nil, fmt.Errorf("failed to get subreddit stats: %s", string(body))
 	}
 
-	var subredditStats SubredditStats
+	var subredditStats Subreddit
 	if err := json.Unmarshal(body, &subredditStats); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal subreddit stats: %w", err)
 	}
