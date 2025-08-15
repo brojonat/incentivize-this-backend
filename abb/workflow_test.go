@@ -32,7 +32,7 @@ func (s *WorkflowTestSuite) SetupTest() {
 	a := &Activities{}
 	s.env.RegisterActivity(a.GenerateResponse)
 	s.env.RegisterActivity(a.PullContentActivity)
-	s.env.RegisterActivity(a.CheckBountyFundedActivity)
+	s.env.RegisterActivity(a.VerifyPayment)
 	s.env.RegisterActivity(a.PayBountyActivity)
 	s.env.RegisterActivity(a.RefundBountyActivity)
 	s.env.RegisterActivity(a.SendContactUsEmail)
@@ -101,7 +101,7 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_Rejection() {
 }
 
 func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Success() {
-	input := OrchestratorWorkflowInput{Tools: []Tool{GetContentDetailsTool}}
+	input := OrchestratorWorkflowInput{Tools: []Tool{PullContentTool}}
 	prompt := "Get content details for post 123"
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return(prompt, nil)
 
@@ -109,7 +109,7 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Success() {
 	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
 		ToolCalls: []ToolCall{{
 			ID:        "call1",
-			Name:      "get_content_details",
+			Name:      "pull_content",
 			Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`,
 		}},
 	}, nil).Once()
@@ -137,7 +137,7 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Success() {
 }
 
 func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Failure() {
-	input := OrchestratorWorkflowInput{Tools: []Tool{GetContentDetailsTool}}
+	input := OrchestratorWorkflowInput{Tools: []Tool{PullContentTool}}
 	prompt := "Get content details for invalid post"
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return(prompt, nil)
 
@@ -145,7 +145,7 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Failure() {
 	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
 		ToolCalls: []ToolCall{{
 			ID:        "call1",
-			Name:      "get_content_details",
+			Name:      "pull_content",
 			Arguments: `{"platform":"reddit","content_kind":"post","content_id":"invalid"}`,
 		}},
 	}, nil).Once()
@@ -173,7 +173,7 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Failure() {
 }
 
 func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_UnknownTool() {
-	input := OrchestratorWorkflowInput{Tools: []Tool{GetContentDetailsTool}}
+	input := OrchestratorWorkflowInput{Tools: []Tool{PullContentTool}}
 	prompt := "Do something"
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return(prompt, nil)
 
@@ -207,7 +207,7 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_UnknownTool() {
 }
 
 func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_AnalyzeImageURL_Success() {
-	input := OrchestratorWorkflowInput{Tools: []Tool{GetContentDetailsTool, AnalyzeImageURLTool}}
+	input := OrchestratorWorkflowInput{Tools: []Tool{PullContentTool, AnalyzeImageURLTool}}
 	prompt := "Analyze image"
 	imageURL := "http://example.com/cat.jpg"
 	analysisPrompt := "contains a cat"
@@ -215,7 +215,7 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_AnalyzeImageURL_Success() 
 
 	// Mock sequence of LLM and activity calls
 	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{ID: "call1", Name: "get_content_details", Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`}},
+		ToolCalls: []ToolCall{{ID: "call1", Name: "pull_content", Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`}},
 	}, nil).Once()
 	s.env.OnActivity("PullContentActivity", mock.Anything, mock.Anything).Return([]byte(`{"thumbnail_url":"`+imageURL+`"}`), nil)
 	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
@@ -236,13 +236,13 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_AnalyzeImageURL_Success() 
 }
 
 func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_MaxTurnsExceeded() {
-	input := OrchestratorWorkflowInput{Tools: []Tool{GetContentDetailsTool}}
+	input := OrchestratorWorkflowInput{Tools: []Tool{PullContentTool}}
 	prompt := "Keep calling tools forever"
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return(prompt, nil)
 
 	// Mock infinite tool calling
 	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{ID: "call1", Name: "get_content_details", Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`}},
+		ToolCalls: []ToolCall{{ID: "call1", Name: "pull_content", Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`}},
 	}, nil)
 	s.env.OnActivity("PullContentActivity", mock.Anything, mock.Anything).Return([]byte(`{"data":"test"}`), nil)
 
@@ -266,10 +266,10 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_FundingFailed() {
 		BountyPerPost: bountyPerPost, TotalBounty: totalBounty, TotalCharged: totalCharged,
 		Platform: PlatformReddit, ContentKind: ContentKindPost,
 		Timeout: 1 * time.Hour, PaymentTimeout: 5 * time.Minute,
-		EscrowWallet: "escrow123",
+		EscrowWallet: "11111111111111111111111111111112",
 	}
 
-	s.env.OnActivity("CheckBountyFundedActivity", mock.Anything, mock.Anything).Return("", nil)
+	s.env.OnActivity("VerifyPayment", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: false, Error: "funding failed"}, nil)
 	s.env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
@@ -280,14 +280,14 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_SuccessfulClaim() {
 	totalBounty, _ := solana.NewUSDCAmount(10)
 	totalCharged, _ := solana.NewUSDCAmount(10)
 	input := BountyAssessmentWorkflowInput{
-		Requirements: []string{"Must be helpful"},
+		Requirements:  []string{"Must be helpful"},
 		BountyPerPost: bountyPerPost, TotalBounty: totalBounty, TotalCharged: totalCharged,
 		Platform: PlatformReddit, ContentKind: ContentKindPost,
 		Timeout: 1 * time.Hour, PaymentTimeout: 5 * time.Minute,
-		EscrowWallet: "escrow123",
+		EscrowWallet: "11111111111111111111111111111112",
 	}
 
-	s.env.OnActivity("CheckBountyFundedActivity", mock.Anything, mock.Anything).Return("funder_wallet_123", nil)
+	s.env.OnActivity("VerifyPayment", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: "funder_wallet_123"}, nil)
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return("prompt", nil)
 	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
 		ToolCalls: []ToolCall{{
@@ -315,10 +315,10 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_RejectedClaim() {
 		BountyPerPost: bountyPerPost, TotalBounty: totalBounty, TotalCharged: totalCharged,
 		Platform: PlatformReddit, ContentKind: ContentKindPost,
 		Timeout: 1 * time.Second, PaymentTimeout: 5 * time.Minute,
-		EscrowWallet: "escrow123",
+		EscrowWallet: "11111111111111111111111111111112",
 	}
 
-	s.env.OnActivity("CheckBountyFundedActivity", mock.Anything, mock.Anything).Return("funder_wallet_123", nil)
+	s.env.OnActivity("VerifyPayment", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: "funder_wallet_123"}, nil)
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return("prompt", nil)
 	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
 		ToolCalls: []ToolCall{{
@@ -346,10 +346,10 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_Timeout() {
 	input := BountyAssessmentWorkflowInput{
 		BountyPerPost: bountyPerPost, TotalBounty: totalBounty, TotalCharged: totalCharged,
 		Timeout: 1 * time.Millisecond, PaymentTimeout: 1 * time.Minute,
-		EscrowWallet: "escrow123",
+		EscrowWallet: "11111111111111111111111111111112",
 	}
 
-	s.env.OnActivity("CheckBountyFundedActivity", mock.Anything, mock.Anything).Return(funderWallet, nil)
+	s.env.OnActivity("VerifyPayment", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: funderWallet}, nil)
 	s.env.OnActivity("RefundBountyActivity", mock.Anything, mock.Anything, funderWallet, totalBounty).Return(nil)
 
 	s.env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
@@ -365,10 +365,10 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_ClaimCooldown() {
 		BountyPerPost: bountyPerPost, TotalBounty: totalBounty, TotalCharged: totalCharged,
 		Platform: PlatformReddit, ContentKind: ContentKindPost,
 		Timeout: 1 * time.Second, PaymentTimeout: 5 * time.Minute,
-		EscrowWallet: "escrow123",
+		EscrowWallet: "11111111111111111111111111111112",
 	}
 
-	s.env.OnActivity("CheckBountyFundedActivity", mock.Anything, mock.Anything).Return("funder_wallet_123", nil)
+	s.env.OnActivity("VerifyPayment", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: "funder_wallet_123"}, nil)
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return("prompt", nil)
 	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
 		ToolCalls: []ToolCall{{
@@ -398,10 +398,10 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_SuccessfulRefund() {
 	input := BountyAssessmentWorkflowInput{
 		BountyPerPost: bountyPerPost, TotalBounty: totalBounty, TotalCharged: totalCharged,
 		Timeout: 100 * time.Millisecond, PaymentTimeout: 1 * time.Minute,
-		EscrowWallet: "escrow123",
+		EscrowWallet: "11111111111111111111111111111112",
 	}
 
-	s.env.OnActivity("CheckBountyFundedActivity", mock.Anything, mock.Anything).Return(funderWallet, nil)
+	s.env.OnActivity("VerifyPayment", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: funderWallet}, nil)
 	s.env.OnActivity("RefundBountyActivity", mock.Anything, mock.Anything, funderWallet, totalBounty).Return(nil)
 
 	s.env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
@@ -419,10 +419,10 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_QueryBountyDetails() {
 		BountyPerPost: bountyPerPost, TotalBounty: totalBounty, TotalCharged: totalCharged,
 		Platform: PlatformReddit, ContentKind: ContentKindComment, Tier: 1, // BountyTierCreator
 		Timeout: timeoutDuration, PaymentTimeout: 10 * time.Minute,
-		EscrowWallet: "escrow-wallet", TreasuryWallet: "treasury-wallet",
+		EscrowWallet: "11111111111111111111111111111112", TreasuryWallet: "11111111111111111111111111111113",
 	}
 
-	s.env.OnActivity("CheckBountyFundedActivity", mock.Anything, mock.Anything).Return("funder-wallet-123", nil).Once()
+	s.env.OnActivity("VerifyPayment", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: "funder-wallet-123"}, nil).Once()
 	s.env.OnActivity("RefundBountyActivity", mock.Anything, mock.Anything, "funder-wallet-123", totalBounty).Return(nil).Once()
 
 	s.env.RegisterDelayedCallback(func() {
@@ -445,14 +445,14 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_QueryPaidBounties() {
 	totalBounty, _ := solana.NewUSDCAmount(20)
 	totalCharged, _ := solana.NewUSDCAmount(21)
 	input := BountyAssessmentWorkflowInput{
-		Requirements: []string{"Must be good"},
+		Requirements:  []string{"Must be good"},
 		BountyPerPost: bountyPerPost, TotalBounty: totalBounty, TotalCharged: totalCharged,
 		Platform: PlatformReddit, ContentKind: ContentKindPost,
 		Timeout: 1 * time.Hour, PaymentTimeout: 5 * time.Minute,
-		EscrowWallet: "escrow123",
+		EscrowWallet: "11111111111111111111111111111112",
 	}
 
-	s.env.OnActivity("CheckBountyFundedActivity", mock.Anything, mock.Anything).Return("funder_wallet_123", nil)
+	s.env.OnActivity("VerifyPayment", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: "funder_wallet_123"}, nil)
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return("prompt", nil)
 	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
 		ToolCalls: []ToolCall{{

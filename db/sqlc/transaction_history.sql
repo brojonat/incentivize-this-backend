@@ -23,3 +23,27 @@ SELECT * FROM solana_transactions
 WHERE recipient_wallet = $1
 ORDER BY block_time DESC
 LIMIT 1;
+
+-- name: GetLatestSolanaTransactionForWallet :one
+SELECT * FROM solana_transactions
+WHERE funder_wallet = $1 OR recipient_wallet = $1
+ORDER BY block_time DESC
+LIMIT 1;
+
+-- name: GetOutgoingSolanaTransactions :many
+SELECT * FROM solana_transactions
+WHERE funder_wallet = $1
+ORDER BY block_time DESC
+LIMIT $2;
+
+-- name: GetSolanaTransactionsForBounty :many
+SELECT * FROM solana_transactions
+WHERE bounty_id = $1
+ORDER BY block_time DESC
+LIMIT $2;
+
+-- name: GetIncomingSolanaTransactions :many
+SELECT * FROM solana_transactions
+WHERE recipient_wallet = $1
+ORDER BY block_time DESC
+LIMIT $2;

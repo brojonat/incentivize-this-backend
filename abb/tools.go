@@ -1,8 +1,65 @@
 package abb
 
-var GetContentDetailsTool = Tool{
-	Name:        "get_content_details",
-	Description: "Fetches the full details of a piece of content (like a post, comment, or video) from a specified platform. This is the primary way to get information about content.",
+const (
+	ToolNamePullContent            = "pull_content"
+	ToolNameSubmitDecision         = "submit_decision"
+	ToolNameAnalyzeImageURL        = "analyze_image_url"
+	ToolNameDetectMaliciousContent = "detect_malicious_content"
+	ToolNameValidatePayoutWallet   = "validate_payout_wallet"
+	ToolNameGetClosingPR           = "get_githubclosing_pr"
+)
+
+var PullContentTool = Tool{
+	Name: ToolNamePullContent,
+	Description: `General-purpose fetch for internet content and user profiles.
+
+Use this to retrieve:
+- Posts, comments, videos, clips, issues, reviews, etc.
+- User profiles (content_kind = "user") to get normalized profile_text you can reason over.
+
+Usage patterns:
+- For bounties that require content on a platform, first call pull_content with the appropriate content_kind and content_id.
+- For bounty checks that require finding a wallet in a user's profile, first call pull_content with content_kind = "user" to obtain profile_text, then call validate_payout_wallet with a prompt that includes that profile_text.
+
+Valid content_kind by platform (and expected content_id):
+- Reddit: post, comment, user
+- YouTube: video, comment, user
+- Twitch: video, clip, user
+- Hacker News: post, comment
+- Bluesky: post, user
+- Instagram: post, user
+- IncentivizeThis: bounty
+- TripAdvisor: review
+- Steam: dota2chat (only)
+- GitHub: issue, user (content_id = owner/repo/number for issues, username for user)
+
+Content ID formats (examples):
+- GitHub:
+  - issue: "owner/repo/123" or "https://github.com/owner/repo/issues/123" (both supported)
+  - user: "username"
+- Reddit:
+  - post: "t3_abcdef"
+  - comment: "t1_abc123"
+  - user: "username"
+- YouTube:
+  - video: "VIDEO_ID" (e.g., "dQw4w9WgXcQ")
+  - user: "CHANNEL_ID"
+- Twitch:
+  - video: "VIDEO_ID"
+  - clip: "CLIP_ID"
+  - user: "username"
+- Bluesky:
+  - post: "https://bsky.app/profile/{handle}/post/{rkey}" or "at://{did}/app.bsky.feed.post/{rkey}" (both supported)
+  - user: "handle" (with or without domain, e.g., "alice" or "alice.bsky.social")
+- Instagram:
+  - post: reel/post short code or full URL (both supported)
+  - user: "username"
+- TripAdvisor:
+  - review: site-specific review ID
+- Steam:
+  - dota2chat: match identifier from OpenDota
+
+`,
 	Parameters: map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -13,8 +70,8 @@ var GetContentDetailsTool = Tool{
 			},
 			"content_kind": map[string]interface{}{
 				"type":        "string",
-				"description": "The type of content. This is platform dependent. The valid options are:\n- Reddit: post, comment\n- YouTube: video, comment\n- Twitch: video, clip\n- Hacker News: post, comment\n- Bluesky: post\n- Instagram: post\n- IncentivizeThis: bounty\n- TripAdvisor: review\n- Steam: dota2chat (this is the ONLY valid content kind for Steam)\n- GitHub: issue",
-				"enum":        []interface{}{"post", "comment", "video", "clip", "bounty", "review", "dota2chat", "issue"},
+				"description": "The type of content. This is platform dependent. The valid options are:\n- Reddit: post, comment, user, subreddit\n- YouTube: video, comment, user, channel\n- Twitch: video, clip, user\n- Hacker News: post, comment\n- Bluesky: post, user\n- Instagram: post, user\n- IncentivizeThis: bounty\n- TripAdvisor: review\n- Steam: dota2chat, user (user uses OpenDota player info)\n- GitHub: issue, user",
+				"enum":        []interface{}{"post", "comment", "video", "clip", "bounty", "review", "dota2chat", "issue", "user", "subreddit", "channel"},
 			},
 			"content_id": map[string]interface{}{
 				"type":        "string",
@@ -26,7 +83,7 @@ var GetContentDetailsTool = Tool{
 }
 
 var SubmitDecisionTool = Tool{
-	Name:        "submit_decision",
+	Name:        ToolNameSubmitDecision,
 	Description: "Submits the final decision on whether the content is approved for the bounty, along with the reason and payout amount.",
 	Parameters: map[string]interface{}{
 		"type": "object",
@@ -45,7 +102,7 @@ var SubmitDecisionTool = Tool{
 }
 
 var AnalyzeImageURLTool = Tool{
-	Name:        "analyze_image_url",
+	Name:        ToolNameAnalyzeImageURL,
 	Description: "Analyzes an image from a URL to determine if it meets the bounty requirements. This is useful for bounties that require specific types of images.",
 	Parameters: map[string]interface{}{
 		"type": "object",
@@ -64,7 +121,7 @@ var AnalyzeImageURLTool = Tool{
 }
 
 var DetectMaliciousContentTool = Tool{
-	Name:        "detect_malicious_content",
+	Name:        ToolNameDetectMaliciousContent,
 	Description: "Detects if a piece of content contains a prompt injection attack or other malicious content.",
 	Parameters: map[string]interface{}{
 		"type": "object",
@@ -79,8 +136,8 @@ var DetectMaliciousContentTool = Tool{
 }
 
 var ValidatePayoutWalletTool = Tool{
-	Name:        "validate_payout_wallet",
-	Description: "Validates if a payout wallet is eligible for a bounty based on the content and bounty prompt.",
+	Name:        ToolNameValidatePayoutWallet,
+	Description: "Validates if a payout wallet is eligible for a bounty based on the content and bounty prompt. Agents should use this tool to validate whether or not a particular wallet address is present in the content.",
 	Parameters: map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -97,31 +154,8 @@ var ValidatePayoutWalletTool = Tool{
 	},
 }
 
-var GetGitHubIssueTool = Tool{
-	Name:        "get_github_issue",
-	Description: "Gets the details of a GitHub issue.",
-	Parameters: map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"owner": map[string]any{
-				"type":        "string",
-				"description": "The owner of the repository.",
-			},
-			"repo": map[string]any{
-				"type":        "string",
-				"description": "The name of the repository.",
-			},
-			"issue_number": map[string]any{
-				"type":        "integer",
-				"description": "The number of the issue.",
-			},
-		},
-		"required": []string{"owner", "repo", "issue_number"},
-	},
-}
-
 var GetClosingPRTool = Tool{
-	Name:        "get_githubclosing_pr",
+	Name:        ToolNameGetClosingPR,
 	Description: "Gets the details of the pull request that closed a GitHub issue.",
 	Parameters: map[string]any{
 		"type": "object",
@@ -140,95 +174,5 @@ var GetClosingPRTool = Tool{
 			},
 		},
 		"required": []string{"owner", "repo", "issue_number"},
-	},
-}
-
-var GetGitHubUserTool = Tool{
-	Name:        "get_github_user",
-	Description: "Gets the details of a GitHub user.",
-	Parameters: map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"username": map[string]any{
-				"type":        "string",
-				"description": "The username of the GitHub user.",
-			},
-		},
-		"required": []string{"username"},
-	},
-}
-
-var GetRedditUserStatsTool = Tool{
-	Name:        "get_reddit_user_stats",
-	Description: "Gets the statistics of a Reddit user, such as karma and account age.",
-	Parameters: map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"username": map[string]any{
-				"type":        "string",
-				"description": "The username of the Reddit user.",
-			},
-		},
-		"required": []string{"username"},
-	},
-}
-
-var GetSubredditStatsTool = Tool{
-	Name:        "get_subreddit_stats",
-	Description: "Gets the statistics of a subreddit, such as subscriber count.",
-	Parameters: map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"subreddit_name": map[string]any{
-				"type":        "string",
-				"description": "The name of the subreddit.",
-			},
-		},
-		"required": []string{"subreddit_name"},
-	},
-}
-
-var GetYoutubeChannelStatsTool = Tool{
-	Name:        "get_youtube_channel_stats",
-	Description: "Gets the statistics of a YouTube channel, such as subscriber count.",
-	Parameters: map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"channel_id": map[string]any{
-				"type":        "string",
-				"description": "The ID of the YouTube channel.",
-			},
-		},
-		"required": []string{"channel_id"},
-	},
-}
-
-var GetBlueskyUserStatsTool = Tool{
-	Name:        "get_bluesky_user_stats",
-	Description: "Gets the statistics of a Bluesky user, such as follower count.",
-	Parameters: map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"user_handle": map[string]any{
-				"type":        "string",
-				"description": "The handle of the Bluesky user.",
-			},
-		},
-		"required": []string{"user_handle"},
-	},
-}
-
-var GetSteamPlayerInfoTool = Tool{
-	Name:        "get_steam_player_info",
-	Description: "Gets player information from OpenDota using their Steam32 account ID.",
-	Parameters: map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"account_id": map[string]any{
-				"type":        "integer",
-				"description": "The player's Steam32 account ID.",
-			},
-		},
-		"required": []string{"account_id"},
 	},
 }

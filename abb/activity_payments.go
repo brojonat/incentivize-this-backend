@@ -136,13 +136,13 @@ func (a *Activities) VerifyPayment(
 				Error:    "payment verification timed out",
 			}, nil
 		case <-ticker.C:
-			transactions, err := a.QueryForTransaction(ctx, bountyID)
+			transactions, err := a.QueryForBountyTransactions(ctx, bountyID)
 			if err != nil {
-				logger.Error("Failed to query for transaction", "error", err)
+				logger.Error("Failed to query for transaction by bounty ID", "error", err)
 				return nil, fmt.Errorf("failed to query for transaction: %w", err)
 			}
 
-			// check if the transaction is in the list
+			// Check transactions matching the workflow bounty ID
 			for _, tx := range transactions {
 				if tx.RecipientWallet == expectedRecipient.String() &&
 					tx.AmountSmallestUnit == int64(expectedAmountLamports) &&

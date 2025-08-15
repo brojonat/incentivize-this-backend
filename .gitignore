@@ -38,4 +38,6 @@ logs/*
 outreach.yaml
 prompts.server.yaml
 prompts.worker.yaml
+integration-stdout.log
+integration-worker.log
 todo.txt

@@ -34,7 +34,7 @@ func (deps *RedditDependencies) ensureValidRedditToken(minRemaining time.Duratio
 		client := &http.Client{
 			Timeout: 10 * time.Second,
 		}
-		token, err := getRedditAuthTokenForPull(client, *deps) // Renamed function
+		token, err := getRedditAuthTokenForPull(client, *deps)
 		if err != nil {
 			return fmt.Errorf("failed to get Reddit token: %w", err)
 		}
@@ -160,8 +160,8 @@ type RedditUserStats struct {
 	} `json:"data"`
 }
 
-// SubredditStats represents the stats for a given subreddit
-type SubredditStats struct {
+// Subreddit represents the stats for a given subreddit
+type Subreddit struct {
 	Kind string `json:"kind"`
 	Data struct {
 		UserFlairBackgroundColor        interface{}   `json:"user_flair_background_color"`
@@ -188,7 +188,7 @@ type SubredditStats struct {
 		Name                            string        `json:"name"`
 		Quarantine                      bool          `json:"quarantine"`
 		HideAds                         bool          `json:"hide_ads"`
-		PredictionLeaderboardEntryType  string        `json:"prediction_leaderboard_entry_type"`
+		PredictionLeaderboardEntryType  interface{}   `json:"prediction_leaderboard_entry_type"`
 		EmojisEnabled                   bool          `json:"emojis_enabled"`
 		AdvertiserCategory              string        `json:"advertiser_category"`
 		PublicDescription               string        `json:"public_description"`
@@ -424,8 +424,8 @@ func (a *Activities) GetRedditUserStats(ctx context.Context, username string) (*
 	return &userStats, nil
 }
 
-// GetSubredditStats fetches subreddit stats from the Reddit API
-func (a *Activities) GetSubredditStats(ctx context.Context, subredditName string) (*SubredditStats, error) {
+// GetSubreddit fetches subreddit stats from the Reddit API
+func (a *Activities) GetSubreddit(ctx context.Context, subredditName string) (*Subreddit, error) {
 	logger := activity.GetLogger(ctx)
 	cfg, err := getConfiguration(ctx)
 	if err != nil {
@@ -462,7 +462,7 @@ func (a *Activities) GetSubredditStats(ctx context.Context, subredditName string
 		return nil, fmt.Errorf("failed to get subreddit stats: %s", string(body))
 	}
 
-	var subredditStats SubredditStats
+	var subredditStats Subreddit
 	if err := json.Unmarshal(body, &subredditStats); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal subreddit stats: %w", err)
 	}
