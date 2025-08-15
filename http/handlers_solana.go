@@ -19,8 +19,6 @@ func handleInsertSolanaTransaction(logger *slog.Logger, querier dbgen.Querier) h
 			return
 		}
 
-		logger.Info("Inserting solana transaction", "tx", tx)
-
 		bountyID := ""
 		if tx.BountyID != nil {
 			bountyID = *tx.BountyID
@@ -44,8 +42,6 @@ func handleInsertSolanaTransaction(logger *slog.Logger, querier dbgen.Querier) h
 			writeInternalError(logger, w, err)
 			return
 		}
-
-		logger.Info("Successfully inserted transaction", "tx", insertedTx)
 
 		writeJSONResponse(w, insertedTx, http.StatusCreated)
 	}
