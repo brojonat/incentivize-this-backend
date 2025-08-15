@@ -1,10 +1,27 @@
-# Integration Testing Plan
+# Integration Tests
 
 ## 1. Overview
 
-To facilitate automated integration testing of our platform's features, especially those interacting with external APIs, we need a way to invoke specific business logic components in isolation. Our activities are the ideal candidates for this, as they encapsulate interactions with third-party services.
+To facilitate automated integration testing of our platform's features that interact with external APIs, we provide debug CLI commands that execute activities and tool-backed flows inside a dedicated Temporal debug worker.
 
-This document outlines a plan to create a testing utility that allows us to trigger any registered activity with custom inputs directly from the command line. This will be accomplished by introducing a new debug CLI command and a corresponding Temporal workflow, which will be run by a separate debug worker.
+Quickstart:
+
+- Start a dev session
+- Ensure worker envs are loaded (e.g., source `.env.worker` or export needed vars)
+- In one terminal:
+  ```bash
+  abb debug run-debug-worker | tee integration-worker.log
+  ```
+- In a separate terminal:
+  ```bash
+  abb debug run-integration-tests | tee integration-stdout.log
+  ```
+
+What these tests do:
+
+- Launch `DebugWorkflow` runs that call activities like `pull_content`, `analyze_image_url`, `validate_payout_wallet`, etc.
+- Cover multiple platforms/inputs for `pull_content` and other tools.
+- Print failures inline and a final pass count summary.
 
 ## 2. New CLI command: `debug run-activity`
 
@@ -37,11 +54,11 @@ The CLI command will be responsible for:
 3.  Executing the `DebugWorkflow` with the provided activity name and input JSON.
 4.  Waiting for the workflow to complete (if `--wait-result` is true) and printing the returned result or error to standard output.
 
-## 3. New Workflow: `DebugWorkflow`
+## 3. Workflow: `DebugWorkflow`
 
 A new workflow, `DebugWorkflow`, will be created to handle the execution of the specified activity. This keeps the execution logic within the Temporal environment, allowing for proper retries, timeouts, and visibility.
 
-**Location:** `abb/workflow_debug.go` (new file)
+**Location:** `abb/workflow_debug.go`
 
 **Parameters:**
 
@@ -102,29 +119,35 @@ func DebugWorkflow(ctx workflow.Context, activityName string, input json.RawMess
 }
 ```
 
-## 4. New CLI command: `debug debug-worker`
+## 4. CLI command: `debug run-debug-worker`
 
 To avoid registering the `DebugWorkflow` in the production worker, we will create a separate worker for debugging purposes.
 
 **Command:**
 
 ```bash
-abb debug debug-worker
+abb debug run-debug-worker
 ```
 
 This command will start a new Temporal worker on the `affiliate_bounty_board_debug` task queue that registers the `DebugWorkflow` and all activities. This worker should be run in a separate terminal during testing.
 
 ## 5. Implementation Steps & Testing Workflow
 
-1.  **Run the debug worker:** In a terminal, run the following command to start the debug worker:
+1.  **Run the debug worker:** In a terminal, start the debug worker (binary or `go run`):
     ```bash
-    go run ./cmd/abb/main.go debug debug-worker
+    abb debug run-debug-worker
+    # or
+    go run ./cmd/abb/main.go debug run-debug-worker
     ```
 2.  **Run an activity:** In a separate terminal, use the `run-activity` command to execute an activity:
     ```bash
     go run ./cmd/abb/main.go debug run-activity \
       -a GetGitHubUser \
       -d '{"username": "temporalio"}'
+    ```
+    Or run the full integration suite (optionally filter with repeated `--tool` flags):
+    ```bash
+    abb debug run-integration-tests
     ```
 3.  **Create `abb/workflow_debug.go`**: Implement the `DebugWorkflow` as described above. Initially, we can populate it with one or two activities to prove the concept.
 4.  **Update `cmd/abb/debug.go`**: Add the new `run-activity` and `debug-worker` commands and their `Action` functions to the `debugCommands` slice.
