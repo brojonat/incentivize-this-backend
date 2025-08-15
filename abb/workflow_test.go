@@ -109,7 +109,7 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Success() {
 	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
 		ToolCalls: []ToolCall{{
 			ID:        "call1",
-			Name:      "get_content_details",
+			Name:      "pull_content",
 			Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`,
 		}},
 	}, nil).Once()
@@ -145,7 +145,7 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Failure() {
 	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
 		ToolCalls: []ToolCall{{
 			ID:        "call1",
-			Name:      "get_content_details",
+			Name:      "pull_content",
 			Arguments: `{"platform":"reddit","content_kind":"post","content_id":"invalid"}`,
 		}},
 	}, nil).Once()
@@ -215,7 +215,7 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_AnalyzeImageURL_Success() 
 
 	// Mock sequence of LLM and activity calls
 	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{ID: "call1", Name: "get_content_details", Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`}},
+		ToolCalls: []ToolCall{{ID: "call1", Name: "pull_content", Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`}},
 	}, nil).Once()
 	s.env.OnActivity("PullContentActivity", mock.Anything, mock.Anything).Return([]byte(`{"thumbnail_url":"`+imageURL+`"}`), nil)
 	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
@@ -242,7 +242,7 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_MaxTurnsExceeded() {
 
 	// Mock infinite tool calling
 	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{ID: "call1", Name: "get_content_details", Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`}},
+		ToolCalls: []ToolCall{{ID: "call1", Name: "pull_content", Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`}},
 	}, nil)
 	s.env.OnActivity("PullContentActivity", mock.Anything, mock.Anything).Return([]byte(`{"data":"test"}`), nil)
 

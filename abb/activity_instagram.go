@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 
 	"go.temporal.io/sdk/activity"
 )
@@ -135,74 +134,4 @@ func (a *Activities) PullInstagramContentActivity(ctx context.Context, deps Inst
 		return nil, fmt.Errorf("failed to unmarshal Instagram API response: %w. Body: %s", err, string(body))
 	}
 	return &content, nil
-}
-
-func (a *Activities) GetWalletAddressFromInstagramProfile(ctx context.Context, username string) (string, error) {
-	cfg, err := getConfiguration(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to get configuration: %w", err)
-	}
-
-	deps := cfg.InstagramDeps
-	if deps.RapidAPIKey == "" {
-		return "", fmt.Errorf("RapidAPI key for Instagram is not configured")
-	}
-
-	apiURL := url.URL{
-		Scheme: instagramAPIScheme,
-		Host:   instagramAPIHost,
-		Path:   "/ig_get_fb_profile_v3.php",
-	}
-	q := apiURL.Query()
-	q.Set("username", username)
-	apiURL.RawQuery = q.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL.String(), nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create Instagram API request: %w", err)
-	}
-
-	req.Header.Add("x-rapidapi-key", deps.RapidAPIKey)
-	req.Header.Add("x-rapidapi-host", instagramAPIHost)
-	req.Header.Set("Accept", "application/json")
-
-	httpClient := a.httpClient
-	if httpClient == nil {
-		httpClient = http.DefaultClient
-	}
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to execute Instagram API request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read Instagram API response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Instagram API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var userInfo struct {
-		Bio string `json:"bio"`
-	}
-	if err := json.Unmarshal(body, &userInfo); err != nil {
-		return "", fmt.Errorf("failed to unmarshal Instagram user info response: %w. Body: %s", err, string(body))
-	}
-
-	if userInfo.Bio == "" {
-		return "", fmt.Errorf("no bio found on user profile")
-	}
-
-	re := regexp.MustCompile(`[1-9A-HJ-NP-Za-km-z]{32,44}`)
-	walletAddress := re.FindString(userInfo.Bio)
-
-	if walletAddress == "" {
-		return "", ErrWalletNotFound
-	}
-
-	return walletAddress, nil
 }

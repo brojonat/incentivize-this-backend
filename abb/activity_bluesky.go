@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"time"
 )
 
@@ -164,25 +163,4 @@ func (a *Activities) GetBlueSkyUserStats(ctx context.Context, userHandle string)
 	}
 
 	return &userStats, nil
-}
-
-func (a *Activities) GetWalletAddressFromBlueskyProfile(ctx context.Context, userHandle string) (string, error) {
-	userStats, err := a.GetBlueSkyUserStats(ctx, userHandle)
-	if err != nil {
-		return "", fmt.Errorf("failed to get user stats: %w", err)
-	}
-
-	if userStats.Description == "" {
-		return "", fmt.Errorf("no description found on user profile")
-	}
-
-	// Use a regex to find a Solana wallet address
-	re := regexp.MustCompile(`[1-9A-HJ-NP-Za-km-z]{32,44}`)
-	walletAddress := re.FindString(userStats.Description)
-
-	if walletAddress == "" {
-		return "", ErrWalletNotFound
-	}
-
-	return walletAddress, nil
 }

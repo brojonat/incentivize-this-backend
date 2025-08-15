@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -159,38 +158,6 @@ type RedditUserStats struct {
 		CanCreateSubreddit   bool        `json:"can_create_subreddit"`
 		Over18               bool        `json:"over_18"`
 	} `json:"data"`
-}
-
-func (a *Activities) GetWalletAddressFromRedditProfile(ctx context.Context, username string) (string, error) {
-	userStats, err := a.GetRedditUserStats(ctx, username)
-	if err != nil {
-		return "", fmt.Errorf("failed to get user stats: %w", err)
-	}
-
-	// The wallet address is expected to be in the public description of the user's profile subreddit.
-	if userStats.Data.Subreddit == nil {
-		return "", fmt.Errorf("user profile subreddit is not available")
-	}
-
-	subredditData, ok := userStats.Data.Subreddit.(map[string]interface{})
-	if !ok {
-		return "", fmt.Errorf("invalid subreddit data format")
-	}
-
-	description, ok := subredditData["public_description"].(string)
-	if !ok || description == "" {
-		return "", fmt.Errorf("no public description found on user profile")
-	}
-
-	// Use a regex to find a Solana wallet address
-	re := regexp.MustCompile(`[1-9A-HJ-NP-Za-km-z]{32,44}`)
-	walletAddress := re.FindString(description)
-
-	if walletAddress == "" {
-		return "", ErrWalletNotFound
-	}
-
-	return walletAddress, nil
 }
 
 // Subreddit represents the stats for a given subreddit
