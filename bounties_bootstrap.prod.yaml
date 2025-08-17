@@ -2,14 +2,12 @@ bounties:
   - name: photoshop-request
     requirements: |
       Write a comment in r/photoshoprequest.
-
-      The comment must be created on or after {{.Date}}, and the original poster must reply with "!solved".
-
+      The comment must be created on or after {{.Date}}.
+      The original poster must reply to the comment with "!solved".
       The comment must be on a post that has at least 25 upvotes.
-
       The payout wallet must be present in the comment.
-    total_amount: 100.0
-    per_post_amount: 1.0
+    total_amount: 20.0
+    per_post_amount: 0.50
     duration: 180d
     fee_percentage: 0
   - name: dota-smoke-test
@@ -64,8 +62,8 @@ bounties:
 
       The bounty content must be created on or after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
-    total_amount: 1.0
-    per_post_amount: 0.05
+    total_amount: 50.0
+    per_post_amount: 1
     duration: 180d
     fee_percentage: 0
 
@@ -109,8 +107,8 @@ bounties:
       least 50 characters long and contribute meaningfully to the discussion.
       The comment must have at least 5 child comments from other users. Content
       must be created on or after {{.Date}}.
-    total_amount: 100.0
-    per_post_amount: 10.0
+    total_amount: 20.0
+    per_post_amount: 5.0
     duration: 180d
     fee_percentage: 0
 
@@ -139,6 +137,7 @@ bounties:
       Create a YouTube video about BetterHelp. The video must be at least 3 minutes long and have at least 5k views. It should emphasize the benefits of using BetterHelp: that it can help connect you with a therapist.
       Content must be created on or after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
+      The video must not be published by the BetterHelp channel.
     total_amount: 5.0
     per_post_amount: 5.0
     duration: 30d
@@ -310,7 +309,12 @@ bounties:
     fee_percentage: 0
   - name: Y
     requirements: |
-      Create a Reddit comment that mentions "IncentivizeThis.com". The comment must either mention how it's a novel way to drive engagement and get people talking about your business, or the comment must describe a positive experience with the platform. The comment must have at least 5 upvotes. The comment must not be edited. The comment must be created on or after {{.Date}}. The comment must be in one of the following subreddits:
+      Create a Reddit comment that mentions "IncentivizeThis.com".
+      The comment must either mention how it's a novel way to drive engagement and get people talking about your business, or the comment must describe a positive experience with the platform.
+      The comment must have at least 5 upvotes.
+      The comment must not be edited.
+      The comment must be created on or after {{.Date}}.
+      The comment must be in one of the following subreddits:
       - r/marketing
       - r/entrepreneur
       - r/startups
@@ -318,6 +322,8 @@ bounties:
       - r/sideproject
       - r/sidehustle
       - r/startup_ideas
+
+      There must not be any child comments suggesting this is spam.
     total_amount: 50.0
     per_post_amount: 10.0
     duration: 180d
