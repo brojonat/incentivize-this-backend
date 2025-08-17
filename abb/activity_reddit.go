@@ -111,7 +111,6 @@ type RedditContent struct {
 	Edited      bool      `json:"edited"`
 	IsComment   bool      `json:"is_comment"`
 	Permalink   string    `json:"permalink"`
-	NumComments int       `json:"num_comments"`
 	IsStickied  bool      `json:"is_stickied"`
 	IsLocked    bool      `json:"is_locked"`
 	IsNSFW      bool      `json:"is_nsfw"`
@@ -342,7 +341,6 @@ func (r *RedditContent) UnmarshalJSON(data []byte) error {
 		Score       int    `json:"score"`
 		IsComment   bool   `json:"is_comment"`
 		Permalink   string `json:"permalink"`
-		NumComments int    `json:"num_comments"`
 		IsStickied  bool   `json:"stickied"`
 		IsLocked    bool   `json:"locked"`
 		IsNSFW      bool   `json:"over_18"`
@@ -367,7 +365,6 @@ func (r *RedditContent) UnmarshalJSON(data []byte) error {
 	r.Created = createdTime
 	r.IsComment = aux.IsComment
 	r.Permalink = aux.Permalink
-	r.NumComments = aux.NumComments
 	r.IsStickied = aux.IsStickied
 	r.IsLocked = aux.IsLocked
 	r.IsNSFW = aux.IsNSFW

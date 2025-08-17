@@ -528,6 +528,7 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 		case ContentKindComment:
 			contentID = "t1_" + strings.TrimPrefix(contentID, "t1_")
 		case ContentKindSubreddit:
+			contentID = "r/" + strings.TrimPrefix(contentID, "r/")
 			stats, statErr := a.GetSubreddit(ctx, contentID)
 			if statErr != nil {
 				return nil, fmt.Errorf("failed to get subreddit stats: %w", statErr)

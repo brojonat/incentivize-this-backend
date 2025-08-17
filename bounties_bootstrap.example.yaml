@@ -1,4 +1,25 @@
 bounties:
+  - name: photoshop-request
+    requirements: |
+      Write a comment in r/photoshoprequest. The comment must be created on or after {{.Date}}, and the original poster must reply to the comment with "!solved". The comment must be on a post that has at least 25 upvotes. There must not be any child comments suggesting the comment submitted for the bounty is spam.
+    total_amount: 10.0
+    per_post_amount: 0.50
+    duration: 180d
+    fee_percentage: 0
+  - name: photoshop-battle
+    requirements: |
+      Get 10 upvotes on a comment in this thread: https://www.reddit.com/r/photoshopbattles/comments/1mrzcov/psbattle_putin_and_trump_handshake/.
+    total_amount: 10.0
+    per_post_amount: 0.50
+    duration: 180d
+    fee_percentage: 0
+  - name: photoshop-request-specific-post
+    requirements: |
+      Submit a comment to this post: https://www.reddit.com/r/photoshopbattles/comments/1msasbg/psbattle_grilling_gone_wrong/ that has at least 10 upvotes. The payout wallet must be present in the comment.
+    total_amount: 10.0
+    per_post_amount: 0.50
+    duration: 180d
+    fee_percentage: 0
   - name: "Reddit Comment on Local Business (Austin's Hardwoods)"
     requirements: >
       Write a comment about Austin's Hardwoods. The comment must show the

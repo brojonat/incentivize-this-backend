@@ -216,11 +216,17 @@ func (p *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Messag
 
 	// 2. Create the request body
 	rawReqBody := map[string]interface{}{
-		"model":       p.cfg.Model,
-		"messages":    apiMessages,
-		"tools":       apiTools,
-		"max_tokens":  p.cfg.MaxTokens,
-		"temperature": p.cfg.Temperature,
+		"model":    p.cfg.Model,
+		"messages": apiMessages,
+		"tools":    apiTools,
+	}
+	// Some newer OpenAI models (e.g., gpt-5 family) use 'max_completion_tokens' instead of 'max_tokens'.
+	// Reference: OpenAI API docs. Use the appropriate parameter based on model name.
+	modelLower := strings.ToLower(p.cfg.Model)
+	if strings.Contains(modelLower, "gpt-5") {
+		rawReqBody["max_completion_tokens"] = p.cfg.MaxTokens
+	} else {
+		rawReqBody["max_tokens"] = p.cfg.MaxTokens
 	}
 
 	// If there is exactly one tool, force the model to use it.
@@ -385,40 +391,31 @@ func (p *OpenAIImageProvider) AnalyzeImage(ctx context.Context, imageData []byte
 		},
 	}
 
-	// Create request body for GPT-4 Vision API
-	reqBody := struct {
-		Model          string `json:"model"`
-		ResponseFormat struct {
-			Type       string      `json:"type"`
-			JSONSchema interface{} `json:"json_schema"`
-		} `json:"response_format"`
-		Messages []struct {
-			Role    string        `json:"role"`
-			Content []interface{} `json:"content"` // Content is an array for vision
-		} `json:"messages"`
-		MaxTokens int `json:"max_tokens"`
-	}{
-		Model: p.cfg.Model,
-		ResponseFormat: struct {
-			Type       string      `json:"type"`
-			JSONSchema interface{} `json:"json_schema"`
-		}{
-			Type:       "json_schema",
-			JSONSchema: schema,
+	// Build Chat Completions request body for vision (GPT‑5 compatible)
+	reqBody := map[string]interface{}{
+		"model": p.cfg.Model,
+		"response_format": map[string]interface{}{
+			"type":        "json_schema",
+			"json_schema": schema,
 		},
-		Messages: []struct {
-			Role    string        `json:"role"`
-			Content []interface{} `json:"content"`
-		}{
-			{
-				Role: "user",
-				Content: []interface{}{
-					map[string]string{"type": "text", "text": prompt},
-					map[string]interface{}{"type": "image_url", "image_url": map[string]string{"url": imageUrl}},
+		"messages": []interface{}{
+			map[string]interface{}{
+				"role": "user",
+				"content": []interface{}{
+					map[string]interface{}{"type": "text", "text": prompt},
+					map[string]interface{}{
+						"type":      "image_url",
+						"image_url": map[string]interface{}{"url": imageUrl},
+					},
 				},
 			},
 		},
-		MaxTokens: 2048,
+	}
+	modelLowerVision := strings.ToLower(p.cfg.Model)
+	if strings.Contains(modelLowerVision, "gpt-5") {
+		reqBody["max_completion_tokens"] = 2048
+	} else {
+		reqBody["max_tokens"] = 2048
 	}
 
 	// Marshal request body

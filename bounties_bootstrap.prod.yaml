@@ -1,7 +1,13 @@
 bounties:
   - name: photoshop-request
     requirements: |
-      Write a comment in r/photoshoprequest. The comment must be created after {{.Date}}, and the original poster must reply with "!solved". The comment must be on a post that has at least 25 upvotes. The payout wallet must be included in the comment.
+      Write a comment in r/photoshoprequest.
+
+      The comment must be created on or after {{.Date}}, and the original poster must reply with "!solved".
+
+      The comment must be on a post that has at least 25 upvotes.
+
+      The payout wallet must be present in the comment.
     total_amount: 100.0
     per_post_amount: 1.0
     duration: 180d
@@ -15,7 +21,7 @@ bounties:
     fee_percentage: 0
   - name: github-smoke-test
     requirements: |
-      To claim this bounty, your pull request must close a GitHub Issue on https://github.com/brojonat/incentivize-this-backend/issues. Your Solana wallet address for payout must be present in your public GitHub profile bio. The PR must be merged after {{.Date}}.
+      To claim this bounty, your pull request must close a GitHub Issue on https://github.com/brojonat/incentivize-this-backend/issues. Your Solana wallet address for payout must be present in your public GitHub profile bio. The PR must be merged on or after {{.Date}}.
     total_amount: 1.0
     per_post_amount: 0.01
     duration: 180d
@@ -28,7 +34,7 @@ bounties:
         - r/SantaAna
         - r/woodworking
         - r/beginnerwoodworking
-      Content must be created after {{.Date}}.
+      Content must be created on or after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
     total_amount: 1.0
     per_post_amount: 0.25
@@ -37,7 +43,7 @@ bounties:
   - name: B
     requirements: |
       Write an Instagram post about SuzieCakes. The post must show the business in a positive light and emphasize their amazing baked goods and the fact that they're a local business. The post must have at least 10 comments and mention @susiecakesbakery and either #Austin or #OrangeCounty (or both).
-      Content must be created after {{.Date}}.
+      Content must be created on or after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
     total_amount: 10.0
     per_post_amount: 0.25
@@ -55,7 +61,8 @@ bounties:
       - r/DIY
       - r/homeimprovement
       - r/renovations
-      The bounty content must be created after {{.Date}}.
+
+      The bounty content must be created on or after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
     total_amount: 1.0
     per_post_amount: 0.05
@@ -69,7 +76,7 @@ bounties:
       - r/databases
       - r/sql
       - r/programmerhumor
-      Content must be created after {{.Date}}.
+      Content must be created on or after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 1.0
@@ -79,7 +86,7 @@ bounties:
   - name: E
     requirements: |
       Write a post about IncentivizeThis. The post must show the platform in a positive light and emphasize its ease of use and the fact that it's a community-driven platform. The post must have at least 10 replies, 10 likes, and 10 reposts. The post must tag #incentivizethis and @incentivizethis.bsky.social.
-      Content must be created after {{.Date}}.
+      Content must be created on or after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 1.0
@@ -89,7 +96,7 @@ bounties:
   - name: F
     requirements: |
       Write a HackerNews post about IncentivizeThis. The post must show the platform in a positive light and emphasize its ease of use and the fact that it's a community-driven platform. The post must have at least 50 upvotes and 50 comments.
-      Content must be created after {{.Date}}.
+      Content must be created on or after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
     total_amount: 20.0
     per_post_amount: 5.0
@@ -101,7 +108,7 @@ bounties:
       Write a HackerNews comment about IncentivizeThis. The comment must be at
       least 50 characters long and contribute meaningfully to the discussion.
       The comment must have at least 5 child comments from other users. Content
-      must be created after {{.Date}}.
+      must be created on or after {{.Date}}.
     total_amount: 100.0
     per_post_amount: 10.0
     duration: 180d
@@ -110,7 +117,7 @@ bounties:
   - name: H
     requirements: |
       Create a YouTube video about RocketMoney. The video must be at least 3 minutes long and have at least 5k views. It should emphasize the benefits of using RocketMoney: that it can help you save money on your bills by cancelling your unused subscriptions.
-      Content must be created after {{.Date}}.
+      Content must be created on or after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
     total_amount: 10.0
     per_post_amount: 5.0
@@ -120,7 +127,7 @@ bounties:
   - name: I
     requirements: |
       Create a Reddit comment about RocketMoney. It should have at least 10 upvotes. It should emphasize the benefits of using RocketMoney: that it can help you save money on your bills by cancelling your unused subscriptions.
-      Content must be created after {{.Date}}.
+      Content must be created on or after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 0.25
@@ -130,7 +137,7 @@ bounties:
   - name: J
     requirements: |
       Create a YouTube video about BetterHelp. The video must be at least 3 minutes long and have at least 5k views. It should emphasize the benefits of using BetterHelp: that it can help connect you with a therapist.
-      Content must be created after {{.Date}}.
+      Content must be created on or after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 5.0
@@ -140,7 +147,7 @@ bounties:
   - name: K
     requirements: |
       Create a Reddit comment about BetterHelp. It should have at least 10 upvotes. It should emphasize the benefits of using BetterHelp: that it can help connect you with a therapist.
-      Content must be created after {{.Date}}.
+      Content must be created on or after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 0.25
@@ -149,7 +156,7 @@ bounties:
   - name: L
     requirements: |
       Create a YouTube video about NordVPN. The video must be at least 3 minutes long and have at least 5k views. It should emphasize the benefits of using NordVPN: that it can help you stay safe online by encrypting your traffic. It should also mention that it's a good way to access content that is blocked in your country.
-      Content must be created after {{.Date}}.
+      Content must be created on or after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 2.5
@@ -180,7 +187,7 @@ bounties:
   - name: N
     requirements: |
       Create an Instagram post about Sign Design in Fountain Valley, CA. The post must show the business in a positive light and emphasize their cool designs, incredible customer service and the fact that they're a local business. The post must have at least 10 likes, 5 commends, and mention @signdesignoc.
-      Content must be created after {{.Date}}.
+      Content must be created on or after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
     total_amount: 10.0
     per_post_amount: 0.25
@@ -196,7 +203,7 @@ bounties:
       - r/weddingplanning
       - r/weddings
       - r/weddingsunder10k
-      Content must be created after {{.Date}}.
+      Content must be created on or after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 0.25
@@ -214,7 +221,7 @@ bounties:
       - r/beginnerwoodworking
       - r/homeowners
       - r/wallstreetbets
-      Content must be created after {{.Date}}.
+      Content must be created on or after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 0.25
@@ -224,7 +231,7 @@ bounties:
   - name: Q
     requirements: |
       Create a YouTube video in which Mark Wiens visits Vila Foz Hotel restaurant in Portugal. The video must be at least 15 minutes long and have at least 50k views. It should show the restaurant in a positive light and emphasize their amazing food and service.
-      Content must be created after {{.Date}}.
+      Content must be created on or after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 5.0
@@ -247,7 +254,7 @@ bounties:
   - name: S
     requirements: |
       This content must be an instagram post about the "Diddlylift" deadlift jack. It must mention that it's a handmade product made from real walnut. The content must also mention that it is for sale on diddlylift.com. The content must have at least 10 likes and 10 comments.
-      Content must be created after {{.Date}}.
+      Content must be created on or after {{.Date}}.
     total_amount: 1.0
     per_post_amount: 0.10
     duration: 180d
@@ -303,7 +310,7 @@ bounties:
     fee_percentage: 0
   - name: Y
     requirements: |
-      Create a Reddit comment that mentions "IncentivizeThis.com". The comment must either mention how it's a novel way to drive engagement and get people talking about your business, or the comment must describe a positive experience with the platform. The comment must have at least 5 upvotes. The comment must not be edited. The comment must be created after {{.Date}}. The comment must be in one of the following subreddits:
+      Create a Reddit comment that mentions "IncentivizeThis.com". The comment must either mention how it's a novel way to drive engagement and get people talking about your business, or the comment must describe a positive experience with the platform. The comment must have at least 5 upvotes. The comment must not be edited. The comment must be created on or after {{.Date}}. The comment must be in one of the following subreddits:
       - r/marketing
       - r/entrepreneur
       - r/startups
