@@ -282,10 +282,9 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 		err := workflow.ExecuteActivity(refundCtx, a.RefundBountyActivity, bountyState.BountyID, bountyState.FunderWallet, bountyState.ValueRemaining).Get(refundCtx, nil)
 		if err != nil {
 			logger.Error("Failed to refund remaining balance", "error", err)
-			// Don't fail the workflow - log and continue
-		} else {
-			logger.Info("Successfully refunded remaining balance", "amount", bountyState.ValueRemaining)
+			return err
 		}
+		logger.Info("Successfully refunded remaining balance", "amount", bountyState.ValueRemaining)
 	}
 
 	logger.Info("BountyAssessmentWorkflow finished.")
@@ -315,6 +314,9 @@ func processClaim(ctx workflow.Context, a *Activities, bountyState *BountyState,
 		AnalyzeImageURLTool,
 		DetectMaliciousContentTool,
 		ValidatePayoutWalletTool,
+	}
+	if signal.Platform == PlatformReddit {
+		tools = append(tools, GetRedditChildrenCommentsTool)
 	}
 	if signal.Platform == PlatformGitHub {
 		tools = append(tools, GetClosingPRTool)

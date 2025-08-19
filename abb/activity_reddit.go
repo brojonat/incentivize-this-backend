@@ -99,24 +99,25 @@ func (deps *RedditDependencies) UnmarshalJSON(data []byte) error {
 
 // RedditContent represents the extracted content from Reddit
 type RedditContent struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Selftext    string    `json:"selftext"`
-	URL         string    `json:"url"`
-	Body        string    `json:"body"`
-	Author      string    `json:"author"`
-	Subreddit   string    `json:"subreddit"`
-	Score       int       `json:"score"`
-	Created     time.Time `json:"created_utc"`
-	Edited      bool      `json:"edited"`
-	IsComment   bool      `json:"is_comment"`
-	Permalink   string    `json:"permalink"`
-	IsStickied  bool      `json:"is_stickied"`
-	IsLocked    bool      `json:"is_locked"`
-	IsNSFW      bool      `json:"is_nsfw"`
-	IsSpoiler   bool      `json:"is_spoiler"`
-	Flair       string    `json:"flair"`
-	Thumbnail   string    `json:"thumbnail"` // Added Thumbnail field
+	ID         string      `json:"id"`
+	Title      string      `json:"title"`
+	Selftext   string      `json:"selftext"`
+	URL        string      `json:"url"`
+	Body       string      `json:"body"`
+	Author     string      `json:"author"`
+	Subreddit  string      `json:"subreddit"`
+	Score      int         `json:"score"`
+	Created    time.Time   `json:"created_utc"`
+	Edited     bool        `json:"edited"`
+	IsComment  bool        `json:"is_comment"`
+	Permalink  string      `json:"permalink"`
+	IsStickied bool        `json:"is_stickied"`
+	IsLocked   bool        `json:"is_locked"`
+	IsNSFW     bool        `json:"is_nsfw"`
+	IsSpoiler  bool        `json:"is_spoiler"`
+	Flair      string      `json:"flair"`
+	Thumbnail  string      `json:"thumbnail"`
+	Replies    interface{} `json:"replies"`
 }
 
 // RedditUserStats represents the stats for a given reddit user
@@ -270,6 +271,22 @@ type Subreddit struct {
 	} `json:"data"`
 }
 
+// RedditCommentListing represents the structure of the Reddit API response for comments.
+// The API often returns a list of listings, where each listing contains children.
+type RedditCommentListing struct {
+	Kind string `json:"kind"` // e.g., "Listing"
+	Data struct {
+		Modhash  string `json:"modhash"`
+		Dist     int    `json:"dist"`
+		Children []struct {
+			Kind string        `json:"kind"` // e.g., "t1" for comment, "t3" for post
+			Data RedditContent `json:"data"`
+		} `json:"children"`
+		After  string `json:"after"`
+		Before string `json:"before"`
+	} `json:"data"`
+}
+
 // UnmarshalJSON implements custom unmarshaling for RedditContent
 func (r *RedditContent) UnmarshalJSON(data []byte) error {
 	// First unmarshal into a map to handle the created_utc field flexibly
@@ -331,22 +348,22 @@ func (r *RedditContent) UnmarshalJSON(data []byte) error {
 	}
 
 	type Aux struct {
-		ID          string `json:"id"`
-		Title       string `json:"title"`
-		Selftext    string `json:"selftext"`
-		URL         string `json:"url"`
-		Body        string `json:"body"`
-		Author      string `json:"author"`
-		Subreddit   string `json:"subreddit"`
-		Score       int    `json:"score"`
-		IsComment   bool   `json:"is_comment"`
-		Permalink   string `json:"permalink"`
-		IsStickied  bool   `json:"stickied"`
-		IsLocked    bool   `json:"locked"`
-		IsNSFW      bool   `json:"over_18"`
-		IsSpoiler   bool   `json:"spoiler"`
-		Flair       string `json:"link_flair_text"`
-		Thumbnail   string `json:"thumbnail"`
+		ID         string `json:"id"`
+		Title      string `json:"title"`
+		Selftext   string `json:"selftext"`
+		URL        string `json:"url"`
+		Body       string `json:"body"`
+		Author     string `json:"author"`
+		Subreddit  string `json:"subreddit"`
+		Score      int    `json:"score"`
+		IsComment  bool   `json:"is_comment"`
+		Permalink  string `json:"permalink"`
+		IsStickied bool   `json:"stickied"`
+		IsLocked   bool   `json:"locked"`
+		IsNSFW     bool   `json:"over_18"`
+		IsSpoiler  bool   `json:"spoiler"`
+		Flair      string `json:"link_flair_text"`
+		Thumbnail  string `json:"thumbnail"`
 	}
 
 	var aux Aux
@@ -465,6 +482,162 @@ func (a *Activities) GetSubreddit(ctx context.Context, subredditName string) (*S
 	}
 
 	return &subredditStats, nil
+}
+
+// GetRedditChildrenComments fetches the children comments for a given Reddit post or comment ID.
+// The ID should be the full Reddit thing ID (e.g., "t3_..." for a post, "t1_..." for a comment).
+func (a *Activities) GetRedditChildrenComments(ctx context.Context, id string) ([]*RedditContent, error) {
+	logger := activity.GetLogger(ctx)
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get configuration: %w", err)
+	}
+
+	deps := &cfg.RedditDeps
+	if err := deps.ensureValidRedditToken(1 * time.Minute); err != nil {
+		return nil, fmt.Errorf("failed to ensure valid reddit token: %w", err)
+	}
+
+	var commentsURL string
+	// Check if the ID is for a post (starts with "t3_")
+	if strings.HasPrefix(id, "t3_") {
+		postID := strings.TrimPrefix(id, "t3_")
+		commentsURL = "https://oauth.reddit.com/comments/" + postID + "?limit=20"
+	} else if strings.HasPrefix(id, "t1_") {
+		// If it's a comment, we need to find its post context to fetch replies.
+		// A simple way is to get the comment's info first.
+		infoURL := fmt.Sprintf("https://oauth.reddit.com/api/info.json?id=%s", id)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, infoURL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request for comment info: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+deps.RedditAuthToken)
+		req.Header.Set("User-Agent", deps.UserAgent)
+		resp, err := a.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("request for comment info failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		var listing RedditCommentListing
+		if err := json.NewDecoder(resp.Body).Decode(&listing); err != nil {
+			return nil, fmt.Errorf("failed to decode comment info response: %w", err)
+		}
+
+		if len(listing.Data.Children) == 0 {
+			return nil, fmt.Errorf("no comment data found for id %s", id)
+		}
+
+		commentData := listing.Data.Children[0].Data
+		// The permalink contains the path to the comment, which includes the post ID.
+		// e.g., /r/subreddit/comments/post_id/post_title/comment_id/
+		parts := strings.Split(strings.Trim(commentData.Permalink, "/"), "/")
+		if len(parts) < 4 {
+			return nil, fmt.Errorf("could not parse post ID from permalink: %s", commentData.Permalink)
+		}
+		postID := parts[3]
+		commentID := strings.TrimPrefix(id, "t1_")
+		commentsURL = "https://oauth.reddit.com/comments/" + postID + "/comment/" + commentID + "?limit=20"
+
+	} else {
+		return nil, fmt.Errorf("invalid reddit id format: must start with 't1_' or 't3_'")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, commentsURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request for comments: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+deps.RedditAuthToken)
+	req.Header.Set("User-Agent", deps.UserAgent)
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request for comments: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body for comments: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		logger.Error("failed to get comments", "status", resp.StatusCode, "body", string(body))
+		return nil, fmt.Errorf("failed to get comments, status code: %d", resp.StatusCode)
+	}
+
+	// The response for comments is an array of two listings:
+	// The first is the post data, the second is the comment data.
+	var listings []RedditCommentListing
+	if err := json.Unmarshal(body, &listings); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal comments listings: %w", err)
+	}
+
+	if len(listings) < 2 {
+		logger.Warn("comments response did not contain expected structure", "listings_count", len(listings))
+		// For a direct comment link, the structure might be different. Let's inspect the first listing.
+		if len(listings) == 1 {
+			var children []*RedditContent
+			for _, child := range listings[0].Data.Children {
+				if child.Kind == "t1" {
+					comment := child.Data
+					children = append(children, &comment)
+				}
+			}
+			return children, nil
+		}
+		return nil, fmt.Errorf("unexpected comments API response structure")
+	}
+
+	// The second listing contains the comments/replies.
+	var children []*RedditContent
+	if len(listings) > 1 {
+		commentListing := listings[1]
+		for _, child := range commentListing.Data.Children {
+			if child.Kind == "t1" {
+				comment := child.Data
+				// Recursively extract replies if they exist
+				extractReplies(&comment, &children)
+			}
+		}
+	}
+	return children, nil
+}
+
+// extractReplies recursively traverses the comment tree and flattens it into a list.
+func extractReplies(comment *RedditContent, children *[]*RedditContent) {
+	*children = append(*children, comment)
+	if replies, ok := comment.Replies.(map[string]interface{}); ok {
+		if listingData, ok := replies["data"].(map[string]interface{}); ok {
+			if childrenData, ok := listingData["children"].([]interface{}); ok {
+				for _, child := range childrenData {
+					if childMap, ok := child.(map[string]interface{}); ok {
+						if kind, ok := childMap["kind"].(string); ok && kind == "t1" {
+							if data, ok := childMap["data"]; ok {
+								// Convert data back to JSON and then unmarshal to RedditContent
+								var newComment RedditContent
+								jsonBytes, err := json.Marshal(data)
+								if err == nil {
+									if err := json.Unmarshal(jsonBytes, &newComment); err == nil {
+										extractReplies(&newComment, children)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// toMap is a helper function to convert RedditContent to a map[string]interface{}
+// This is useful for accessing fields that might not be explicitly defined in the struct.
+func (r *RedditContent) toMap() map[string]interface{} {
+	var asMap map[string]interface{}
+	data, _ := json.Marshal(r)
+	_ = json.Unmarshal(data, &asMap)
+	return asMap
 }
 
 // getRedditAuthTokenForPull obtains an authentication token from Reddit (used by PullRedditContent)

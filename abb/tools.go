@@ -1,12 +1,13 @@
 package abb
 
 const (
-	ToolNamePullContent            = "pull_content"
-	ToolNameSubmitDecision         = "submit_decision"
-	ToolNameAnalyzeImageURL        = "analyze_image_url"
-	ToolNameDetectMaliciousContent = "detect_malicious_content"
-	ToolNameValidatePayoutWallet   = "validate_payout_wallet"
-	ToolNameGetClosingPR           = "get_githubclosing_pr"
+	ToolNamePullContent               = "pull_content"
+	ToolNameSubmitDecision            = "submit_decision"
+	ToolNameAnalyzeImageURL           = "analyze_image_url"
+	ToolNameDetectMaliciousContent    = "detect_malicious_content"
+	ToolNameValidatePayoutWallet      = "validate_payout_wallet"
+	ToolNameGetRedditChildrenComments = "get_reddit_children_comments"
+	ToolNameGetClosingPR              = "get_githubclosing_pr"
 )
 
 var PullContentTool = Tool{
@@ -151,6 +152,26 @@ var ValidatePayoutWalletTool = Tool{
 			},
 		},
 		"required": []interface{}{"payout_wallet", "validation_prompt"},
+	},
+}
+
+// FIXME: implement a tool call to get the children comments for a given Reddit post or comment
+// The caller will supply an id, and the tool will return the children comments.
+// GetRedditChildrenCommentsTool
+// Parameters:
+// - id: The id of the post or comment to get the children comments for.
+var GetRedditChildrenCommentsTool = Tool{
+	Name:        ToolNameGetRedditChildrenComments,
+	Description: "Fetches the direct replies (children comments) for a given Reddit post or comment. Use this tool when you need to analyze a discussion thread, such as checking for replies to a specific comment to fulfill a bounty requirement.",
+	Parameters: map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"id": map[string]interface{}{
+				"type":        "string",
+				"description": "The full Reddit ID for the post or comment (e.g., 't3_abcdef' for a post, 't1_abc123' for a comment) whose children you want to fetch.",
+			},
+		},
+		"required": []interface{}{"id"},
 	},
 }
 

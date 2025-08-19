@@ -80,6 +80,13 @@ func (a *Activities) TransferUSDC(ctx context.Context, recipientWallet string, a
 	)
 	if err != nil {
 		logger.Error("Failed to send USDC transfer", "error", err)
+		// Check for insufficient funds error from Solana simulation
+		if strings.Contains(err.Error(), "custom program error: 0x1") || strings.Contains(err.Error(), "insufficient funds") {
+			// This is a non-retryable error.
+			return temporal.NewApplicationErrorWithOptions("insufficient funds for transfer", "InsufficientFunds", temporal.ApplicationErrorOptions{
+				NonRetryable: true,
+			})
+		}
 		return fmt.Errorf("failed to send usdc: %w", err)
 	}
 
