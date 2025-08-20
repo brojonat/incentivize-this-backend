@@ -19,6 +19,7 @@ import (
 	solanago "github.com/gagliardetto/solana-go"
 	solanarpc "github.com/gagliardetto/solana-go/rpc"
 	"github.com/gorilla/handlers"
+	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
@@ -389,6 +390,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	// --- Create shared rate limiters ---
 	defaultRateLimiter := NewRateLimiter(1*time.Minute, cfg.RateLimit.DefaultPerMinute)
 	llmRateLimiter := NewRateLimiter(1*time.Minute, cfg.RateLimit.LLMPerMinute)
+	hardenBountyCache := expirable.NewLRU[string, any](128, nil, time.Hour)
 
 	// --- Initialize LLMProviders ---
 	// standard provider
@@ -471,17 +473,13 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		handleCreateBounty(logger, tc, llmProvider, llmEmbedProvider, cfg.UserRevenueSharePct, cfg.Environment, cfg.Prompts),
 		apiMode(logger, llmRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
-		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-		requireStatus(UserStatusDefault),
 	))
 
 	// LLM endpoint to harden user-provided bounty requirements
 	mux.HandleFunc("POST /bounties/harden", stools.AdaptHandler(
-		handleHardenBounty(logger, llmProvider, struct{ HardenBounty string }{HardenBounty: cfg.Prompts.HardenBounty}),
+		handleHardenBounty(logger, llmProvider, hardenBountyCache, struct{ HardenBounty string }{HardenBounty: cfg.Prompts.HardenBounty}),
 		apiMode(logger, llmRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
-		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-		requireStatus(UserStatusDefault),
 	))
 
 	// pay/funding/transactional bounty routes
@@ -490,8 +488,6 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		apiMode(logger, llmRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 		jwtRateLimitMiddleware(jwtAssessLimiter, "email"),
-		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-		requireStatus(UserStatusDefault),
 	))
 
 	mux.HandleFunc("POST /bounties/embeddings", stools.AdaptHandler(
@@ -512,7 +508,6 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 
 	mux.HandleFunc("GET /bounties/search", stools.AdaptHandler(
 		handleSearchBounties(logger, querier, tc, llmEmbedProvider, cfg.Environment),
-		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		apiMode(logger, llmRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))

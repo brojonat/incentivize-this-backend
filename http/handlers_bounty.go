@@ -22,6 +22,7 @@ import (
 
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
+	"github.com/hashicorp/golang-lru/v2/expirable"
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/api/workflowservice/v1"
@@ -631,6 +632,7 @@ func handleCreateBounty(
 func handleHardenBounty(
 	logger *slog.Logger,
 	llmProvider abb.LLMProvider,
+	cache *expirable.LRU[string, any],
 	prompts struct {
 		HardenBounty string
 	},
@@ -670,6 +672,12 @@ func handleHardenBounty(
 			return
 		}
 
+		// Check cache first
+		if cached, ok := cache.Get(req.Requirements); ok {
+			writeJSONResponse(w, cached, http.StatusOK)
+			return
+		}
+
 		// Prepare prompt with current date context
 		today := time.Now().UTC().Format("2006-01-02")
 		base := prompts.HardenBounty
@@ -706,6 +714,9 @@ func handleHardenBounty(
 			writeBadRequestError(w, fmt.Errorf("LLM returned empty hardened requirements"))
 			return
 		}
+
+		// Add to cache
+		cache.Add(req.Requirements, out)
 
 		writeJSONResponse(w, out, http.StatusOK)
 	}
