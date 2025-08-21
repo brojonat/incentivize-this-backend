@@ -34,10 +34,9 @@ type LLMProvider interface {
 
 // Tool defines a function the LLM can invoke.
 type Tool struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	// Parameters defined as a JSON Schema object.
-	Parameters map[string]interface{} `json:"parameters"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Parameters  map[string]interface{} `json:"parameters"`
 }
 
 // ToolCall represents the LLM's request to call a specific tool.
