@@ -55,17 +55,6 @@ func DebugWorkflow(ctx workflow.Context, activityName string, input json.RawMess
 		var res *CheckContentRequirementsResult
 		err = workflow.ExecuteActivity(ctx, a.AnalyzeImageURL, params.ImageURL, params.Prompt).Get(ctx, &res)
 		result = res
-	case ToolNameValidatePayoutWallet:
-		var params struct {
-			PayoutWallet     string `json:"payout_wallet"`
-			ValidationPrompt string `json:"validation_prompt"`
-		}
-		if err = json.Unmarshal(input, &params); err != nil {
-			return nil, fmt.Errorf("invalid input for %s: %w", ToolNameValidatePayoutWallet, err)
-		}
-		var res *ValidatePayoutWalletResult
-		err = workflow.ExecuteActivity(ctx, a.ValidatePayoutWallet, params.PayoutWallet, params.ValidationPrompt).Get(ctx, &res)
-		result = res
 	case ToolNameDetectMaliciousContent:
 		var params struct {
 			Content string `json:"content"`

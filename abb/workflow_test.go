@@ -30,7 +30,7 @@ func (s *WorkflowTestSuite) SetupTest() {
 
 	// Register activities
 	a := &Activities{}
-	s.env.RegisterActivity(a.GenerateResponse)
+	s.env.RegisterActivity(a.GenerateResponsesTurn)
 	s.env.RegisterActivity(a.PullContentActivity)
 	s.env.RegisterActivity(a.VerifyPayment)
 	s.env.RegisterActivity(a.PayBountyActivity)
@@ -58,12 +58,14 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_NoToolCalls_Success() {
 	}
 	prompt := "What is 2+2?"
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return(prompt, nil)
-	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{
+	s.env.OnActivity("GenerateResponsesTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
+		Assistant: "",
+		Calls: []ToolCall{{
 			ID:        "decision1",
 			Name:      "submit_decision",
 			Arguments: `{"is_approved": true, "reason": "The answer is 4."}`,
 		}},
+		ID: "resp_1",
 	}, nil)
 
 	s.env.ExecuteWorkflow(OrchestratorWorkflow, input)
@@ -81,12 +83,13 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_Rejection() {
 	input := OrchestratorWorkflowInput{Tools: []Tool{}}
 	prompt := "Is this valid?"
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return(prompt, nil)
-	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{
+	s.env.OnActivity("GenerateResponsesTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
+		Calls: []ToolCall{{
 			ID:        "decision1",
 			Name:      "submit_decision",
 			Arguments: `{"is_approved": false, "reason": "Content is not valid."}`,
 		}},
+		ID: "resp_1",
 	}, nil)
 
 	s.env.ExecuteWorkflow(OrchestratorWorkflow, input)
@@ -106,23 +109,25 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Success() {
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return(prompt, nil)
 
 	// First LLM call - requests tool
-	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{
+	s.env.OnActivity("GenerateResponsesTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
+		Calls: []ToolCall{{
 			ID:        "call1",
 			Name:      "pull_content",
 			Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`,
 		}},
+		ID: "resp_1",
 	}, nil).Once()
 
 	s.env.OnActivity("PullContentActivity", mock.Anything, mock.Anything).Return([]byte(`{"title":"Test Post","content":"Hello world"}`), nil)
 
 	// Second LLM call - final decision
-	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{
+	s.env.OnActivity("GenerateResponsesTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
+		Calls: []ToolCall{{
 			ID:        "decision1",
 			Name:      "submit_decision",
 			Arguments: `{"is_approved": true, "reason": "Content retrieved successfully."}`,
 		}},
+		ID: "resp_2",
 	}, nil).Once()
 
 	s.env.ExecuteWorkflow(OrchestratorWorkflow, input)
@@ -142,23 +147,25 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_ToolCall_Failure() {
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return(prompt, nil)
 
 	// First LLM call
-	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{
+	s.env.OnActivity("GenerateResponsesTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
+		Calls: []ToolCall{{
 			ID:        "call1",
 			Name:      "pull_content",
 			Arguments: `{"platform":"reddit","content_kind":"post","content_id":"invalid"}`,
 		}},
+		ID: "resp_1",
 	}, nil).Once()
 
 	s.env.OnActivity("PullContentActivity", mock.Anything, mock.Anything).Return(nil, errors.New("content not found"))
 
 	// Second LLM call with error
-	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{
+	s.env.OnActivity("GenerateResponsesTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
+		Calls: []ToolCall{{
 			ID:        "decision1",
 			Name:      "submit_decision",
 			Arguments: `{"is_approved": false, "reason": "Content could not be retrieved."}`,
 		}},
+		ID: "resp_2",
 	}, nil).Once()
 
 	s.env.ExecuteWorkflow(OrchestratorWorkflow, input)
@@ -178,21 +185,23 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_UnknownTool() {
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return(prompt, nil)
 
 	// LLM requests unknown tool
-	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{
+	s.env.OnActivity("GenerateResponsesTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
+		Calls: []ToolCall{{
 			ID:        "call1",
 			Name:      "unknown_tool",
 			Arguments: `{}`,
 		}},
+		ID: "resp_1",
 	}, nil).Once()
 
 	// Second call with error response
-	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{
+	s.env.OnActivity("GenerateResponsesTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
+		Calls: []ToolCall{{
 			ID:        "decision1",
 			Name:      "submit_decision",
 			Arguments: `{"is_approved": false, "reason": "I cannot use that tool."}`,
 		}},
+		ID: "resp_2",
 	}, nil).Once()
 
 	s.env.ExecuteWorkflow(OrchestratorWorkflow, input)
@@ -214,16 +223,19 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_AnalyzeImageURL_Success() 
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return(prompt, nil)
 
 	// Mock sequence of LLM and activity calls
-	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{ID: "call1", Name: "pull_content", Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`}},
+	s.env.OnActivity("GenerateResponsesTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
+		Calls: []ToolCall{{ID: "call1", Name: "pull_content", Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`}},
+		ID:    "resp_1",
 	}, nil).Once()
 	s.env.OnActivity("PullContentActivity", mock.Anything, mock.Anything).Return([]byte(`{"thumbnail_url":"`+imageURL+`"}`), nil)
-	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{ID: "call2", Name: "analyze_image_url", Arguments: `{"image_url":"` + imageURL + `", "prompt":"` + analysisPrompt + `"}`}},
+	s.env.OnActivity("GenerateResponsesTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
+		Calls: []ToolCall{{ID: "call2", Name: "analyze_image_url", Arguments: `{"image_url":"` + imageURL + `", "prompt":"` + analysisPrompt + `"}`}},
+		ID:    "resp_2",
 	}, nil).Once()
 	s.env.OnActivity("AnalyzeImageURL", mock.Anything, imageURL, analysisPrompt).Return(CheckContentRequirementsResult{Satisfies: true, Reason: "Has a cat."}, nil)
-	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{ID: "decision1", Name: "submit_decision", Arguments: `{"is_approved":true,"reason":"It has a cat."}`}},
+	s.env.OnActivity("GenerateResponsesTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
+		Calls: []ToolCall{{ID: "decision1", Name: "submit_decision", Arguments: `{"is_approved":true,"reason":"It has a cat."}`}},
+		ID:    "resp_3",
 	}, nil).Once()
 
 	s.env.ExecuteWorkflow(OrchestratorWorkflow, input)
@@ -241,8 +253,9 @@ func (s *WorkflowTestSuite) Test_OrchestratorWorkflow_MaxTurnsExceeded() {
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return(prompt, nil)
 
 	// Mock infinite tool calling
-	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{ID: "call1", Name: "pull_content", Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`}},
+	s.env.OnActivity("GenerateResponsesTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
+		Calls: []ToolCall{{ID: "call1", Name: "pull_content", Arguments: `{"platform":"reddit","content_kind":"post","content_id":"123"}`}},
+		ID:    "resp_1",
 	}, nil)
 	s.env.OnActivity("PullContentActivity", mock.Anything, mock.Anything).Return([]byte(`{"data":"test"}`), nil)
 
@@ -289,10 +302,11 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_SuccessfulClaim() {
 
 	s.env.OnActivity("VerifyPayment", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: "funder_wallet_123"}, nil)
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return("prompt", nil)
-	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{
+	s.env.OnActivity("GenerateResponsesTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
+		Calls: []ToolCall{{
 			ID: "decision", Name: "submit_decision", Arguments: `{"is_approved":true,"reason":"meets requirements"}`,
 		}},
+		ID: "resp_1",
 	}, nil)
 	s.env.OnActivity("PayBountyActivity", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
@@ -320,10 +334,11 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_RejectedClaim() {
 
 	s.env.OnActivity("VerifyPayment", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: "funder_wallet_123"}, nil)
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return("prompt", nil)
-	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{
+	s.env.OnActivity("GenerateResponsesTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
+		Calls: []ToolCall{{
 			ID: "decision", Name: "submit_decision", Arguments: `{"is_approved":false,"reason":"does not meet requirements"}`,
 		}},
+		ID: "resp_1",
 	}, nil)
 	s.env.OnActivity("RefundBountyActivity", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
@@ -370,10 +385,11 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_ClaimCooldown() {
 
 	s.env.OnActivity("VerifyPayment", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: "funder_wallet_123"}, nil)
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return("prompt", nil)
-	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{
+	s.env.OnActivity("GenerateResponsesTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
+		Calls: []ToolCall{{
 			ID: "decision", Name: "submit_decision", Arguments: `{"is_approved":false,"reason":"Content rejected"}`,
 		}},
+		ID: "resp_1",
 	}, nil).Once()
 	s.env.OnActivity("RefundBountyActivity", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
@@ -454,10 +470,11 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_QueryPaidBounties() {
 
 	s.env.OnActivity("VerifyPayment", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: "funder_wallet_123"}, nil)
 	s.env.OnActivity("GetOrchestratorPromptActivity", mock.Anything).Return("prompt", nil)
-	s.env.OnActivity("GenerateResponse", mock.Anything, mock.Anything, mock.Anything).Return(&LLMResponse{
-		ToolCalls: []ToolCall{{
+	s.env.OnActivity("GenerateResponsesTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
+		Calls: []ToolCall{{
 			ID: "decision", Name: "submit_decision", Arguments: `{"is_approved":true,"reason":"meets requirements"}`,
 		}},
+		ID: "resp_1",
 	}, nil)
 	s.env.OnActivity("PayBountyActivity", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 

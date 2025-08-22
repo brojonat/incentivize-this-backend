@@ -442,7 +442,6 @@ func runIntegrationTests(c *cli.Context) error {
 		// Replaced dedicated tools with pull_content coverage; keeping GetClosingPR for now
 		{abb.ToolNameGetClosingPR, `{"owner": "astral-sh", "repo": "uv", "issue_number": 6637}`},
 		{abb.ToolNameAnalyzeImageURL, `{"image_url": "https://upload.wikimedia.org/wikipedia/en/7/7d/Lenna_%28test_image%29.png", "prompt": "Does it contain a lady?"}`},
-		{abb.ToolNameValidatePayoutWallet, `{"payout_wallet": "stub_wallet_address", "validation_prompt": "Is this a valid Solana address?"}`},
 		{abb.ToolNameDetectMaliciousContent, `{"content": "This is benign content."}`},
 		{abb.ToolNameSubmitDecision, `{"is_approved": true, "reason": "Content meets all requirements."}`},
 		{abb.ToolNameSubmitDecision, `{"is_approved": false, "reason": "Content does not meet requirements."}`},

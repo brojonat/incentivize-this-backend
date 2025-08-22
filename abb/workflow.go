@@ -313,7 +313,6 @@ func processClaim(ctx workflow.Context, a *Activities, bountyState *BountyState,
 		PullContentTool,
 		AnalyzeImageURLTool,
 		DetectMaliciousContentTool,
-		ValidatePayoutWalletTool,
 	}
 	if signal.Platform == PlatformReddit {
 		tools = append(tools, GetRedditChildrenCommentsTool)
@@ -416,21 +415,29 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 	)
 	fullPrompt := bountyInfo + "\n\n" + orchestratorPrompt
 
-	messages := []Message{{Role: "user", Content: fullPrompt}}
 	// Add the decision tool to the list of available tools.
 	tools := append(input.Tools, SubmitDecisionTool)
 
-	for i := 0; i < OrchestratorMaxTurns; i++ {
-		var llmResponse LLMResponse
-		err := workflow.ExecuteActivity(ctx, a.GenerateResponse, messages, tools).Get(ctx, &llmResponse)
-		if err != nil {
-			logger.Error("LLM activity failed", "error", err)
-			return nil, err
-		}
-		messages = append(messages, Message{Role: "assistant", Content: llmResponse.Content, ToolCalls: llmResponse.ToolCalls})
+	previousResponseID := ""
+	pendingOutputs := map[string]string{}
 
-		if len(llmResponse.ToolCalls) > 0 {
-			for _, toolCall := range llmResponse.ToolCalls {
+	for i := 0; i < OrchestratorMaxTurns; i++ {
+		var turnResult ResponsesTurnResult
+		var actErr error
+		if previousResponseID == "" {
+			actErr = workflow.ExecuteActivity(ctx, a.GenerateResponsesTurn, previousResponseID, fullPrompt, tools, nil).Get(ctx, &turnResult)
+		} else {
+			actErr = workflow.ExecuteActivity(ctx, a.GenerateResponsesTurn, previousResponseID, "", nil, pendingOutputs).Get(ctx, &turnResult)
+		}
+		if actErr != nil {
+			logger.Error("LLM activity failed", "error", actErr)
+			return nil, actErr
+		}
+		previousResponseID = turnResult.ID
+		pendingOutputs = map[string]string{}
+
+		if len(turnResult.Calls) > 0 {
+			for _, toolCall := range turnResult.Calls {
 				var toolResult string
 				switch toolCall.Name {
 				case ToolNamePullContent:
@@ -464,7 +471,6 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = string(resultBytes)
 						}
 					}
-
 				case ToolNameAnalyzeImageURL:
 					var args struct {
 						ImageURL string `json:"image_url"`
@@ -475,23 +481,6 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 					} else {
 						var result CheckContentRequirementsResult
 						activityErr := workflow.ExecuteActivity(ctx, a.AnalyzeImageURL, args.ImageURL, args.Prompt).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							resultBytes, _ := json.Marshal(result)
-							toolResult = string(resultBytes)
-						}
-					}
-				case ToolNameValidatePayoutWallet:
-					var args struct {
-						PayoutWallet     string `json:"payout_wallet"`
-						ValidationPrompt string `json:"validation_prompt"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result ValidatePayoutWalletResult
-						activityErr := workflow.ExecuteActivity(ctx, a.ValidatePayoutWallet, args.PayoutWallet, args.ValidationPrompt).Get(ctx, &result)
 						if activityErr != nil {
 							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
 						} else {
@@ -516,7 +505,6 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 						}
 					}
 				case ToolNameSubmitDecision:
-					// This is the final decision from the LLM.
 					var decisionArgs struct {
 						IsApproved bool   `json:"is_approved"`
 						Reason     string `json:"reason"`
@@ -528,23 +516,18 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							Reason:     "Failed to parse LLM decision.",
 						}, nil
 					}
-
-					return &OrchestratorWorkflowOutput{
-						IsApproved: decisionArgs.IsApproved,
-						Reason:     decisionArgs.Reason,
-					}, nil
+					return &OrchestratorWorkflowOutput{IsApproved: decisionArgs.IsApproved, Reason: decisionArgs.Reason}, nil
 				default:
 					toolResult = `{"error": "unknown tool requested"}`
 				}
-				messages = append(messages, Message{Role: "tool", ToolCallID: toolCall.ID, Content: toolResult})
+				pendingOutputs[toolCall.ID] = toolResult
 			}
 			continue
 		}
-
-		// If the LLM responds without a tool call, we treat it as a continuation of the conversation,
-		// but not a final decision. In a real-world scenario, you might want to handle this differently,
-		// but for now, we'll just loop again. If it happens too many times, the max turns limit will be hit.
-		logger.Warn("LLM response without tool call, continuing conversation.", "response", llmResponse.Content)
+		if strings.TrimSpace(turnResult.Assistant) == "" {
+			logger.Warn("No tool calls and no assistant content; ending conversation")
+			break
+		}
 	}
 	return nil, temporal.NewApplicationError("Orchestrator reached max turns", "MaxTurnsExceeded")
 }

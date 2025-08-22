@@ -18,18 +18,23 @@ type CheckContentRequirementsResult struct {
 	Reason    string `json:"reason"`
 }
 
-// ValidatePayoutWalletResult is the structured response from the payout wallet validation LLM call.
-type ValidatePayoutWalletResult struct {
-	IsValid bool   `json:"is_valid"`
-	Reason  string `json:"reason"`
-}
-
 // LLMProvider represents a generic LLM service provider for text completion
 type LLMProvider interface {
-	// GenerateResponse sends a conversational history to the LLM and gets a response.
-	GenerateResponse(ctx context.Context, messages []Message, tools []Tool) (*LLMResponse, error)
-	// ValidateWalletWithPrompt uses the LLM to validate a wallet based on a given prompt.
-	ValidateWalletWithPrompt(ctx context.Context, payoutWallet string, validationPrompt string) (ValidatePayoutWalletResult, error)
+	// GenerateResponse executes a simple one-shot call: instructions + message -> assistant text (no tool calls)
+	// If schemaJSON is non-nil, it must be a JSON object with fields compatible with Responses API JSON schema config
+	// e.g. {"name":"MySchema","strict":true,"schema":{...}} and will be passed under response_format.json_schema.
+	GenerateResponse(ctx context.Context, instructions string, message string, schemaJSON []byte) (string, error)
+
+	// GenerateResponsesTurn executes a single turn of a multi-turn agent using the Responses API.
+	//  - previousResponseID empty => start turn with userInput and tools
+	//  - previousResponseID set   => continue turn with functionOutputs only
+	GenerateResponsesTurn(
+		ctx context.Context,
+		previousResponseID string,
+		userInput string,
+		tools []Tool,
+		functionOutputs map[string]string,
+	) (assistantText string, toolCalls []ToolCall, responseID string, err error)
 }
 
 // Tool defines a function the LLM can invoke.
@@ -148,214 +153,196 @@ type OpenAIProvider struct {
 }
 
 // GenerateResponse sends a conversational history to the LLM and gets a response.
-func (p *OpenAIProvider) GenerateResponse(ctx context.Context, messages []Message, tools []Tool) (*LLMResponse, error) {
-	// 1. Map our abstract aPI to the OpenAI specific API
-	// API specific-structs
-	type openAIToolCall struct {
-		ID       string `json:"id"`
-		Type     string `json:"type"`
-		Function struct {
-			Name      string `json:"name"`
-			Arguments string `json:"arguments"`
-		} `json:"function"`
-	}
-	type openAIMessage struct {
-		Role       string           `json:"role"`
-		Content    string           `json:"content"`
-		ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
-		ToolCallID string           `json:"tool_call_id,omitempty"`
-	}
-	type openAITool struct {
-		Type     string `json:"type"`
-		Function Tool   `json:"function"`
+func (p *OpenAIProvider) GenerateResponse(ctx context.Context, instructions string, message string, schemaJSON []byte) (string, error) {
+	reqBody := map[string]interface{}{
+		"model":             p.cfg.Model,
+		"instructions":      instructions,
+		"input":             message,
+		"store":             true,
+		"temperature":       p.cfg.Temperature,
+		"max_output_tokens": p.cfg.MaxTokens,
 	}
 
-	// map messages
-	apiMessages := make([]openAIMessage, len(messages))
-	for i, msg := range messages {
-		apiMessages[i] = openAIMessage{
-			Role:       msg.Role,
-			Content:    msg.Content,
-			ToolCallID: msg.ToolCallID,
-		}
-		if msg.ToolCalls != nil {
-			apiMessages[i].ToolCalls = make([]openAIToolCall, len(msg.ToolCalls))
-			for j, tc := range msg.ToolCalls {
-				apiMessages[i].ToolCalls[j] = openAIToolCall{
-					ID:   tc.ID,
-					Type: "function",
-					Function: struct {
-						Name      string `json:"name"`
-						Arguments string `json:"arguments"`
-					}{
-						Name:      tc.Name,
-						Arguments: tc.Arguments,
-					},
-				}
-			}
+	if len(schemaJSON) > 0 {
+		// Provide structured output via JSON schema
+		reqBody["response_format"] = map[string]interface{}{
+			"type":        "json_schema",
+			"json_schema": json.RawMessage(schemaJSON),
 		}
 	}
 
-	// map tools
-	apiTools := make([]openAITool, len(tools))
-	for i, t := range tools {
-		apiTools[i] = openAITool{
-			Type:     "function",
-			Function: t,
-		}
-	}
-
-	// Define a type for the tool_choice parameter.
-	type openAIToolChoice struct {
-		Type     string `json:"type"`
-		Function struct {
-			Name string `json:"name"`
-		} `json:"function"`
-	}
-
-	// 2. Create the request body
-	rawReqBody := map[string]interface{}{
-		"model":    p.cfg.Model,
-		"messages": apiMessages,
-		"tools":    apiTools,
-	}
-	// Some newer OpenAI models (e.g., gpt-5 family) use 'max_completion_tokens' instead of 'max_tokens'.
-	// Reference: OpenAI API docs. Use the appropriate parameter based on model name.
-	modelLower := strings.ToLower(p.cfg.Model)
-	if strings.Contains(modelLower, "gpt-5") {
-		rawReqBody["max_completion_tokens"] = p.cfg.MaxTokens
-	} else {
-		rawReqBody["max_tokens"] = p.cfg.MaxTokens
-	}
-
-	// If there is exactly one tool, force the model to use it.
-	// This is key for getting structured output for things like title inference.
-	if len(apiTools) == 1 {
-		rawReqBody["tool_choice"] = openAIToolChoice{
-			Type: "function",
-			Function: struct {
-				Name string `json:"name"`
-			}{
-				Name: apiTools[0].Function.Name,
-			},
-		}
-	}
-
-	jsonData, err := json.Marshal(rawReqBody)
+	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal openai request body: %w", err)
+		return "", fmt.Errorf("failed to marshal responses request body: %w", err)
 	}
 
-	url := "https://api.openai.com/v1/chat/completions"
+	apiURL := "https://api.openai.com/v1/responses"
 	if p.cfg.BaseURL != "" {
-		url = p.cfg.BaseURL
+		apiURL = strings.TrimSuffix(p.cfg.BaseURL, "/") + "/responses"
 	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create openai request: %w", err)
+		return "", fmt.Errorf("failed to create responses request: %w", err)
 	}
-
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+p.cfg.APIKey)
 
-	// 3. Send the request
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send openai request: %w", err)
+		return "", fmt.Errorf("failed to send responses request: %w", err)
 	}
 	defer resp.Body.Close()
-
+	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("openai api returned status %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("responses api returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// 4. Parse the response
-	var result struct {
-		Choices []struct {
-			Message struct {
-				Content   string           `json:"content"`
-				ToolCalls []openAIToolCall `json:"tool_calls"`
-			} `json:"message"`
-		} `json:"choices"`
+	assistantText, _, _, err := parseResponsesOutput(body)
+	if err != nil {
+		return "", err
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to parse openai response: %w", err)
+	return assistantText, nil
+}
+
+func (p *OpenAIProvider) GenerateResponsesTurn(ctx context.Context, previousResponseID string, userInput string, tools []Tool, functionOutputs map[string]string) (string, []ToolCall, string, error) {
+	req := map[string]interface{}{
+		"model":             p.cfg.Model,
+		"store":             true,
+		"temperature":       p.cfg.Temperature,
+		"max_output_tokens": p.cfg.MaxTokens,
 	}
 
-	if len(result.Choices) == 0 {
-		return nil, fmt.Errorf("no choices in openai response")
+	if previousResponseID != "" {
+		req["previous_response_id"] = previousResponseID
+		inputs := make([]map[string]interface{}, 0, len(functionOutputs))
+		for callID, output := range functionOutputs {
+			inputs = append(inputs, map[string]interface{}{
+				"type":    "function_call_output",
+				"call_id": callID,
+				"output":  output,
+			})
+		}
+		req["input"] = inputs
+	} else {
+		req["input"] = userInput
+		if len(tools) > 0 {
+			toolList := make([]map[string]interface{}, 0, len(tools))
+			for _, t := range tools {
+				toolList = append(toolList, map[string]interface{}{
+					"type":        "function",
+					"name":        t.Name,
+					"description": t.Description,
+					"parameters":  t.Parameters,
+				})
+			}
+			req["tools"] = toolList
+		}
 	}
 
-	choice := result.Choices[0].Message
-	response := &LLMResponse{
-		Content: choice.Content,
+	jsonData, err := json.Marshal(req)
+	if err != nil {
+		return "", nil, "", fmt.Errorf("failed to marshal responses request: %w", err)
+	}
+	apiURL := "https://api.openai.com/v1/responses"
+	if p.cfg.BaseURL != "" {
+		apiURL = strings.TrimSuffix(p.cfg.BaseURL, "/") + "/responses"
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", nil, "", fmt.Errorf("failed to create responses request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+p.cfg.APIKey)
+
+	client := &http.Client{}
+	httpResp, err := client.Do(httpReq)
+	if err != nil {
+		return "", nil, "", fmt.Errorf("failed to send responses request: %w", err)
+	}
+	defer httpResp.Body.Close()
+	body, _ := io.ReadAll(httpResp.Body)
+	if httpResp.StatusCode != http.StatusOK {
+		return "", nil, "", fmt.Errorf("responses api returned status %d: %s", httpResp.StatusCode, string(body))
 	}
 
-	if choice.ToolCalls != nil {
-		response.ToolCalls = make([]ToolCall, len(choice.ToolCalls))
-		for i, tc := range choice.ToolCalls {
-			response.ToolCalls[i] = ToolCall{
-				ID:        tc.ID,
-				Name:      tc.Function.Name,
-				Arguments: tc.Function.Arguments,
+	assistantText, toolCalls, responseID, err := parseResponsesOutput(body)
+	if err != nil {
+		return "", nil, "", err
+	}
+	return assistantText, toolCalls, responseID, nil
+}
+
+func parseResponsesOutput(body []byte) (assistantText string, toolCalls []ToolCall, responseID string, err error) {
+	var root struct {
+		ID     string          `json:"id"`
+		Output json.RawMessage `json:"output"`
+	}
+	if e := json.Unmarshal(body, &root); e != nil {
+		return "", nil, "", fmt.Errorf("failed to decode responses body: %w", e)
+	}
+	responseID = root.ID
+
+	var items []map[string]any
+	if e := json.Unmarshal(root.Output, &items); e != nil {
+		var alt struct {
+			Output []map[string]any `json:"output"`
+		}
+		if e2 := json.Unmarshal(body, &alt); e2 == nil && len(alt.Output) > 0 {
+			items = alt.Output
+		} else {
+			return "", nil, responseID, fmt.Errorf("unexpected responses output format")
+		}
+	}
+
+	var textBuilder []string
+	var calls []ToolCall
+	for _, it := range items {
+		t, _ := it["type"].(string)
+		switch t {
+		case "message":
+			if content, ok := it["content"].([]any); ok {
+				for _, c := range content {
+					if cm, ok := c.(map[string]any); ok {
+						if cm["type"] == "output_text" {
+							if txt, _ := cm["text"].(string); txt != "" {
+								textBuilder = append(textBuilder, txt)
+							}
+						}
+					}
+				}
+			}
+			if mtc, ok := it["tool_calls"].([]any); ok {
+				for _, raw := range mtc {
+					if m, ok := raw.(map[string]any); ok {
+						id, _ := m["id"].(string)
+						fn, _ := m["function"].(map[string]any)
+						name, _ := fn["name"].(string)
+						args, _ := fn["arguments"].(string)
+						if id != "" && name != "" {
+							calls = append(calls, ToolCall{ID: id, Name: name, Arguments: args})
+						}
+					}
+				}
+			}
+		case "function_call":
+			id, _ := it["call_id"].(string)
+			name, _ := it["name"].(string)
+			var argsStr string
+			if s, ok := it["arguments"].(string); ok {
+				argsStr = s
+			} else if obj, ok := it["arguments"].(map[string]any); ok {
+				if b, e := json.Marshal(obj); e == nil {
+					argsStr = string(b)
+				}
+			}
+			if id != "" && name != "" {
+				calls = append(calls, ToolCall{ID: id, Name: name, Arguments: argsStr})
 			}
 		}
 	}
 
-	return response, nil
-}
-
-// ValidateWalletWithPrompt uses the LLM to validate a wallet based on a given prompt.
-func (p *OpenAIProvider) ValidateWalletWithPrompt(ctx context.Context, payoutWallet string, validationPrompt string) (ValidatePayoutWalletResult, error) {
-	prompt := fmt.Sprintf("Please validate the payout wallet `%s` based on the following prompt: %s", payoutWallet, validationPrompt)
-
-	messages := []Message{
-		{
-			Role:    "user",
-			Content: prompt,
-		},
-	}
-
-	tools := []Tool{
-		{
-			Name:        "submit_wallet_validation",
-			Description: "Determine if a payout wallet is valid and provide a reason.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"is_valid": map[string]interface{}{
-						"type":        "boolean",
-						"description": "True if the payout wallet is valid.",
-					},
-					"reason": map[string]interface{}{
-						"type":        "string",
-						"description": "A brief explanation for the decision.",
-					},
-				},
-				"required":             []string{"is_valid", "reason"},
-				"additionalProperties": false,
-			},
-		},
-	}
-
-	resp, err := p.GenerateResponse(ctx, messages, tools)
-	if err != nil {
-		return ValidatePayoutWalletResult{IsValid: false, Reason: "LLM communication error"}, fmt.Errorf("failed to get LLM response: %w", err)
-	}
-
-	if len(resp.ToolCalls) != 1 {
-		return ValidatePayoutWalletResult{IsValid: false, Reason: "LLM response format error"}, fmt.Errorf("unexpected number of tool calls: %d", len(resp.ToolCalls))
-	}
-
-	var result ValidatePayoutWalletResult
-	if err := json.Unmarshal([]byte(resp.ToolCalls[0].Arguments), &result); err != nil {
-		return ValidatePayoutWalletResult{IsValid: false, Reason: "LLM response parsing error"}, fmt.Errorf("failed to parse LLM response arguments: %w", err)
-	}
-
-	return result, nil
+	return strings.TrimSpace(strings.Join(textBuilder, "\n")), calls, responseID, nil
 }
 
 // OpenAIImageProvider implements ImageLLMProvider for OpenAI (Vision)
@@ -550,15 +537,25 @@ type AnthropicProvider struct {
 	cfg LLMConfig
 }
 
-func (p *AnthropicProvider) GenerateResponse(ctx context.Context, messages []Message, tools []Tool) (*LLMResponse, error) {
-	// Anthropic's tool calling is also in beta and requires a specific header.
-	// For now, we will return a "not implemented" error.
-	// We will also remove the old `Complete` method.
-	return nil, fmt.Errorf("not implemented")
+func (p *AnthropicProvider) GenerateResponse(ctx context.Context, instructions string, message string, schemaJSON []byte) (string, error) {
+	return "", fmt.Errorf("not implemented")
 }
 
-func (p *AnthropicProvider) ValidateWalletWithPrompt(ctx context.Context, payoutWallet string, validationPrompt string) (ValidatePayoutWalletResult, error) {
-	return ValidatePayoutWalletResult{IsValid: false, Reason: "not implemented"}, fmt.Errorf("not implemented")
+func (p *AnthropicProvider) GenerateResponsesTurn(ctx context.Context, previousResponseID string, userInput string, tools []Tool, functionOutputs map[string]string) (string, []ToolCall, string, error) {
+	return "", nil, "", fmt.Errorf("not implemented")
+}
+
+// AnthropicProvider implements LLMProvider for Anthropic (Text)
+type GeminiProvider struct {
+	cfg LLMConfig
+}
+
+func (p *GeminiProvider) GenerateResponse(ctx context.Context, instructions string, message string, schemaJSON []byte) (string, error) {
+	return "", fmt.Errorf("not implemented")
+}
+
+func (p *GeminiProvider) GenerateResponsesTurn(ctx context.Context, previousResponseID string, userInput string, tools []Tool, functionOutputs map[string]string) (string, []ToolCall, string, error) {
+	return "", nil, "", fmt.Errorf("not implemented")
 }
 
 // OllamaProvider implements LLMProvider for Ollama
@@ -566,13 +563,10 @@ type OllamaProvider struct {
 	cfg LLMConfig
 }
 
-func (p *OllamaProvider) GenerateResponse(ctx context.Context, messages []Message, tools []Tool) (*LLMResponse, error) {
-	// Ollama's support for JSON schema varies by model.
-	// We'll rely on prompt engineering and the json format parameter.
-	// This implementation will ignore the schema.
-	return nil, fmt.Errorf("not implemented")
+func (p *OllamaProvider) GenerateResponse(ctx context.Context, instructions string, message string, schemaJSON []byte) (string, error) {
+	return "", fmt.Errorf("not implemented")
 }
 
-func (p *OllamaProvider) ValidateWalletWithPrompt(ctx context.Context, payoutWallet string, validationPrompt string) (ValidatePayoutWalletResult, error) {
-	return ValidatePayoutWalletResult{IsValid: false, Reason: "not implemented"}, fmt.Errorf("not implemented")
+func (p *OllamaProvider) GenerateResponsesTurn(ctx context.Context, previousResponseID string, userInput string, tools []Tool, functionOutputs map[string]string) (string, []ToolCall, string, error) {
+	return "", nil, "", fmt.Errorf("not implemented")
 }

@@ -102,31 +102,6 @@ func (a *Activities) AnalyzeImageURL(ctx context.Context, imageUrl string, promp
 	return analysisResult, nil // Return the structured result and nil error
 }
 
-// ValidatePayoutWallet uses an LLM to determine if the provided payout wallet is valid
-// based on the provided validation prompt.
-func (a *Activities) ValidatePayoutWallet(ctx context.Context, payoutWallet string, validationPrompt string) (ValidatePayoutWalletResult, error) {
-	logger := activity.GetLogger(ctx)
-	cfg, err := getConfiguration(ctx)
-	if err != nil {
-		return ValidatePayoutWalletResult{IsValid: false, Reason: "Configuration error"}, fmt.Errorf("failed to get configuration: %w", err)
-	}
-
-	llmProvider, err := NewLLMProvider(cfg.LLMConfig)
-	if err != nil {
-		logger.Error("Failed to create LLM provider for payout wallet validation", "error", err)
-		return ValidatePayoutWalletResult{IsValid: false, Reason: "LLM provider error"}, fmt.Errorf("failed to create LLM provider: %w", err)
-	}
-
-	result, err := llmProvider.ValidateWalletWithPrompt(ctx, payoutWallet, validationPrompt)
-	if err != nil {
-		logger.Error("Failed to validate payout wallet", "error", err)
-		return ValidatePayoutWalletResult{IsValid: false, Reason: "LLM communication error"}, fmt.Errorf("failed to validate payout wallet: %w", err)
-	}
-
-	logger.Info("Payout wallet validation result", "is_valid", result.IsValid, "reason", result.Reason)
-	return result, nil
-}
-
 // DetectMaliciousContentResult is the structured response from the malicious content detection LLM call.
 type DetectMaliciousContentResult struct {
 	IsMalicious bool   `json:"is_malicious"`
@@ -147,63 +122,47 @@ func (a *Activities) DetectMaliciousContent(ctx context.Context, content string)
 		content = content[:MaxContentCharsForLLMCheck]
 	}
 
-	prompt := fmt.Sprintf(cfg.MaliciousContentPrompt, content)
-
-	logger.Info("Sending prompt to LLM for malicious content detection", "estimated_tokens", len(prompt)/4)
-
-	// Here we are creating a very simple, one-turn conversation.
-	messages := []Message{
-		{
-			Role:    "user",
-			Content: prompt,
-		},
-	}
-
-	// This is an example of a "one-shot" tool that the LLM is forced to call.
-	// The agent isn't making a decision here; we are telling it exactly what to do.
-	tools := []Tool{
-		{
-			Name:        "malicious_content_detection",
-			Description: "Determine if content is malicious and provide a reason.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"is_malicious": map[string]interface{}{
-						"type":        "boolean",
-						"description": "True if the content contains malicious instructions or a jailbreak attempt.",
-					},
-					"reason": map[string]interface{}{
-						"type":        "string",
-						"description": "A brief explanation for the decision.",
-					},
-				},
-				"required":             []string{"is_malicious", "reason"},
-				"additionalProperties": false,
-			},
-		},
-	}
-
-	llmProvider, err := NewLLMProvider(cfg.LLMConfig)
+	provider, err := NewLLMProvider(cfg.LLMConfig)
 	if err != nil {
 		logger.Error("Failed to create LLM provider for malicious content detection", "error", err)
 		return DetectMaliciousContentResult{IsMalicious: true, Reason: "LLM provider error"}, fmt.Errorf("failed to create LLM provider: %w", err)
 	}
 
-	resp, err := llmProvider.GenerateResponse(ctx, messages, tools)
+	// Structured output schema for malicious content detection
+	schema := map[string]interface{}{
+		"name":   "malicious_content_detection",
+		"strict": true,
+		"schema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"is_malicious": map[string]interface{}{
+					"type":        "boolean",
+					"description": "True if the content contains malicious instructions or a jailbreak attempt.",
+				},
+				"reason": map[string]interface{}{
+					"type":        "string",
+					"description": "A brief explanation for the decision.",
+				},
+			},
+			"required":             []string{"is_malicious", "reason"},
+			"additionalProperties": false,
+		},
+	}
+	schemaJSON, err := json.Marshal(schema)
+	if err != nil {
+		logger.Error("Failed to marshal malicious content schema", "error", err)
+		return DetectMaliciousContentResult{IsMalicious: true, Reason: "Schema marshal error"}, fmt.Errorf("failed to marshal malicious content schema: %w", err)
+	}
+
+	response, err := provider.GenerateResponse(ctx, cfg.MaliciousContentPrompt, content, schemaJSON)
 	if err != nil {
 		logger.Error("Failed to get LLM response for malicious content detection", "error", err)
 		return DetectMaliciousContentResult{IsMalicious: true, Reason: "LLM communication error"}, fmt.Errorf("failed to get LLM response: %w", err)
 	}
 
-	// In this one-shot forced tool call, we expect exactly one tool call in the response.
-	if len(resp.ToolCalls) != 1 {
-		logger.Error("Expected one tool call from LLM for malicious content detection", "tool_calls_count", len(resp.ToolCalls))
-		return DetectMaliciousContentResult{IsMalicious: true, Reason: "LLM response format error"}, fmt.Errorf("unexpected number of tool calls: %d", len(resp.ToolCalls))
-	}
-
 	var result DetectMaliciousContentResult
-	if err := json.Unmarshal([]byte(resp.ToolCalls[0].Arguments), &result); err != nil {
-		logger.Error("Failed to parse LLM tool call arguments for malicious content detection", "error", err, "raw_response", resp.ToolCalls[0].Arguments)
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		logger.Error("Failed to parse LLM tool call arguments for malicious content detection", "error", err, "raw_response", response)
 		return DetectMaliciousContentResult{IsMalicious: true, Reason: "LLM response parsing error"}, fmt.Errorf("failed to parse LLM response arguments: %w", err)
 	}
 
