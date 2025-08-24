@@ -189,14 +189,17 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	})
 
 	// Wait for funding
-	var verifyResult *VerifyPaymentResult
-	expectedRecipient, err := solanago.PublicKeyFromBase58(input.EscrowWallet)
-	if err != nil {
-		logger.Error("Invalid escrow wallet address", "address", input.EscrowWallet, "error", err)
-		return fmt.Errorf("invalid escrow wallet address: %w", err)
-	}
+	var verifyResult VerifyPaymentResult
+	expectedRecipient := solanago.MustPublicKeyFromBase58(input.EscrowWallet)
 
-	err = workflow.ExecuteActivity(ctx, a.VerifyPayment,
+	// Use a longer timeout for payment verification, as it depends on user action.
+	verifyPaymentAo := workflow.ActivityOptions{
+		StartToCloseTimeout: input.PaymentTimeout + time.Minute, // Give a buffer
+		HeartbeatTimeout:    30 * time.Second,                   // Recommended for long-running activities
+	}
+	verifyPaymentCtx := workflow.WithActivityOptions(ctx, verifyPaymentAo)
+
+	err := workflow.ExecuteActivity(verifyPaymentCtx, a.VerifyPayment,
 		expectedRecipient,
 		input.TotalCharged,
 		bountyState.BountyID,
@@ -427,7 +430,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 		if previousResponseID == "" {
 			actErr = workflow.ExecuteActivity(ctx, a.GenerateResponsesTurn, previousResponseID, fullPrompt, tools, nil).Get(ctx, &turnResult)
 		} else {
-			actErr = workflow.ExecuteActivity(ctx, a.GenerateResponsesTurn, previousResponseID, "", nil, pendingOutputs).Get(ctx, &turnResult)
+			actErr = workflow.ExecuteActivity(ctx, a.GenerateResponsesTurn, previousResponseID, "", tools, pendingOutputs).Get(ctx, &turnResult)
 		}
 		if actErr != nil {
 			logger.Error("LLM activity failed", "error", actErr)
@@ -451,6 +454,22 @@ func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput)
 							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
 						} else {
 							toolResult = string(contentBytes)
+						}
+					}
+				case ToolNameGetRedditChildrenComments:
+					var args struct {
+						ID string `json:"id"`
+					}
+					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+					} else {
+						var result []*RedditContent
+						activityErr := workflow.ExecuteActivity(ctx, a.GetRedditChildrenComments, args.ID).Get(ctx, &result)
+						if activityErr != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+						} else {
+							resultBytes, _ := json.Marshal(result)
+							toolResult = string(resultBytes)
 						}
 					}
 				case ToolNameGetClosingPR:
@@ -623,7 +642,7 @@ type GumroadNotifyWorkflowInput struct {
 // This workflow is intended to be run on a schedule (e.g., every 5 minutes).
 func GumroadNotifyWorkflow(ctx workflow.Context, input GumroadNotifyWorkflowInput) error {
 	logger := workflow.GetLogger(ctx)
-	logger.Info("GumroadNotifyWorkflow started", "lookbackDuration", input.LookbackDuration)
+	logger.Debug("GumroadNotifyWorkflow started", "lookbackDuration", input.LookbackDuration)
 
 	activityOptions := workflow.ActivityOptions{
 		StartToCloseTimeout: 2 * time.Minute, // Timeout for the activity call

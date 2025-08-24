@@ -501,7 +501,7 @@ type PullContentInput struct {
 func (a *Activities) PullContentActivity(ctx context.Context, input PullContentInput) ([]byte, error) {
 	// Implementation to be added in subsequent steps
 	logger := activity.GetLogger(ctx)
-	logger.Info("PullContentActivity executing", "platform", input.PlatformType, "contentID", input.ContentID)
+	logger.Debug("PullContentActivity executing", "platform", input.PlatformType, "contentID", input.ContentID)
 
 	cfg, err := getConfiguration(ctx)
 	if err != nil {
@@ -1087,6 +1087,7 @@ type DeleteBountyEmbeddingViaHTTPActivityInput struct {
 // DeleteBountyEmbeddingViaHTTPActivity calls the server's HTTP endpoint to delete an embedding.
 func (a *Activities) DeleteBountyEmbeddingViaHTTPActivity(ctx context.Context, input DeleteBountyEmbeddingViaHTTPActivityInput) error {
 	logger := activity.GetLogger(ctx)
+	logger.Debug("DeleteBountyEmbeddingViaHTTPActivity started", "BountyID", input.BountyID)
 
 	if input.BountyID == "" {
 		logger.Error("DeleteBountyEmbeddingViaHTTPActivity called with empty BountyID")
@@ -1148,7 +1149,7 @@ type MarkGumroadSaleNotifiedActivityInput struct {
 // to mark a Gumroad sale as notified and record the API key sent to the user.
 func (a *Activities) MarkGumroadSaleNotifiedActivity(ctx context.Context, input MarkGumroadSaleNotifiedActivityInput) error {
 	logger := activity.GetLogger(ctx)
-	logger.Info("MarkGumroadSaleNotifiedActivity started", "SaleID", input.SaleID)
+	logger.Debug("MarkGumroadSaleNotifiedActivity started", "SaleID", input.SaleID)
 
 	cfg, err := getConfiguration(ctx) // Get full config to access AbbServerConfig
 	if err != nil {
@@ -1227,7 +1228,7 @@ func (a *Activities) CallGumroadNotifyActivity(ctx context.Context, input CallGu
 	logger := activity.GetLogger(ctx)
 
 	if cfg.Environment != "prod" {
-		logger.Info("Skipping Gumroad notification activity in non-prod environment", "env", cfg.Environment)
+		logger.Debug("Skipping Gumroad notification activity in non-prod environment", "env", cfg.Environment)
 		return nil
 	}
 

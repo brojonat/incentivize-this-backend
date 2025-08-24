@@ -159,15 +159,33 @@ func (p *OpenAIProvider) GenerateResponse(ctx context.Context, instructions stri
 		"instructions":      instructions,
 		"input":             message,
 		"store":             true,
-		"temperature":       p.cfg.Temperature,
 		"max_output_tokens": p.cfg.MaxTokens,
 	}
 
 	if len(schemaJSON) > 0 {
-		// Provide structured output via JSON schema
-		reqBody["response_format"] = map[string]interface{}{
-			"type":        "json_schema",
-			"json_schema": json.RawMessage(schemaJSON),
+		// Provide structured output via JSON schema under text.format per Responses API
+		var schemaWrapper struct {
+			Name   string          `json:"name"`
+			Strict bool            `json:"strict"`
+			Schema json.RawMessage `json:"schema"`
+		}
+		if err := json.Unmarshal(schemaJSON, &schemaWrapper); err != nil {
+			return "", fmt.Errorf("failed to unmarshal schemaJSON: %w", err)
+		}
+		if schemaWrapper.Name == "" {
+			return "", fmt.Errorf("schema name is required for structured outputs")
+		}
+		if len(schemaWrapper.Schema) == 0 {
+			return "", fmt.Errorf("schema is empty for structured outputs")
+		}
+
+		reqBody["text"] = map[string]interface{}{
+			"format": map[string]interface{}{
+				"type":   "json_schema",
+				"name":   schemaWrapper.Name,
+				"schema": schemaWrapper.Schema,
+				"strict": schemaWrapper.Strict,
+			},
 		}
 	}
 
@@ -209,7 +227,6 @@ func (p *OpenAIProvider) GenerateResponsesTurn(ctx context.Context, previousResp
 	req := map[string]interface{}{
 		"model":             p.cfg.Model,
 		"store":             true,
-		"temperature":       p.cfg.Temperature,
 		"max_output_tokens": p.cfg.MaxTokens,
 	}
 
@@ -226,18 +243,20 @@ func (p *OpenAIProvider) GenerateResponsesTurn(ctx context.Context, previousResp
 		req["input"] = inputs
 	} else {
 		req["input"] = userInput
-		if len(tools) > 0 {
-			toolList := make([]map[string]interface{}, 0, len(tools))
-			for _, t := range tools {
-				toolList = append(toolList, map[string]interface{}{
-					"type":        "function",
-					"name":        t.Name,
-					"description": t.Description,
-					"parameters":  t.Parameters,
-				})
-			}
-			req["tools"] = toolList
+	}
+
+	if len(tools) > 0 {
+		toolList := make([]map[string]interface{}, 0, len(tools))
+		for _, t := range tools {
+			toolList = append(toolList, map[string]interface{}{
+				"type":        "function",
+				"name":        t.Name,
+				"description": t.Description,
+				"parameters":  t.Parameters,
+				"strict":      true,
+			})
 		}
+		req["tools"] = toolList
 	}
 
 	jsonData, err := json.Marshal(req)
@@ -316,11 +335,12 @@ func parseResponsesOutput(body []byte) (assistantText string, toolCalls []ToolCa
 				for _, raw := range mtc {
 					if m, ok := raw.(map[string]any); ok {
 						id, _ := m["id"].(string)
-						fn, _ := m["function"].(map[string]any)
-						name, _ := fn["name"].(string)
-						args, _ := fn["arguments"].(string)
-						if id != "" && name != "" {
-							calls = append(calls, ToolCall{ID: id, Name: name, Arguments: args})
+						if fn, ok := m["function"].(map[string]any); ok {
+							name, _ := fn["name"].(string)
+							args, _ := fn["arguments"].(string)
+							if id != "" && name != "" {
+								calls = append(calls, ToolCall{ID: id, Name: name, Arguments: args})
+							}
 						}
 					}
 				}

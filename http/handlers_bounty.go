@@ -131,7 +131,7 @@ func handleCreateBounty(
 
 		// --- Content Moderation for non-sudo users ---
 		claims, isAuthed := r.Context().Value(ctxKeyJWT).(*authJWTClaims)
-		if isAuthed && claims.Status < UserStatusSudo {
+		if isAuthed && claims != nil && claims.Status < UserStatusSudo {
 			type contentModerationResponse struct {
 				IsAcceptable bool   `json:"is_acceptable"`
 				Reason       string `json:"reason,omitempty"`
@@ -483,8 +483,7 @@ func handleCreateBounty(
 
 		// Determine fee percentage to use
 		var feePercentage float64
-		claims, ok := r.Context().Value(ctxKeyJWT).(*authJWTClaims)
-		if ok && claims.Status >= UserStatusSudo && req.FeePercentage != nil && *req.FeePercentage >= 0 {
+		if claims != nil && claims.Status >= UserStatusSudo && req.FeePercentage != nil && *req.FeePercentage >= 0 {
 			feePercentage = *req.FeePercentage
 		} else {
 			feePercentage = defaultFeePercentage
@@ -492,7 +491,7 @@ func handleCreateBounty(
 
 		// Max Payouts Per User
 		maxPayoutsPerUser := 1
-		if claims.Status >= UserStatusSudo && req.MaxPayoutsPerUser != nil && *req.MaxPayoutsPerUser > 0 && *req.MaxPayoutsPerUser <= 100 {
+		if claims != nil && claims.Status >= UserStatusSudo && req.MaxPayoutsPerUser != nil && *req.MaxPayoutsPerUser > 0 && *req.MaxPayoutsPerUser <= 100 {
 			maxPayoutsPerUser = *req.MaxPayoutsPerUser
 		}
 

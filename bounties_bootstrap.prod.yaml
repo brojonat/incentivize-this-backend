@@ -62,10 +62,12 @@ bounties:
 
       The bounty content must be created on or after {{.Date}}.
       If the content has been edited, the bounty is not fulfilled.
+      The child commants must not call it out as a paid post.
     total_amount: 20.0
     per_post_amount: 1
     duration: 180d
     fee_percentage: 0
+    max_attempts: 3
 
   - name: D
     requirements: |
