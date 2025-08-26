@@ -35,6 +35,9 @@ type LLMProvider interface {
 		tools []Tool,
 		functionOutputs map[string]string,
 	) (assistantText string, toolCalls []ToolCall, responseID string, err error)
+
+	// AnalyzeImage analyzes the image from a URL based on the prompt and returns a structured result.
+	AnalyzeImage(ctx context.Context, imageURL string, prompt string) (CheckContentRequirementsResult, error)
 }
 
 // Tool defines a function the LLM can invoke.
@@ -80,21 +83,6 @@ type LLMConfig struct {
 	BasePrompt  string // Added BasePrompt
 }
 
-// ImageLLMProvider represents a generic LLM service provider for image analysis
-type ImageLLMProvider interface {
-	// AnalyzeImage analyzes the image data based on the prompt and returns a structured result.
-	AnalyzeImage(ctx context.Context, imageData []byte, prompt string) (CheckContentRequirementsResult, error)
-}
-
-// ImageLLMConfig holds configuration for image LLM providers
-type ImageLLMConfig struct {
-	Provider   string // "openai" (currently only openai vision supported)
-	APIKey     string
-	Model      string
-	BasePrompt string // Added BasePrompt
-	// Potentially add BaseURL if needed for self-hosted vision models
-}
-
 // EmbeddingConfig holds configuration for embedding LLM providers
 type EmbeddingConfig struct {
 	Provider string
@@ -122,17 +110,6 @@ func NewLLMProvider(cfg LLMConfig) (LLMProvider, error) {
 		return &OllamaProvider{cfg: cfg}, nil
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %s", cfg.Provider)
-	}
-}
-
-// NewImageLLMProvider creates a new image LLM provider based on the configuration
-func NewImageLLMProvider(cfg ImageLLMConfig) (ImageLLMProvider, error) {
-	switch cfg.Provider {
-	case "openai":
-		// Currently only supports OpenAI vision models
-		return &OpenAIImageProvider{cfg: cfg}, nil
-	default:
-		return nil, fmt.Errorf("unsupported Image LLM provider: %s", cfg.Provider)
 	}
 }
 
@@ -365,15 +342,34 @@ func parseResponsesOutput(body []byte) (assistantText string, toolCalls []ToolCa
 	return strings.TrimSpace(strings.Join(textBuilder, "\n")), calls, responseID, nil
 }
 
-// OpenAIImageProvider implements ImageLLMProvider for OpenAI (Vision)
-type OpenAIImageProvider struct {
-	cfg ImageLLMConfig // Uses ImageLLMConfig
-}
+// AnalyzeImage analyzes an image using the OpenAI Responses API with vision capabilities.
+func (p *OpenAIProvider) AnalyzeImage(ctx context.Context, imageURL string, prompt string) (CheckContentRequirementsResult, error) {
+	// --- Download Image ---
+	req, err := http.NewRequestWithContext(ctx, "GET", imageURL, nil)
+	if err != nil {
+		return CheckContentRequirementsResult{}, fmt.Errorf("failed to create image download request: %w", err)
+	}
+	req.Header.Set("User-Agent", "AffiliateBountyBoard-Worker/1.0")
 
-func (p *OpenAIImageProvider) AnalyzeImage(ctx context.Context, imageData []byte, prompt string) (CheckContentRequirementsResult, error) {
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return CheckContentRequirementsResult{}, fmt.Errorf("failed to download image: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return CheckContentRequirementsResult{}, fmt.Errorf("failed to download image, status: %d", resp.StatusCode)
+	}
+
+	imageData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return CheckContentRequirementsResult{}, fmt.Errorf("failed to read image data: %w", err)
+	}
+
 	// Encode image to base64
 	base64Image := base64.StdEncoding.EncodeToString(imageData)
-	imageUrl := fmt.Sprintf("data:image/jpeg;base64,%s", base64Image) // Assuming JPEG, adjust if needed or detect mime type
+	imageUrl := fmt.Sprintf("data:image/jpeg;base64,%s", base64Image)
 
 	// Define the JSON schema for the expected output
 	schema := map[string]interface{}{
@@ -396,84 +392,79 @@ func (p *OpenAIImageProvider) AnalyzeImage(ctx context.Context, imageData []byte
 			"additionalProperties": false,
 		},
 	}
+	schemaJSON, err := json.Marshal(schema)
+	if err != nil {
+		return CheckContentRequirementsResult{}, fmt.Errorf("failed to marshal schema: %w", err)
+	}
 
-	// Build Chat Completions request body for vision (GPT‑5 compatible)
+	// Construct a structured input for the Responses API, similar to chat completions
+	inputContent := []map[string]interface{}{
+		{"type": "text", "text": prompt},
+		{"type": "image_url", "image_url": map[string]string{"url": imageUrl}},
+	}
+
 	reqBody := map[string]interface{}{
-		"model": p.cfg.Model,
-		"response_format": map[string]interface{}{
-			"type":        "json_schema",
-			"json_schema": schema,
-		},
-		"messages": []interface{}{
-			map[string]interface{}{
-				"role": "user",
-				"content": []interface{}{
-					map[string]interface{}{"type": "text", "text": prompt},
-					map[string]interface{}{
-						"type":      "image_url",
-						"image_url": map[string]interface{}{"url": imageUrl},
-					},
-				},
-			},
-		},
-	}
-	modelLowerVision := strings.ToLower(p.cfg.Model)
-	if strings.Contains(modelLowerVision, "gpt-5") {
-		reqBody["max_completion_tokens"] = 2048
-	} else {
-		reqBody["max_tokens"] = 2048
+		"model":             p.cfg.Model,
+		"input":             inputContent,
+		"store":             true,
+		"max_output_tokens": 4096,
 	}
 
-	// Marshal request body
+	var schemaWrapper struct {
+		Name   string          `json:"name"`
+		Strict bool            `json:"strict"`
+		Schema json.RawMessage `json:"schema"`
+	}
+	if err := json.Unmarshal(schemaJSON, &schemaWrapper); err != nil {
+		return CheckContentRequirementsResult{}, fmt.Errorf("failed to unmarshal schemaJSON: %w", err)
+	}
+
+	reqBody["text"] = map[string]interface{}{
+		"format": map[string]interface{}{
+			"type":   "json_schema",
+			"name":   schemaWrapper.Name,
+			"schema": schemaWrapper.Schema,
+			"strict": schemaWrapper.Strict,
+		},
+	}
+
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
 		return CheckContentRequirementsResult{}, fmt.Errorf("failed to marshal OpenAI vision request body: %w", err)
 	}
 
-	// Create request (Use the standard chat completions endpoint)
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonData))
+	apiURL := "https://api.openai.com/v1/responses"
+	req, err = http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return CheckContentRequirementsResult{}, fmt.Errorf("failed to create OpenAI vision request: %w", err)
 	}
 
-	// Set headers
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+p.cfg.APIKey)
 
-	// Send request
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err = client.Do(req)
 	if err != nil {
 		return CheckContentRequirementsResult{}, fmt.Errorf("failed to send OpenAI vision request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Check response status
-	bodyBytes, _ := io.ReadAll(resp.Body) // Read body for potential error messages
+	bodyBytes, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		return CheckContentRequirementsResult{}, fmt.Errorf("OpenAI Vision API returned status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	// Parse standard chat completion response to get the raw text content
-	var apiResponse struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.Unmarshal(bodyBytes, &apiResponse); err != nil {
-		return CheckContentRequirementsResult{}, fmt.Errorf("failed to decode OpenAI vision API response: %w", err)
+	assistantText, _, _, err := parseResponsesOutput(bodyBytes)
+	if err != nil {
+		return CheckContentRequirementsResult{}, fmt.Errorf("failed to parse OpenAI vision API response: %w", err)
 	}
 
-	if len(apiResponse.Choices) == 0 || apiResponse.Choices[0].Message.Content == "" {
+	if assistantText == "" {
 		return CheckContentRequirementsResult{}, fmt.Errorf("received an empty response from OpenAI vision API")
 	}
 
-	// The response content is a JSON string, so we need to unmarshal it
 	var analysisResult CheckContentRequirementsResult
-	if err := json.Unmarshal([]byte(apiResponse.Choices[0].Message.Content), &analysisResult); err != nil {
-		return CheckContentRequirementsResult{}, fmt.Errorf("failed to unmarshal JSON from vision API response content: %w. Content: %s", err, apiResponse.Choices[0].Message.Content)
+	if err := json.Unmarshal([]byte(assistantText), &analysisResult); err != nil {
+		return CheckContentRequirementsResult{}, fmt.Errorf("failed to unmarshal JSON from vision API response content: %w. Content: %s", err, assistantText)
 	}
 
 	return analysisResult, nil
@@ -565,6 +556,10 @@ func (p *AnthropicProvider) GenerateResponsesTurn(ctx context.Context, previousR
 	return "", nil, "", fmt.Errorf("not implemented")
 }
 
+func (p *AnthropicProvider) AnalyzeImage(ctx context.Context, imageURL string, prompt string) (CheckContentRequirementsResult, error) {
+	return CheckContentRequirementsResult{}, fmt.Errorf("not implemented")
+}
+
 // AnthropicProvider implements LLMProvider for Anthropic (Text)
 type GeminiProvider struct {
 	cfg LLMConfig
@@ -578,6 +573,10 @@ func (p *GeminiProvider) GenerateResponsesTurn(ctx context.Context, previousResp
 	return "", nil, "", fmt.Errorf("not implemented")
 }
 
+func (p *GeminiProvider) AnalyzeImage(ctx context.Context, imageURL string, prompt string) (CheckContentRequirementsResult, error) {
+	return CheckContentRequirementsResult{}, fmt.Errorf("not implemented")
+}
+
 // OllamaProvider implements LLMProvider for Ollama
 type OllamaProvider struct {
 	cfg LLMConfig
@@ -589,4 +588,8 @@ func (p *OllamaProvider) GenerateResponse(ctx context.Context, instructions stri
 
 func (p *OllamaProvider) GenerateResponsesTurn(ctx context.Context, previousResponseID string, userInput string, tools []Tool, functionOutputs map[string]string) (string, []ToolCall, string, error) {
 	return "", nil, "", fmt.Errorf("not implemented")
+}
+
+func (p *OllamaProvider) AnalyzeImage(ctx context.Context, imageURL string, prompt string) (CheckContentRequirementsResult, error) {
+	return CheckContentRequirementsResult{}, fmt.Errorf("not implemented")
 }

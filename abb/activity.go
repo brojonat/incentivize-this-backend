@@ -157,7 +157,6 @@ type Configuration struct {
 	ABBServerConfig                  AbbServerConfig             `json:"abb_server_config"`
 	SolanaConfig                     SolanaConfig                `json:"solana_config"`
 	LLMConfig                        LLMConfig                   `json:"llm_config"`
-	ImageLLMConfig                   ImageLLMConfig              `json:"image_llm_config"`
 	EmbeddingConfig                  EmbeddingConfig             `json:"embedding_config"`
 	RedditDeps                       RedditDependencies          `json:"reddit_deps"`
 	YouTubeDeps                      YouTubeDependencies         `json:"youtube_deps"`
@@ -325,14 +324,6 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode LLM_PROMPT_CHECK_CONTENT_REQUIREMENTS_BASE_B64: %w", err)
 	}
-	llmImageAnalysisPromptBase, err := decodeBase64(os.Getenv(EnvLLMImageAnalysisPromptBase))
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode LLM_PROMPT_IMAGE_ANALYSIS_BASE_B64: %w", err)
-	}
-	llmShouldPerformImageAnalysisPromptBase, err := decodeBase64(os.Getenv(EnvLLMShouldPerformImageAnalysisPromptBase))
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode LLM_PROMPT_SHOULD_PERFORM_IMAGE_ANALYSIS_BASE_B64: %w", err)
-	}
 	llmMaliciousContentPromptBase, err := decodeBase64(os.Getenv(EnvLLMMaliciousContentPromptBase))
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode LLM_PROMPT_MALICIOUS_CONTENT_BASE_B64: %w", err)
@@ -358,15 +349,6 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		Model:      llmModelName,
 		MaxTokens:  maxTokens,
 		BasePrompt: llmCheckContentRequirementsPromptBase,
-	}
-
-	// --- Image LLM Config ---
-	imageLLMConfig := ImageLLMConfig{
-		Provider:   os.Getenv(EnvLLMImageProvider),
-		APIKey:     os.Getenv(EnvLLMImageAPIKey),
-		Model:      os.Getenv(EnvLLMImageModel),
-		BasePrompt: llmImageAnalysisPromptBase,
-		// BasePrompt is set below
 	}
 
 	// --- Embedding Config ---
@@ -448,29 +430,27 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 	}
 
 	config := &Configuration{
-		ABBServerConfig:                  abbServerConfig,
-		SolanaConfig:                     solanaConfig,
-		LLMConfig:                        llmConfig,
-		ImageLLMConfig:                   imageLLMConfig,
-		EmbeddingConfig:                  embeddingConfig,
-		RedditDeps:                       redditDeps,
-		YouTubeDeps:                      youtubeDeps,
-		TwitchDeps:                       twitchDeps,
-		HackerNewsDeps:                   HackerNewsDependencies{},
-		BlueskyDeps:                      blueskyDeps,
-		InstagramDeps:                    instagramDeps,
-		IncentivizeThisDeps:              incentivizeThisDeps,
-		TripadvisorDeps:                  tripadvisorDeps,
-		SteamDeps:                        steamDeps,
-		DiscordConfig:                    discordConfig,
-		CheckContentRequirementsPrompt:   llmCheckContentRequirementsPromptBase,
-		ShouldPerformImageAnalysisPrompt: llmShouldPerformImageAnalysisPromptBase,
-		MaliciousContentPrompt:           llmMaliciousContentPromptBase,
-		OrchestratorPrompt:               llmOrchestratorPromptBase,
-		PublishTargetSubreddit:           targetSubreddit,
-		Environment:                      environmentToStore,
-		RedditFlairID:                    flairID,
-		GitHubDeps:                       GitHubDependencies{},
+		ABBServerConfig:                abbServerConfig,
+		SolanaConfig:                   solanaConfig,
+		LLMConfig:                      llmConfig,
+		EmbeddingConfig:                embeddingConfig,
+		RedditDeps:                     redditDeps,
+		YouTubeDeps:                    youtubeDeps,
+		TwitchDeps:                     twitchDeps,
+		HackerNewsDeps:                 HackerNewsDependencies{},
+		BlueskyDeps:                    blueskyDeps,
+		InstagramDeps:                  instagramDeps,
+		IncentivizeThisDeps:            incentivizeThisDeps,
+		TripadvisorDeps:                tripadvisorDeps,
+		SteamDeps:                      steamDeps,
+		DiscordConfig:                  discordConfig,
+		CheckContentRequirementsPrompt: llmCheckContentRequirementsPromptBase,
+		MaliciousContentPrompt:         llmMaliciousContentPromptBase,
+		OrchestratorPrompt:             llmOrchestratorPromptBase,
+		PublishTargetSubreddit:         targetSubreddit,
+		Environment:                    environmentToStore,
+		RedditFlairID:                  flairID,
+		GitHubDeps:                     GitHubDependencies{},
 	}
 	return config, nil
 }
@@ -1385,4 +1365,101 @@ func (a *Activities) GetOrchestratorPromptActivity(ctx context.Context) (string,
 		return "", fmt.Errorf("orchestrator prompt is not configured")
 	}
 	return cfg.OrchestratorPrompt, nil
+}
+
+// DetectMaliciousContentResult is the structured response from the malicious content detection LLM call.
+type DetectMaliciousContentResult struct {
+	IsMalicious bool   `json:"is_malicious"`
+	Reason      string `json:"reason"`
+}
+
+// DetectMaliciousContent uses an LLM to determine if the provided content contains
+// prompt injection or other attempts to manipulate a downstream AI.
+func (a *Activities) DetectMaliciousContent(ctx context.Context, content string) (DetectMaliciousContentResult, error) {
+	logger := activity.GetLogger(ctx)
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return DetectMaliciousContentResult{IsMalicious: true, Reason: "Configuration error"}, fmt.Errorf("failed to get configuration: %w", err)
+	}
+
+	if len(content) > MaxContentCharsForLLMCheck {
+		logger.Warn("Content exceeds maximum character limit, truncating for malicious content check", "original_length", len(content), "max_length", MaxContentCharsForLLMCheck)
+		content = content[:MaxContentCharsForLLMCheck]
+	}
+
+	provider, err := NewLLMProvider(cfg.LLMConfig)
+	if err != nil {
+		logger.Error("Failed to create LLM provider for malicious content detection", "error", err)
+		return DetectMaliciousContentResult{IsMalicious: true, Reason: "LLM provider error"}, fmt.Errorf("failed to create LLM provider: %w", err)
+	}
+
+	// Structured output schema for malicious content detection
+	schema := map[string]interface{}{
+		"name":   "malicious_content_detection",
+		"strict": true,
+		"schema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"is_malicious": map[string]interface{}{
+					"type":        "boolean",
+					"description": "True if the content contains malicious instructions or a jailbreak attempt.",
+				},
+				"reason": map[string]interface{}{
+					"type":        "string",
+					"description": "A brief explanation for the decision.",
+				},
+			},
+			"required":             []string{"is_malicious", "reason"},
+			"additionalProperties": false,
+		},
+	}
+	schemaJSON, err := json.Marshal(schema)
+	if err != nil {
+		logger.Error("Failed to marshal malicious content schema", "error", err)
+		return DetectMaliciousContentResult{IsMalicious: true, Reason: "Schema marshal error"}, fmt.Errorf("failed to marshal malicious content schema: %w", err)
+	}
+
+	response, err := provider.GenerateResponse(ctx, cfg.MaliciousContentPrompt, content, schemaJSON)
+	if err != nil {
+		logger.Error("Failed to get LLM response for malicious content detection", "error", err)
+		return DetectMaliciousContentResult{IsMalicious: true, Reason: "LLM communication error"}, fmt.Errorf("failed to get LLM response: %w", err)
+	}
+
+	var result DetectMaliciousContentResult
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		logger.Error("Failed to parse LLM tool call arguments for malicious content detection", "error", err, "raw_response", response)
+		return DetectMaliciousContentResult{IsMalicious: true, Reason: "LLM response parsing error"}, fmt.Errorf("failed to parse LLM response arguments: %w", err)
+	}
+
+	logger.Info("Malicious content detection result", "is_malicious", result.IsMalicious, "reason", result.Reason)
+	return result, nil
+}
+
+// AnalyzeImageURL downloads an image from a URL and uses a configured image LLM
+// to analyze it based on a provided text prompt, returning a structured result.
+func (a *Activities) AnalyzeImageURL(ctx context.Context, imageUrl string, prompt string) (CheckContentRequirementsResult, error) {
+	logger := activity.GetLogger(ctx)
+	logger.Info("Starting image analysis", "imageUrl", imageUrl)
+
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		return CheckContentRequirementsResult{Satisfies: false, Reason: "Configuration error"}, fmt.Errorf("failed to get configuration: %w", err)
+	}
+
+	provider, err := NewLLMProvider(cfg.LLMConfig)
+	if err != nil {
+		logger.Error("Failed to create LLM provider for image analysis", "error", err)
+		return CheckContentRequirementsResult{Satisfies: false, Reason: fmt.Sprintf("LLM provider failed: %v", err)}, fmt.Errorf("failed to create LLM provider: %w", err)
+	}
+
+	// The provider now handles downloading the image.
+	logger.Info("Sending image URL to LLM for analysis", "model", cfg.LLMConfig.Model)
+	analysisResult, err := provider.AnalyzeImage(ctx, imageUrl, prompt)
+	if err != nil {
+		logger.Error("LLM image analysis failed", "error", err)
+		return CheckContentRequirementsResult{Satisfies: false, Reason: fmt.Sprintf("LLM analysis failed: %v", err)}, fmt.Errorf("LLM image analysis failed: %w", err)
+	}
+
+	logger.Info("Image analysis successful", "satisfies", analysisResult.Satisfies, "reason", analysisResult.Reason)
+	return analysisResult, nil
 }
