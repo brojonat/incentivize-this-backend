@@ -2,7 +2,7 @@ bounties:
   # this bounty is for testing that the agent will pull reddit content and then
   # realize that it needs to pull the Twitch clip content in order to validate the
   # requirements.
-  - name: redd-twitch-clip
+  - name: reddit-twitch-clip
     requirements: |
       Create a reddit post that links to a Twitch clip with at least 100 views.
     total_amount: 1.
