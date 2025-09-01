@@ -451,13 +451,12 @@ func (a *Activities) GetSubreddit(ctx context.Context, subredditName string) (*S
 		return nil, fmt.Errorf("failed to ensure valid reddit token: %w", err)
 	}
 
-	url := fmt.Sprintf("https://oauth.reddit.com/r/%s/about", subredditName)
+	url := fmt.Sprintf("https://www.reddit.com/r/%s/about.json", strings.TrimPrefix(subredditName, "r/"))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+deps.RedditAuthToken)
 	req.Header.Set("User-Agent", deps.UserAgent)
 
 	resp, err := a.httpClient.Do(req)

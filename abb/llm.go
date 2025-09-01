@@ -399,8 +399,14 @@ func (p *OpenAIProvider) AnalyzeImage(ctx context.Context, imageURL string, prom
 
 	// Construct a structured input for the Responses API, similar to chat completions
 	inputContent := []map[string]interface{}{
-		{"type": "text", "text": prompt},
-		{"type": "image_url", "image_url": map[string]string{"url": imageUrl}},
+		{
+			"type": "message",
+			"role": "user",
+			"content": []map[string]interface{}{
+				{"type": "input_text", "text": prompt},
+				{"type": "input_image", "image_url": imageUrl},
+			},
+		},
 	}
 
 	reqBody := map[string]interface{}{
