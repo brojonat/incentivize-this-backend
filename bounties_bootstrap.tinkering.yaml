@@ -1,23 +1,33 @@
 bounties:
+  # this bounty is for testing that the agent will pull reddit content and then
+  # realize that it needs to pull the Twitch clip content in order to validate the
+  # requirements.
+  - name: redd-twitch-clip
+    requirements: |
+      Create a reddit post that links to a Twitch clip with at least 100 views.
+    total_amount: 1.
+    per_post_amount: 0.01
+    duration: 180d
+    fee_percentage: 0
   - name: photoshop-request
     requirements: |
       Write a comment in r/photoshoprequest. The comment must be created on or after {{.Date}}, and the original poster must reply to the comment with "!solved". The comment must be on a post that has at least 25 upvotes. There must not be any child comments suggesting the comment submitted for the bounty is spam.
-    total_amount: 10.0
-    per_post_amount: 0.50
+    total_amount: 1.
+    per_post_amount: 0.01
     duration: 180d
     fee_percentage: 0
   - name: photoshop-battle
     requirements: |
       Get 10 upvotes on a comment in this thread: https://www.reddit.com/r/photoshopbattles/comments/1mrzcov/psbattle_putin_and_trump_handshake/.
-    total_amount: 10.0
-    per_post_amount: 0.50
+    total_amount: 1.
+    per_post_amount: 0.01
     duration: 180d
     fee_percentage: 0
   - name: photoshop-request-specific-post
     requirements: |
       Submit a comment to this post: https://www.reddit.com/r/photoshopbattles/comments/1msasbg/psbattle_grilling_gone_wrong/ that has at least 10 upvotes. The payout wallet must be present in the comment.
-    total_amount: 10.0
-    per_post_amount: 0.50
+    total_amount: 1.
+    per_post_amount: 0.01
     duration: 180d
     fee_percentage: 0
   - name: "Reddit Comment on Local Business (Austin's Hardwoods)"
@@ -31,8 +41,8 @@ bounties:
       - r/SantaAna
       - r/woodworking
       - r/beginnerwoodworking
-    total_amount: 5.0
-    per_post_amount: 0.25
+    total_amount: 1.
+    per_post_amount: 0.01
     duration: 14d
 
   - name: "Reddit Post on Local Business (Suzie Cakes)"
@@ -44,8 +54,8 @@ bounties:
       - r/OrangeCounty
       - r/Irvine
       - r/CostaMesa
-    total_amount: 5.0
-    per_post_amount: 1.0
+    total_amount: 1.
+    per_post_amount: 0.01
     duration: 30d
 
   - name: "Reddit Comment on Sustainable Living"
@@ -53,22 +63,22 @@ bounties:
       Post a helpful comment on a Reddit thread in r/sustainability offering a
       practical tip for reducing household waste. Comment should be at least 50
       characters and have at least 10 upvotes.
-    total_amount: 5.0
-    per_post_amount: 0.25
+    total_amount: 1.
+    per_post_amount: 0.01
 
   - name: "Reddit Comment: Brawndo vs. Pepsi"
     requirements: >
       Write a Reddit comment no more than 10 words that conveys that Brawndo is
       better than Pepsi.
-    total_amount: 10.0
-    per_post_amount: 0.25
+    total_amount: 1.
+    per_post_amount: 0.01
 
   - name: "YouTube Video about Sustainable Travel"
     requirements: >
       Create a 5-10 minute YouTube video showcasing sustainable travel tips for
       Southeast Asia. Must include at least 3 specific examples.
-    total_amount: 5.0
-    per_post_amount: 1.0
+    total_amount: 1.
+    per_post_amount: 0.01
 
   - name: "YouTube Video About Someone's Cool Workshop Jig"
     requirements: >
@@ -78,24 +88,24 @@ bounties:
       be at least 10 minutes long and demonstrate how to use the jig in the
       following ways: it can be used to do X. It can be used to do Y. It can
       even Z.
-    total_amount: 20.0
-    per_post_amount: 5.0
+    total_amount: 1.
+    per_post_amount: 0.01
 
   - name: "YouTube Video About Someone's Cool Gym Accessory"
     requirements: >
       YouTube video must be about Mark Bell's SlingSot. Video creator must have at least
       10k subscribers and the video must have at least 20k views, and they must bench
       at least 315 in the video. The video must be at least 10 minutes long.
-    total_amount: 5.0
-    per_post_amount: 0.05
+    total_amount: 1.
+    per_post_amount: 0.01
 
   - name: "YouTube Comment on Educational Video"
     requirements: >
       Leave a thoughtful and constructive comment on a YouTube video explaining
       a complex scientific concept. Comment should ask a clarifying question or
       offer an additional insight. At least 75 characters.
-    total_amount: 5.0
-    per_post_amount: 0.05
+    total_amount: 1.
+    per_post_amount: 0.01
 
   - name: "Hacker News Comment on AI Ethics"
     requirements: >
@@ -103,31 +113,31 @@ bounties:
       posted on a post (not the comment but the post) that has a score of at
       least 50. Also the link/post itself must be about LLM tool use and it must
       link to github.com.
-    total_amount: 5.0
-    per_post_amount: 0.5
+    total_amount: 1.
+    per_post_amount: 0.01
 
   - name: "Hacker News Post about Open Source Project"
     requirements: >
       Submit a new post to Hacker News highlighting an interesting, under-the-radar
       open source project. Include a brief description and a link to the project.
       Post title must start with 'Show HN:'.
-    total_amount: 5.0
-    per_post_amount: 0.50
+    total_amount: 1.
+    per_post_amount: 0.01
 
   - name: "Twitch Clip of a Funny Gaming Moment"
     requirements: >
       Create a Twitch clip (max 60 seconds) of a genuinely funny or surprising
       moment from any live stream. Clip title should be witty.
-    total_amount: 5.0
-    per_post_amount: 1.0
+    total_amount: 1.
+    per_post_amount: 0.01
 
   - name: "Bluesky Post about a New Indie Game"
     requirements: >
       Post on Bluesky about a recently released indie game you're excited about.
       Include the game's name, a brief reason why it's interesting, and the
       #IndieGaming hashtag. Must be at least 100 characters.
-    total_amount: 5.0
-    per_post_amount: 0.5
+    total_amount: 1.
+    per_post_amount: 0.01
 
   - name: "Instagram Post (with Video) about Kean Coffee"
     requirements: >
@@ -136,8 +146,8 @@ bounties:
       The video component of the post must be between 15 and 60 seconds long.
       The post's caption must use the hashtag #NewportBeach or #Tustin and tag the coffee shop @KeanCoffee.
       The post must receive at least 100 views and 10 likes.
-    total_amount: 10.0
-    per_post_amount: 1.0
+    total_amount: 1.
+    per_post_amount: 0.01
     duration: "21d"
 
   - name: "IncentivizeThis Bounty"
@@ -146,6 +156,6 @@ bounties:
       This IncentivizeThis bounty have a total amount of at least 50 USDC
       and a per post amount of 1.0 USDC. The bounty must be active for at least
       21 days.
-    total_amount: 20.0
-    per_post_amount: 4.0
+    total_amount: 1.
+    per_post_amount: 0.01
     duration: "21d"
