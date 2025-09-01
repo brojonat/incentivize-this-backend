@@ -37,7 +37,7 @@ func PollSolanaTransactionsWorkflow(ctx workflow.Context, input PollAndStoreTran
 
 func (a *Activities) PollAndStoreTransactionsActivity(ctx context.Context, input PollAndStoreTransactionsInput) error {
 	logger := activity.GetLogger(ctx)
-	logger.Info("Starting PollAndStoreTransactionsActivity", "escrowWallet", input.EscrowWallet)
+	logger.Debug("Starting PollAndStoreTransactionsActivity", "escrowWallet", input.EscrowWallet)
 
 	// Get configuration from context
 	cfg, err := getConfiguration(ctx)

@@ -131,7 +131,7 @@ func handleCreateBounty(
 
 		// --- Content Moderation for non-sudo users ---
 		claims, isAuthed := r.Context().Value(ctxKeyJWT).(*authJWTClaims)
-		if isAuthed && claims.Status < UserStatusSudo {
+		if isAuthed && claims != nil && claims.Status < UserStatusSudo {
 			type contentModerationResponse struct {
 				IsAcceptable bool   `json:"is_acceptable"`
 				Reason       string `json:"reason,omitempty"`
@@ -161,28 +161,18 @@ func handleCreateBounty(
 				},
 			}
 			prompt := fmt.Sprintf(prompts.ContentModeration, requirementsStr)
-			messages := []abb.Message{
-				{Role: "user", Content: prompt},
+			schemaJSON, err := json.Marshal(schema)
+			if err != nil {
+				writeInternalError(logger, w, fmt.Errorf("failed to marshal content moderation schema: %w", err))
+				return
 			}
-			tools := []abb.Tool{
-				{
-					Name:        "content_moderation",
-					Description: "Determines if the content is acceptable based on moderation rules.",
-					Parameters:  schema["schema"].(map[string]interface{}),
-				},
-			}
-			resp, err := llmProvider.GenerateResponse(r.Context(), messages, tools)
+			resp, err := llmProvider.GenerateResponse(r.Context(), "content_moderation", prompt, schemaJSON)
 			if err != nil {
 				writeInternalError(logger, w, fmt.Errorf("failed to moderate content: %w", err))
 				return
 			}
-			if len(resp.ToolCalls) == 0 {
-				writeInternalError(logger, w, fmt.Errorf("LLM did not return a tool call for moderation"))
-				return
-			}
-
 			var moderationResp contentModerationResponse
-			if err := json.Unmarshal([]byte(resp.ToolCalls[0].Arguments), &moderationResp); err != nil {
+			if err := json.Unmarshal([]byte(resp), &moderationResp); err != nil {
 				writeInternalError(logger, w, fmt.Errorf("failed to parse moderation response: %w", err))
 				return
 			}
@@ -239,32 +229,18 @@ func handleCreateBounty(
 					"additionalProperties": false,
 				},
 			}
-
-			// Use the prompt from the configuration
-			prompt := fmt.Sprintf(prompts.InferBountyTitle, requirementsStr)
-			messages := []abb.Message{
-				{Role: "user", Content: prompt},
+			schemaJSON, err := json.Marshal(schema)
+			if err != nil {
+				writeInternalError(logger, w, fmt.Errorf("failed to marshal infer bounty title schema: %w", err))
+				return
 			}
-			tools := []abb.Tool{
-				{
-					Name:        "infer_bounty_title",
-					Description: "Infers a concise, descriptive title for the bounty based on its requirements.",
-					Parameters:  schema["schema"].(map[string]interface{}),
-				},
-			}
-
-			resp, err := llmProvider.GenerateResponse(r.Context(), messages, tools)
+			resp, err := llmProvider.GenerateResponse(r.Context(), prompts.InferBountyTitle, requirementsStr, schemaJSON)
 			if err != nil {
 				writeInternalError(logger, w, fmt.Errorf("failed to infer bounty title: %w", err))
 				return
 			}
-			if len(resp.ToolCalls) == 0 {
-				writeInternalError(logger, w, fmt.Errorf("LLM did not return a tool call for title inference"))
-				return
-			}
-
 			var inferredTitle inferredTitleRequest
-			if err := json.Unmarshal([]byte(resp.ToolCalls[0].Arguments), &inferredTitle); err != nil {
+			if err := json.Unmarshal([]byte(resp), &inferredTitle); err != nil {
 				writeInternalError(logger, w, fmt.Errorf("failed to parse inferred title response: %w", err))
 				return
 			}
@@ -357,28 +333,18 @@ func handleCreateBounty(
 				"additionalProperties": false,
 			},
 		}
-		prompt := fmt.Sprintf(prompts.InferContentParams, requirementsStr)
-		messages := []abb.Message{
-			{Role: "user", Content: prompt},
+		schemaJSON, err := json.Marshal(schema)
+		if err != nil {
+			writeInternalError(logger, w, fmt.Errorf("failed to marshal content parameters schema: %w", err))
+			return
 		}
-		tools := []abb.Tool{
-			{
-				Name:        "infer_content_parameters",
-				Description: "Infers the platform and content kind from the bounty requirements.",
-				Parameters:  schema["schema"].(map[string]interface{}),
-			},
-		}
-		resp, err := llmProvider.GenerateResponse(r.Context(), messages, tools)
+		resp, err := llmProvider.GenerateResponse(r.Context(), prompts.InferContentParams, requirementsStr, schemaJSON)
 		if err != nil {
 			writeInternalError(logger, w, fmt.Errorf("failed to infer content parameters: %w", err))
 			return
 		}
-		if len(resp.ToolCalls) == 0 {
-			writeInternalError(logger, w, fmt.Errorf("LLM did not return a tool call for content parameter inference"))
-			return
-		}
 		var inferredParams inferredContentParamsRequest
-		if err := json.Unmarshal([]byte(resp.ToolCalls[0].Arguments), &inferredParams); err != nil {
+		if err := json.Unmarshal([]byte(resp), &inferredParams); err != nil {
 			writeInternalError(logger, w, fmt.Errorf("failed to parse inferred content parameters: %w", err))
 			return
 		}
@@ -517,8 +483,7 @@ func handleCreateBounty(
 
 		// Determine fee percentage to use
 		var feePercentage float64
-		claims, ok := r.Context().Value(ctxKeyJWT).(*authJWTClaims)
-		if ok && claims.Status >= UserStatusSudo && req.FeePercentage != nil && *req.FeePercentage >= 0 {
+		if claims != nil && claims.Status >= UserStatusSudo && req.FeePercentage != nil && *req.FeePercentage >= 0 {
 			feePercentage = *req.FeePercentage
 		} else {
 			feePercentage = defaultFeePercentage
@@ -526,7 +491,7 @@ func handleCreateBounty(
 
 		// Max Payouts Per User
 		maxPayoutsPerUser := 1
-		if claims.Status >= UserStatusSudo && req.MaxPayoutsPerUser != nil && *req.MaxPayoutsPerUser > 0 && *req.MaxPayoutsPerUser <= 100 {
+		if claims != nil && claims.Status >= UserStatusSudo && req.MaxPayoutsPerUser != nil && *req.MaxPayoutsPerUser > 0 && *req.MaxPayoutsPerUser <= 100 {
 			maxPayoutsPerUser = *req.MaxPayoutsPerUser
 		}
 
@@ -644,23 +609,6 @@ func handleHardenBounty(
 		Requirements string `json:"requirements"`
 	}
 
-	// Tool schema returned by LLM
-	schema := map[string]interface{}{
-		"name":   "harden_bounty",
-		"strict": true,
-		"schema": map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"requirements": map[string]interface{}{
-					"type":        "string",
-					"description": "Final hardened bounty requirements as a single string (newline-separated if needed).",
-				},
-			},
-			"required":             []string{"requirements"},
-			"additionalProperties": false,
-		},
-	}
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req hardenRequest
 		if err := stools.DecodeJSONBody(r, &req); err != nil {
@@ -679,34 +627,34 @@ func handleHardenBounty(
 		}
 
 		// Prepare prompt with current date context
-		today := time.Now().UTC().Format("2006-01-02")
-		base := prompts.HardenBounty
-		if base == "" {
-			writeInternalError(logger, w, fmt.Errorf("harden bounty prompt not configured"))
+		// Enforce structured output for hardened requirements
+		hardenSchema := map[string]interface{}{
+			"name":   "harden_bounty",
+			"strict": true,
+			"schema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"requirements": map[string]interface{}{
+						"type":        "string",
+						"description": "Final hardened bounty requirements as a single string (newline-separated if needed).",
+					},
+				},
+				"required":             []string{"requirements"},
+				"additionalProperties": false,
+			},
+		}
+		hardenSchemaJSON, err := json.Marshal(hardenSchema)
+		if err != nil {
+			writeInternalError(logger, w, fmt.Errorf("failed to marshal harden schema: %w", err))
 			return
 		}
-		userReq := req.Requirements
-		prompt := fmt.Sprintf(base, today, userReq)
-
-		messages := []abb.Message{{Role: "user", Content: prompt}}
-		tools := []abb.Tool{{
-			Name:        "harden_bounty",
-			Description: "Returns a hardened list of bounty requirements with a current-date requirement and authenticity safeguards.",
-			Parameters:  schema["schema"].(map[string]interface{}),
-		}}
-
-		resp, err := llmProvider.GenerateResponse(r.Context(), messages, tools)
+		resp, err := llmProvider.GenerateResponse(r.Context(), prompts.HardenBounty, req.Requirements, hardenSchemaJSON)
 		if err != nil {
 			writeInternalError(logger, w, fmt.Errorf("failed to harden bounty: %w", err))
 			return
 		}
-		if len(resp.ToolCalls) == 0 {
-			writeInternalError(logger, w, fmt.Errorf("LLM did not return a tool call for hardening"))
-			return
-		}
-
 		var out hardenResponse
-		if err := json.Unmarshal([]byte(resp.ToolCalls[0].Arguments), &out); err != nil {
+		if err := json.Unmarshal([]byte(resp), &out); err != nil {
 			writeInternalError(logger, w, fmt.Errorf("failed to parse harden response: %w", err))
 			return
 		}

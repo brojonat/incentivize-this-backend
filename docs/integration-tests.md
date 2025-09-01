@@ -10,11 +10,11 @@ Quickstart:
 - Ensure worker envs are loaded (e.g., source `.env.worker` or export needed vars)
 - In one terminal:
   ```bash
-  abb debug run-debug-worker | tee integration-worker.log
+  abb debug run-debug-worker | tee logs/integration-worker.log
   ```
 - In a separate terminal:
   ```bash
-  abb debug run-integration-tests | tee integration-stdout.log
+  abb debug run-integration-tests | tee logs/integration-stdout.log
   ```
 
 What these tests do:

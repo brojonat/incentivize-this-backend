@@ -5,7 +5,6 @@ const (
 	ToolNameSubmitDecision            = "submit_decision"
 	ToolNameAnalyzeImageURL           = "analyze_image_url"
 	ToolNameDetectMaliciousContent    = "detect_malicious_content"
-	ToolNameValidatePayoutWallet      = "validate_payout_wallet"
 	ToolNameGetRedditChildrenComments = "get_reddit_children_comments"
 	ToolNameGetClosingPR              = "get_githubclosing_pr"
 )
@@ -79,7 +78,8 @@ Content ID formats (examples):
 				"description": "The unique identifier for the content on the specified platform.",
 			},
 		},
-		"required": []interface{}{"platform", "content_kind", "content_id"},
+		"required":             []interface{}{"platform", "content_kind", "content_id"},
+		"additionalProperties": false,
 	},
 }
 
@@ -98,7 +98,8 @@ var SubmitDecisionTool = Tool{
 				"description": "A detailed explanation for the decision.",
 			},
 		},
-		"required": []interface{}{"is_approved", "reason"},
+		"required":             []interface{}{"is_approved", "reason"},
+		"additionalProperties": false,
 	},
 }
 
@@ -117,7 +118,8 @@ var AnalyzeImageURLTool = Tool{
 				"description": "The specific requirement the image must meet. For example, 'the image must contain a cat'.",
 			},
 		},
-		"required": []interface{}{"image_url", "prompt"},
+		"required":             []interface{}{"image_url", "prompt"},
+		"additionalProperties": false,
 	},
 }
 
@@ -132,34 +134,11 @@ var DetectMaliciousContentTool = Tool{
 				"description": "The content to check.",
 			},
 		},
-		"required": []interface{}{"content"},
+		"required":             []interface{}{"content"},
+		"additionalProperties": false,
 	},
 }
 
-var ValidatePayoutWalletTool = Tool{
-	Name:        ToolNameValidatePayoutWallet,
-	Description: "Validates if a payout wallet is eligible for a bounty based on the content and bounty prompt. Agents should use this tool to validate whether or not a particular wallet address is present in the content.",
-	Parameters: map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"payout_wallet": map[string]interface{}{
-				"type":        "string",
-				"description": "The payout wallet address to validate.",
-			},
-			"validation_prompt": map[string]interface{}{
-				"type":        "string",
-				"description": "A specific prompt to guide the LLM in validating the wallet. This prompt should contain the bounty requirements as well as any relevant content that may be relevant to the payout wallet requirements.",
-			},
-		},
-		"required": []interface{}{"payout_wallet", "validation_prompt"},
-	},
-}
-
-// FIXME: implement a tool call to get the children comments for a given Reddit post or comment
-// The caller will supply an id, and the tool will return the children comments.
-// GetRedditChildrenCommentsTool
-// Parameters:
-// - id: The id of the post or comment to get the children comments for.
 var GetRedditChildrenCommentsTool = Tool{
 	Name:        ToolNameGetRedditChildrenComments,
 	Description: "Fetches the direct replies (children comments) for a given Reddit post or comment. Use this tool when you need to analyze a discussion thread, such as checking for replies to a specific comment to fulfill a bounty requirement.",
@@ -168,10 +147,11 @@ var GetRedditChildrenCommentsTool = Tool{
 		"properties": map[string]interface{}{
 			"id": map[string]interface{}{
 				"type":        "string",
-				"description": "The full Reddit ID for the post or comment (e.g., 't3_abcdef' for a post, 't1_abc123' for a comment) whose children you want to fetch.",
+				"description": "The full Reddit ID for the post or comment (e.g., 't3_abcdef' for a post, 't1_abc123' for a comment) whose children you want to fetch. You MUST include the prefix 't3_' or 't1_' in the ID.",
 			},
 		},
-		"required": []interface{}{"id"},
+		"required":             []interface{}{"id"},
+		"additionalProperties": false,
 	},
 }
 
@@ -194,6 +174,7 @@ var GetClosingPRTool = Tool{
 				"description": "The number of the issue that the PR closed.",
 			},
 		},
-		"required": []string{"owner", "repo", "issue_number"},
+		"required":             []string{"owner", "repo", "issue_number"},
+		"additionalProperties": false,
 	},
 }

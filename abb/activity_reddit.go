@@ -451,13 +451,12 @@ func (a *Activities) GetSubreddit(ctx context.Context, subredditName string) (*S
 		return nil, fmt.Errorf("failed to ensure valid reddit token: %w", err)
 	}
 
-	url := fmt.Sprintf("https://oauth.reddit.com/r/%s/about", subredditName)
+	url := fmt.Sprintf("https://www.reddit.com/r/%s/about.json", strings.TrimPrefix(subredditName, "r/"))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+deps.RedditAuthToken)
 	req.Header.Set("User-Agent", deps.UserAgent)
 
 	resp, err := a.httpClient.Do(req)
@@ -540,7 +539,14 @@ func (a *Activities) GetRedditChildrenComments(ctx context.Context, id string) (
 		commentsURL = "https://oauth.reddit.com/comments/" + postID + "/comment/" + commentID + "?limit=20"
 
 	} else {
-		return nil, fmt.Errorf("invalid reddit id format: must start with 't1_' or 't3_'")
+		// Attempt to infer the type if prefix is missing
+		logger.Warn("Reddit ID prefix missing, attempting to infer type", "id", id)
+		prefixedID, err := a.inferRedditID(ctx, deps, id)
+		if err != nil {
+			return nil, err // Return the original error style for consistency
+		}
+		// Recursively call the function with the now-prefixed ID
+		return a.GetRedditChildrenComments(ctx, prefixedID)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, commentsURL, nil)
@@ -602,6 +608,57 @@ func (a *Activities) GetRedditChildrenComments(ctx context.Context, id string) (
 		}
 	}
 	return children, nil
+}
+
+// inferRedditID attempts to determine if an ID is a post or comment and returns it with the correct prefix.
+func (a *Activities) inferRedditID(ctx context.Context, deps *RedditDependencies, id string) (string, error) {
+	// Function to check a given prefix (t1_ or t3_)
+	checkPrefix := func(prefix string) (bool, error) {
+		fullID := prefix + id
+		infoURL := fmt.Sprintf("https://oauth.reddit.com/api/info.json?id=%s", fullID)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, infoURL, nil)
+		if err != nil {
+			return false, fmt.Errorf("failed to create request for id inference: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+deps.RedditAuthToken)
+		req.Header.Set("User-Agent", deps.UserAgent)
+		resp, err := a.httpClient.Do(req)
+		if err != nil {
+			return false, fmt.Errorf("request for id inference failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			// Don't treat non-OK as a hard error, as it might just mean not found
+			return false, nil
+		}
+		var listing RedditCommentListing
+		if err := json.NewDecoder(resp.Body).Decode(&listing); err != nil {
+			return false, fmt.Errorf("failed to decode inference response: %w", err)
+		}
+		// If we found children, the ID is valid for this prefix
+		return len(listing.Data.Children) > 0, nil
+	}
+
+	// Try t1_ (comment) first, as it's a common case for child comment lookups
+	isComment, err := checkPrefix("t1_")
+	if err != nil {
+		return "", err
+	}
+	if isComment {
+		return "t1_" + id, nil
+	}
+
+	// Try t3_ (post)
+	isPost, err := checkPrefix("t3_")
+	if err != nil {
+		return "", err
+	}
+	if isPost {
+		return "t3_" + id, nil
+	}
+
+	return "", fmt.Errorf("invalid reddit id format: must start with 't1_' or 't3_'")
 }
 
 // extractReplies recursively traverses the comment tree and flattens it into a list.
@@ -862,7 +919,7 @@ func (a *Activities) postToReddit(ctx context.Context, logger temporal_log.Logge
 
 // fetchSingleBounty fetches a specific bounty by ID from the ABB server
 func (a *Activities) fetchSingleBounty(ctx context.Context, logger temporal_log.Logger, cfg *Configuration, client *http.Client, token, bountyID string) (*api.BountyListItem, error) {
-	bountyURL := fmt.Sprintf("%s/bounties/%s", strings.TrimSuffix(cfg.ABBServerConfig.APIEndpoint, "/"), bountyID)
+	bountyURL := strings.TrimSuffix(cfg.ABBServerConfig.APIEndpoint, "/") + "/bounties/" + bountyID
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, bountyURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create bounty request: %w", err)

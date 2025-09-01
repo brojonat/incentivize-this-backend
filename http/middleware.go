@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -163,7 +164,8 @@ func makeGraceful(l *slog.Logger) func(http.HandlerFunc) http.HandlerFunc {
 			defer func() {
 				err := recover()
 				if err != nil {
-					l.Error("recovered from panic")
+					stack := debug.Stack()
+					l.Error("recovered from panic", "stack", string(stack))
 					switch v := err.(type) {
 					case error:
 						writeInternalError(l, w, v)

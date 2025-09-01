@@ -91,7 +91,6 @@ Key activities to be refactored into tools include:
 
 - **`PullContentActivity`**: Becomes a `get_content_details` tool. This is crucial for allowing the agent to perform "research" on parent posts, user profiles, or related content.
 - **Image Analysis Logic**: Becomes an `analyze_image_for_visual_requirements` tool. The agent can call this when a bounty has specific visual criteria (e.g., "the screenshot must contain our logo").
-- **`ValidatePayoutWalletActivity`**: Becomes a `validate_payout_wallet` tool. The agent can use this to verify if a user's provided wallet address is valid for the required blockchain.
 - **`DetectMaliciousContent`**: Becomes a `scan_text_for_malicious_content` tool. This acts as a security guardrail that the agent can invoke.
 
 Each of these tools will need a clear name, a detailed description of what it does and when to use it, and a well-defined JSON schema for its arguments.
