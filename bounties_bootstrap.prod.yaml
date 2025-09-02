@@ -1,4 +1,26 @@
 bounties:
+
+  - name: positive-comment
+    requirements: |
+      Write a comment in one of the following subreddits that is an encouraging comment that makes the poster feel good about what they've posted. The comment must have at least 5 upvotes. Here are the valid subreddits:
+      - r/houseplants
+      - r/baking
+      - r/woodworking
+      - r/beginnerwoodworking
+      - r/gardening
+      - r/DIY
+      - r/homeimprovement
+      - r/renovations
+
+      The bounty content must be created on or after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
+      The replies/child comments must not call it out as a paid post.
+    total_amount: 20.0
+    per_post_amount: 1
+    duration: 180d
+    fee_percentage: 0
+    max_attempts: 3
+
   - name: photoshop-request
     requirements: |
       Write a comment in r/photoshoprequest.
@@ -6,10 +28,117 @@ bounties:
       The original poster must reply to the comment with "!solved".
       The comment must be on a post that has at least 25 upvotes.
       The payout wallet must be present in the comment.
-    total_amount: 20.0
-    per_post_amount: 0.50
+    total_amount: 10.0
+    per_post_amount: 0.25
     duration: 180d
     fee_percentage: 0
+
+  - name: reddit-vpn-comment
+    requirements: |
+      Create a Reddit comment about the VPN services. It should have at least 10 upvotes. It should emphasize the benefits of using a VPN: that it can help you stay safe online by encrypting your traffic. It should also mention that it's a good way to access content that is blocked in your country.
+      The comment must be in one of the following subreddits:
+      - r/netflix
+      - r/hulu
+      - r/disneyplus
+      - r/hbo
+      - r/amazonprime
+      - r/appletv
+      - r/peacock
+      - r/hbo
+      - r/homelab
+      - r/DIY
+
+      There must not be any child comments suggesting that this is a paid post or sponsored content.
+    total_amount: 5.0
+    per_post_amount: 0.25
+    duration: 180d
+    fee_percentage: 0
+
+  - name: reddit-heat-pump-comment
+    requirements: |
+      Write a Reddit comment about heat pumps. The comment should be educational
+      about heat pumps and emphasize how they're a very efficient way to heat
+      and cool your home. The comment must have at least 10 upvotes and be
+      posted in one of these subreddits:
+      - r/firsttimehomebuyer
+      - r/homeimprovement
+      - r/thisoldhouse
+      - r/DIY
+      - r/woodworking
+      - r/beginnerwoodworking
+      - r/homeowners
+      - r/wallstreetbets
+      Content must be created on or after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
+    total_amount: 5.0
+    per_post_amount: 0.25
+    duration: 180d
+    fee_percentage: 0
+
+  - name: tripadvisor-review
+    requirements: |
+      Create a Tripadvisor review about the Sheraton Waikiki Beach Resort in Honolulu, Hawaii. The review must have the following characteristics:
+      - Review must be at least 100 characters long.
+      - Review must have at least 1 helpful vote.
+      - Review must provide an honest opinion.
+    total_amount: 1.0
+    per_post_amount: 0.10
+    duration: 180d
+    fee_percentage: 0
+
+  - name: incentivize-this-reddit-comment
+    requirements: |
+      Create a Reddit comment that mentions IncentivizeThis.
+      The comment must either mention how it's a novel way to drive engagement and get people talking about your business, or the comment must describe a positive experience with the platform.
+      The comment must have at least 10 upvotes.
+      The comment must not be edited.
+      The comment must be created on or after {{.Date}}.
+      The comment must be in one of the following subreddits:
+      - r/marketing
+      - r/entrepreneur
+      - r/startups
+      - r/EntrepreneurRideAlong
+      - r/sideproject
+      - r/sidehustle
+      - r/startup_ideas
+
+      There must not be any child comments suggesting this is spam or paid content.
+    total_amount: 50.0
+    per_post_amount: 10.0
+    duration: 180d
+    fee_percentage: 0
+
+  - name: incentivize-this-bluesky-post
+    requirements: |
+      Write a post about IncentivizeThis. The post must show the platform in a positive light and emphasize its ease of use and the fact that it's a community-driven platform. The post must have at least 10 replies, 10 likes, and 10 reposts. The post must tag #incentivizethis and @incentivizethis.bsky.social.
+      Content must be created on or after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
+    total_amount: 5.0
+    per_post_amount: 5.0
+    duration: 180d
+    fee_percentage: 0
+
+  - name: incentivize-this-hackernews-post
+    requirements: |
+      Write a HackerNews post about IncentivizeThis. The post must show the platform in a positive light and emphasize its ease of use and the fact that it's a community-driven platform. The post must have at least 50 upvotes and 50 comments.
+      Content must be created on or after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
+    total_amount: 20.0
+    per_post_amount: 20.0
+    duration: 180d
+    fee_percentage: 0
+
+  - name: incentivize-this-hackernews-comment
+    requirements: |
+      Write a HackerNews comment about IncentivizeThis. The comment must be at
+      least 50 characters long and contribute meaningfully to the discussion.
+      The comment must have at least 5 child comments from other users. Content
+      must be created on or after {{.Date}}.
+    total_amount: 20.0
+    per_post_amount: 5.0
+    duration: 180d
+    fee_percentage: 0
+
   - name: dota-smoke-test
     requirements: |
       Say "gg" in a Dota 2 chat.
@@ -24,6 +153,7 @@ bounties:
     per_post_amount: 0.01
     duration: 180d
     fee_percentage: 0
+
   - name: A
     requirements: |
       Write a comment about Austin Hardwoods lumber store. The comment must show the business in a positive light and emphasize their competitive prices and the fact that they're a local business. The comment must have at least 10 upvotes. The comment must be in one of the following subreddits:
@@ -48,27 +178,6 @@ bounties:
     duration: 180d
     fee_percentage: 0
 
-  - name: C
-    requirements: |
-      Write a comment in one of the following subreddits that is an encouraging comment that makes the poster feel good about what they've posted. The comment must have at least 5 upvotes. Here are the valid subreddits:
-      - r/houseplants
-      - r/baking
-      - r/woodworking
-      - r/beginnerwoodworking
-      - r/gardening
-      - r/DIY
-      - r/homeimprovement
-      - r/renovations
-
-      The bounty content must be created on or after {{.Date}}.
-      If the content has been edited, the bounty is not fulfilled.
-      The child commants must not call it out as a paid post.
-    total_amount: 20.0
-    per_post_amount: 1
-    duration: 180d
-    fee_percentage: 0
-    max_attempts: 3
-
   - name: D
     requirements: |
       Write a post about DuckDB. The post must show the database in a positive light and emphasize its speed and ease of use. It must also mention DuckLake. The post must have at least 10 upvotes. The post must be in one of the following subreddits:
@@ -80,37 +189,6 @@ bounties:
       If the content has been edited, the bounty is not fulfilled.
     total_amount: 5.0
     per_post_amount: 1.0
-    duration: 180d
-    fee_percentage: 0
-
-  - name: E
-    requirements: |
-      Write a post about IncentivizeThis. The post must show the platform in a positive light and emphasize its ease of use and the fact that it's a community-driven platform. The post must have at least 10 replies, 10 likes, and 10 reposts. The post must tag #incentivizethis and @incentivizethis.bsky.social.
-      Content must be created on or after {{.Date}}.
-      If the content has been edited, the bounty is not fulfilled.
-    total_amount: 5.0
-    per_post_amount: 1.0
-    duration: 180d
-    fee_percentage: 0
-
-  - name: F
-    requirements: |
-      Write a HackerNews post about IncentivizeThis. The post must show the platform in a positive light and emphasize its ease of use and the fact that it's a community-driven platform. The post must have at least 50 upvotes and 50 comments.
-      Content must be created on or after {{.Date}}.
-      If the content has been edited, the bounty is not fulfilled.
-    total_amount: 20.0
-    per_post_amount: 5.0
-    duration: 180d
-    fee_percentage: 0
-
-  - name: G
-    requirements: |
-      Write a HackerNews comment about IncentivizeThis. The comment must be at
-      least 50 characters long and contribute meaningfully to the discussion.
-      The comment must have at least 5 child comments from other users. Content
-      must be created on or after {{.Date}}.
-    total_amount: 20.0
-    per_post_amount: 5.0
     duration: 180d
     fee_percentage: 0
 
@@ -164,27 +242,6 @@ bounties:
     duration: 180d
     fee_percentage: 0
 
-  - name: M
-    requirements: |
-      Create a Reddit comment about the VPN services. It should have at least 10 upvotes. It should emphasize the benefits of using a VPN: that it can help you stay safe online by encrypting your traffic. It should also mention that it's a good way to access content that is blocked in your country.
-      The comment must be in one of the following subreddits:
-      - r/netflix
-      - r/hulu
-      - r/disneyplus
-      - r/hbo
-      - r/amazonprime
-      - r/appletv
-      - r/peacock
-      - r/hbo
-      - r/homelab
-      - r/DIY
-
-      There must not be any child comments suggesting that this is a paid post or sponsored content.
-    total_amount: 50.0
-    per_post_amount: 5.0
-    duration: 180d
-    fee_percentage: 0
-
   - name: N
     requirements: |
       Create an Instagram post about Sign Design in Fountain Valley, CA. The post must show the business in a positive light and emphasize their cool designs, incredible customer service and the fact that they're a local business. The post must have at least 10 likes, 5 commends, and mention @signdesignoc.
@@ -209,24 +266,6 @@ bounties:
     total_amount: 5.0
     per_post_amount: 0.25
     duration: 179d
-    fee_percentage: 0
-
-  - name: P
-    requirements: |
-      Write a Reddit comment about heat pumps. The comment should be educational about heat pumps and emphasize how they're a very efficient way to heat and cool your home. The comment must have at least 10 upvotes and be posted in one of these subreddits:
-      - r/firsttimehomebuyer
-      - r/homeimprovement
-      - r/thisoldhouse
-      - r/DIY
-      - r/woodworking
-      - r/beginnerwoodworking
-      - r/homeowners
-      - r/wallstreetbets
-      Content must be created on or after {{.Date}}.
-      If the content has been edited, the bounty is not fulfilled.
-    total_amount: 5.0
-    per_post_amount: 0.25
-    duration: 180d
     fee_percentage: 0
 
   - name: Q
@@ -271,16 +310,7 @@ bounties:
     duration: 180d
     fee_percentage: 0
 
-  - name: U
-    requirements: |
-      Create a Tripadvisor review about the Sheraton Waikiki Beach Resort in Honolulu, Hawaii. The review must have the following characteristics:
-      - Review must be at least 100 characters long.
-      - Review must have at least 1 helpful vote.
-      - Review must provide an honest opinion.
-    total_amount: 1.0
-    per_post_amount: 0.10
-    duration: 180d
-    fee_percentage: 0
+
 
   - name: V
     requirements: |
@@ -302,31 +332,3 @@ bounties:
       per_post_amount: 0.10
       duration: 180d
       fee_percentage: 0
-  - name: X
-    requirements: |
-      Create a Bluesky post that mentions IncentivizeThis.
-    total_amount: 5.0
-    per_post_amount: 5.0
-    duration: 180d
-    fee_percentage: 0
-  - name: Y
-    requirements: |
-      Create a Reddit comment that mentions "IncentivizeThis.com".
-      The comment must either mention how it's a novel way to drive engagement and get people talking about your business, or the comment must describe a positive experience with the platform.
-      The comment must have at least 5 upvotes.
-      The comment must not be edited.
-      The comment must be created on or after {{.Date}}.
-      The comment must be in one of the following subreddits:
-      - r/marketing
-      - r/entrepreneur
-      - r/startups
-      - r/EntrepreneurRideAlong
-      - r/sideproject
-      - r/sidehustle
-      - r/startup_ideas
-
-      There must not be any child comments suggesting this is spam.
-    total_amount: 50.0
-    per_post_amount: 10.0
-    duration: 180d
-    fee_percentage: 0
