@@ -376,7 +376,7 @@ graph TD
   ```bash
   LLM_PROVIDER=openai
   LLM_API_KEY=your_api_key
-  LLM_MODEL=gpt-4o-mini
+  LLM_MODEL=gpt-5-mini
   # LLM_CHECK_REQ_PROMPT_BASE=... (Optional, base64 encoded prompt)
   ```
 
