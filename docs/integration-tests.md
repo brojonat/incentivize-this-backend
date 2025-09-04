@@ -19,7 +19,7 @@ Quickstart:
 
 What these tests do:
 
-- Launch `DebugWorkflow` runs that call activities like `pull_content`, `analyze_image_url`, `validate_payout_wallet`, etc.
+- Launch `DebugWorkflow` runs that call activities like `pull_content`, `analyze_image_url`, etc.
 - Cover multiple platforms/inputs for `pull_content` and other tools.
 - Print failures inline and a final pass count summary.
 

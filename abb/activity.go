@@ -34,7 +34,6 @@ const (
 	EnvLLMProvider       = "LLM_PROVIDER"
 	EnvLLMModel          = "LLM_MODEL"
 	EnvLLMMaxTokens      = "LLM_MAX_TOKENS"
-	EnvLLMBasePromptFile = "LLM_BASE_PROMPT_FILE"
 	EnvLLMEmbeddingModel = "LLM_EMBEDDING_MODEL"
 
 	EnvSolanaRPCEndpoint      = "SOLANA_RPC_ENDPOINT"
@@ -71,7 +70,6 @@ const (
 	EnvLLMImageProvider                        = "LLM_IMAGE_PROVIDER"
 	EnvLLMImageAPIKey                          = "LLM_IMAGE_API_KEY"
 	EnvLLMImageModel                           = "LLM_IMAGE_MODEL"
-	EnvLLMCheckContentRequirementsPromptBase   = "LLM_PROMPT_CHECK_CONTENT_REQUIREMENTS_BASE_B64"
 	EnvLLMShouldPerformImageAnalysisPromptBase = "LLM_PROMPT_SHOULD_PERFORM_IMAGE_ANALYSIS_BASE_B64"
 	EnvLLMImageAnalysisPromptBase              = "LLM_PROMPT_IMAGE_ANALYSIS_BASE_B64"
 	EnvLLMMaliciousContentPromptBase           = "LLM_PROMPT_MALICIOUS_CONTENT_BASE_B64"
@@ -168,7 +166,6 @@ type Configuration struct {
 	TripadvisorDeps                  TripadvisorDependencies     `json:"tripadvisor_deps"`
 	SteamDeps                        SteamDependencies           `json:"steam_deps"`
 	DiscordConfig                    DiscordConfig               `json:"discord_config"`
-	CheckContentRequirementsPrompt   string                      `json:"check_content_requirements_prompt"`
 	ShouldPerformImageAnalysisPrompt string                      `json:"should_perform_image_analysis_prompt"`
 	MaliciousContentPrompt           string                      `json:"malicious_content_prompt"`
 	OrchestratorPrompt               string                      `json:"orchestrator_prompt"`
@@ -320,10 +317,6 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		return nil, fmt.Errorf("LLM API Key not found for configured provider %s", llmProviderName)
 	}
 	// --- Prompts ---
-	llmCheckContentRequirementsPromptBase, err := decodeBase64(os.Getenv(EnvLLMCheckContentRequirementsPromptBase))
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode LLM_PROMPT_CHECK_CONTENT_REQUIREMENTS_BASE_B64: %w", err)
-	}
 	llmMaliciousContentPromptBase, err := decodeBase64(os.Getenv(EnvLLMMaliciousContentPromptBase))
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode LLM_PROMPT_MALICIOUS_CONTENT_BASE_B64: %w", err)
@@ -344,11 +337,10 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		}
 	}
 	llmConfig := LLMConfig{
-		Provider:   llmProviderName,
-		APIKey:     llmAPIKey,
-		Model:      llmModelName,
-		MaxTokens:  maxTokens,
-		BasePrompt: llmCheckContentRequirementsPromptBase,
+		Provider:  llmProviderName,
+		APIKey:    llmAPIKey,
+		Model:     llmModelName,
+		MaxTokens: maxTokens,
 	}
 
 	// --- Embedding Config ---
@@ -430,27 +422,26 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 	}
 
 	config := &Configuration{
-		ABBServerConfig:                abbServerConfig,
-		SolanaConfig:                   solanaConfig,
-		LLMConfig:                      llmConfig,
-		EmbeddingConfig:                embeddingConfig,
-		RedditDeps:                     redditDeps,
-		YouTubeDeps:                    youtubeDeps,
-		TwitchDeps:                     twitchDeps,
-		HackerNewsDeps:                 HackerNewsDependencies{},
-		BlueskyDeps:                    blueskyDeps,
-		InstagramDeps:                  instagramDeps,
-		IncentivizeThisDeps:            incentivizeThisDeps,
-		TripadvisorDeps:                tripadvisorDeps,
-		SteamDeps:                      steamDeps,
-		DiscordConfig:                  discordConfig,
-		CheckContentRequirementsPrompt: llmCheckContentRequirementsPromptBase,
-		MaliciousContentPrompt:         llmMaliciousContentPromptBase,
-		OrchestratorPrompt:             llmOrchestratorPromptBase,
-		PublishTargetSubreddit:         targetSubreddit,
-		Environment:                    environmentToStore,
-		RedditFlairID:                  flairID,
-		GitHubDeps:                     GitHubDependencies{},
+		ABBServerConfig:        abbServerConfig,
+		SolanaConfig:           solanaConfig,
+		LLMConfig:              llmConfig,
+		EmbeddingConfig:        embeddingConfig,
+		RedditDeps:             redditDeps,
+		YouTubeDeps:            youtubeDeps,
+		TwitchDeps:             twitchDeps,
+		HackerNewsDeps:         HackerNewsDependencies{},
+		BlueskyDeps:            blueskyDeps,
+		InstagramDeps:          instagramDeps,
+		IncentivizeThisDeps:    incentivizeThisDeps,
+		TripadvisorDeps:        tripadvisorDeps,
+		SteamDeps:              steamDeps,
+		DiscordConfig:          discordConfig,
+		MaliciousContentPrompt: llmMaliciousContentPromptBase,
+		OrchestratorPrompt:     llmOrchestratorPromptBase,
+		PublishTargetSubreddit: targetSubreddit,
+		Environment:            environmentToStore,
+		RedditFlairID:          flairID,
+		GitHubDeps:             GitHubDependencies{},
 	}
 	return config, nil
 }

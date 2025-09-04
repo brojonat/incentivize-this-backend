@@ -19,7 +19,7 @@ Use this to retrieve:
 
 Usage patterns:
 - For bounties that require content on a platform, first call pull_content with the appropriate content_kind and content_id.
-- For bounty checks that require finding a wallet in a user's profile, first call pull_content with content_kind = "user" to obtain profile_text, then call validate_payout_wallet with a prompt that includes that profile_text.
+- For bounty checks that require finding a wallet in a user's profile, call pull_content with content_kind = "user" to obtain profile_text.
 
 Valid content_kind by platform (and expected content_id):
 - Reddit: post, comment, user

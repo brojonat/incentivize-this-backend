@@ -80,7 +80,6 @@ type LLMConfig struct {
 	BaseURL     string // useful for self-hosted models or different endpoints
 	MaxTokens   int
 	Temperature float64
-	BasePrompt  string // Added BasePrompt
 }
 
 // EmbeddingConfig holds configuration for embedding LLM providers
