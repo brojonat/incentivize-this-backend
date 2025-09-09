@@ -195,6 +195,9 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	// Use a longer timeout for payment verification, as it depends on user action.
 	verifyPaymentAo := workflow.ActivityOptions{
 		StartToCloseTimeout: input.PaymentTimeout + time.Minute, // Give a buffer
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 1,
+		},
 	}
 	verifyPaymentCtx := workflow.WithActivityOptions(ctx, verifyPaymentAo)
 
