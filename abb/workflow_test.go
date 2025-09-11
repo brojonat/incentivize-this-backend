@@ -32,6 +32,10 @@ func (s *WorkflowTestSuite) SetupTest() {
 	s.env.RegisterActivity(s.a) // Register all activities from the struct
 	s.env.SetTestTimeout(30 * time.Second)
 
+	// Set required environment variables for tests
+	os.Setenv("SOLANA_ESCROW_PRIVATE_KEY", "dummy_private_key_for_testing")
+	os.Setenv("ENV", "test")
+
 	// Register workflows
 	s.env.RegisterWorkflow(OrchestratorWorkflow)
 	s.env.RegisterWorkflow(BountyAssessmentWorkflow)
@@ -479,7 +483,8 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_QueryPaidBounties() {
 		BountyPerPost: bountyPerPost, TotalBounty: totalBounty, TotalCharged: totalCharged,
 		Platform: PlatformReddit, ContentKind: ContentKindPost,
 		Timeout: 1 * time.Hour, PaymentTimeout: 5 * time.Minute,
-		EscrowWallet: "11111111111111111111111111111112",
+		EscrowWallet:   "11111111111111111111111111111112",
+		TreasuryWallet: "11111111111111111111111111111113",
 	}
 
 	s.env.OnActivity(s.a.VerifyPayment, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: "funder_wallet_123"}, nil)
@@ -491,6 +496,7 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_QueryPaidBounties() {
 		ID: "resp_1",
 	}, nil)
 	s.env.OnActivity(s.a.PayBountyActivity, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(s.a.TransferUSDC, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	signal1 := AssessContentSignal{
 		ContentID: "post123", PayoutWallet: "wallet123", Platform: PlatformReddit, ContentKind: ContentKindPost,

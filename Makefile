@@ -632,3 +632,14 @@ generate-worker-prompt-envs: ## Generate base64-encoded prompt env vars for the 
 		exit 1; \
 	fi
 	@yq -r 'to_entries | .[] | "LLM_PROMPT_" + (.key | ascii_upcase | gsub("-";"_")) + "_B64=" + (.value | @base64)' prompts.worker.yaml
+
+seed-prod:
+	abb admin bounty bootstrap -f bounties_bootstrap.prod.yaml -n positive-comment
+	abb admin bounty bootstrap -f bounties_bootstrap.prod.yaml -n photoshop-request
+	abb admin bounty bootstrap -f bounties_bootstrap.prod.yaml -n reddit-vpn-comment
+	abb admin bounty bootstrap -f bounties_bootstrap.prod.yaml -n reddit-heat-pump-comment
+	abb admin bounty bootstrap -f bounties_bootstrap.prod.yaml -n tripadvisor-review
+	abb admin bounty bootstrap -f bounties_bootstrap.prod.yaml -n incentivize-this-reddit-comment
+	abb admin bounty bootstrap -f bounties_bootstrap.prod.yaml -n incentivize-this-bluesky-post
+	abb admin bounty bootstrap -f bounties_bootstrap.prod.yaml -n incentivize-this-hackernews-post
+	abb admin bounty bootstrap -f bounties_bootstrap.prod.yaml -n incentivize-this-hackernews-comment
