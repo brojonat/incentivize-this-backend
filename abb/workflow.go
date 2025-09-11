@@ -201,6 +201,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	}
 	verifyPaymentCtx := workflow.WithActivityOptions(ctx, verifyPaymentAo)
 
+	// Verify the bounty funding.
 	err := workflow.ExecuteActivity(verifyPaymentCtx, a.VerifyPayment,
 		expectedRecipient,
 		input.TotalCharged,
@@ -217,7 +218,6 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 	}
 	bountyState.FunderWallet = verifyResult.FunderWallet
 	bountyState.Status = BountyStatusListening
-	logger.Info("Bounty funded. Listening for submissions.", "funder_wallet", verifyResult.FunderWallet)
 
 	// Update search attributes to reflect the funded status
 	if err := workflow.UpsertTypedSearchAttributes(ctx,
@@ -225,7 +225,16 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 		BountyStatusKey.ValueSet(string(BountyStatusListening)),
 	); err != nil {
 		logger.Error("Failed to upsert search attributes after funding", "error", err)
-		// This is not a fatal error for the workflow itself, so just log it.
+	}
+
+	// Send the fee to the treasury wallet if there is one.
+	feeAmount := input.TotalCharged.Sub(input.TotalBounty)
+	if feeAmount.IsPositive() {
+		logger.Info("Transferring fee to treasury wallet.", "amount", feeAmount.ToUSDC())
+		memo := fmt.Sprintf("{\"bounty_id\": \"%s\", \"purpose\": \"fee_transfer\"}", bountyState.BountyID)
+		if err := workflow.ExecuteActivity(ctx, a.TransferUSDC, input.TreasuryWallet, feeAmount.ToUSDC(), memo).Get(ctx, nil); err != nil {
+			logger.Error("Failed to transfer fee to treasury.", "error", err)
+		}
 	}
 
 	// Main loop for listening to signals, cancellation, or timing out
