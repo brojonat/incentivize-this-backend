@@ -633,7 +633,8 @@ generate-worker-prompt-envs: ## Generate base64-encoded prompt env vars for the 
 	fi
 	@yq -r 'to_entries | .[] | "LLM_PROMPT_" + (.key | ascii_upcase | gsub("-";"_")) + "_B64=" + (.value | @base64)' prompts.worker.yaml
 
-seed-prod:
+# This seeds the prod database with some bounties
+seed-prod: ## Seed the prod database with some bounties
 	abb admin bounty bootstrap -f bounties_bootstrap.prod.yaml -n positive-comment
 	abb admin bounty bootstrap -f bounties_bootstrap.prod.yaml -n photoshop-request
 	abb admin bounty bootstrap -f bounties_bootstrap.prod.yaml -n reddit-vpn-comment

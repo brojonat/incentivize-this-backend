@@ -66,6 +66,14 @@ const (
 	BountyStatusClosed          BountyStatus = "Closed"
 )
 
+// Change IDs for workflow versioning
+const (
+	BountyAssessmentMainLogicChangeID = "bounty-assessment-main-logic"
+	BountyAssessmentMainLogicV1       = 1
+	OrchestratorWorkflowLogicChangeID = "orchestrator-workflow-logic"
+	OrchestratorWorkflowLogicV1       = 1
+)
+
 // Signal Name Constants
 const (
 	AssessmentSignalName        = "assessment"
@@ -139,170 +147,348 @@ type BountyState struct {
 
 // BountyAssessmentWorkflow is the main workflow for managing a bounty.
 func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkflowInput) error {
-	logger := workflow.GetLogger(ctx)
-	startTime := workflow.Now(ctx)
-	ao := workflow.ActivityOptions{StartToCloseTimeout: 1 * time.Minute}
-	ctx = workflow.WithActivityOptions(ctx, ao)
-	a := &Activities{}
+	version := workflow.GetVersion(ctx, BountyAssessmentMainLogicChangeID, workflow.DefaultVersion, BountyAssessmentMainLogicV1)
+	if version == BountyAssessmentMainLogicV1 {
+		logger := workflow.GetLogger(ctx)
+		startTime := workflow.Now(ctx)
+		ao := workflow.ActivityOptions{StartToCloseTimeout: 1 * time.Minute}
+		ctx = workflow.WithActivityOptions(ctx, ao)
+		a := &Activities{}
 
-	bountyState := &BountyState{
-		BountyID:       workflow.GetInfo(ctx).WorkflowExecution.ID,
-		Status:         BountyStatusAwaitingFunding,
-		Requirements:   input.Requirements,
-		BountyPerPost:  input.BountyPerPost,
-		ValueRemaining: input.TotalBounty,
-		Payouts:        make([]PayoutDetail, 0),
-		PayoutCounts:   make(map[string]int),
-		Platform:       input.Platform,
-		ContentKind:    input.ContentKind,
-		Timeout:        input.Timeout,
-		FailedClaims:   make(map[string]time.Time),
-	}
-
-	workflow.SetQueryHandler(ctx, GetPaidBountiesQueryType, func() ([]PayoutDetail, error) {
-		return bountyState.Payouts, nil
-	})
-
-	workflow.SetQueryHandler(ctx, GetBountyDetailsQueryType, func() (*BountyDetails, error) {
-		info := workflow.GetInfo(ctx)
-		details := &BountyDetails{
-			BountyID:             info.WorkflowExecution.ID,
-			Title:                input.Title,
-			Status:               bountyState.Status,
-			Requirements:         input.Requirements,
-			BountyPerPost:        input.BountyPerPost.ToUSDC(),
-			TotalBounty:          input.TotalBounty.ToUSDC(),
-			TotalCharged:         input.TotalCharged.ToUSDC(),
-			RemainingBountyValue: bountyState.ValueRemaining.ToUSDC(),
-			BountyFunderWallet:   bountyState.FunderWallet,
-			PlatformKind:         input.Platform,
-			ContentKind:          input.ContentKind,
-			Tier:                 input.Tier,
-			CreatedAt:            startTime,
-			EndAt:                startTime.Add(input.Timeout),
-		}
-		if details.Status == BountyStatusAwaitingFunding {
-			expiresAt := startTime.Add(input.PaymentTimeout)
-			details.PaymentTimeoutExpiresAt = &expiresAt
-		}
-		return details, nil
-	})
-
-	// Wait for funding
-	var verifyResult VerifyPaymentResult
-	expectedRecipient := solanago.MustPublicKeyFromBase58(input.EscrowWallet)
-
-	// Use a longer timeout for payment verification, as it depends on user action.
-	verifyPaymentAo := workflow.ActivityOptions{
-		StartToCloseTimeout: input.PaymentTimeout + time.Minute, // Give a buffer
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 1,
-		},
-	}
-	verifyPaymentCtx := workflow.WithActivityOptions(ctx, verifyPaymentAo)
-
-	// Verify the bounty funding.
-	err := workflow.ExecuteActivity(verifyPaymentCtx, a.VerifyPayment,
-		expectedRecipient,
-		input.TotalCharged,
-		bountyState.BountyID,
-		input.PaymentTimeout,
-	).Get(ctx, &verifyResult)
-	if err != nil {
-		logger.Error("Funding check activity failed.", "error", err)
-		return err // Returning error to let temporal handle retry/failure
-	}
-	if !verifyResult.Verified {
-		logger.Error("Funding verification failed or timed out.", "error", verifyResult.Error)
-		return nil // End workflow gracefully if not funded
-	}
-	bountyState.FunderWallet = verifyResult.FunderWallet
-	bountyState.Status = BountyStatusListening
-
-	// Update search attributes to reflect the funded status
-	if err := workflow.UpsertTypedSearchAttributes(ctx,
-		BountyFunderWalletKey.ValueSet(verifyResult.FunderWallet),
-		BountyStatusKey.ValueSet(string(BountyStatusListening)),
-	); err != nil {
-		logger.Error("Failed to upsert search attributes after funding", "error", err)
-	}
-
-	// Send the fee to the treasury wallet if there is one.
-	feeAmount := input.TotalCharged.Sub(input.TotalBounty)
-	if feeAmount.IsPositive() {
-		logger.Info("Transferring fee to treasury wallet.", "amount", feeAmount.ToUSDC())
-		memo := fmt.Sprintf("{\"bounty_id\": \"%s\", \"purpose\": \"fee_transfer\"}", bountyState.BountyID)
-		if err := workflow.ExecuteActivity(ctx, a.TransferUSDC, input.TreasuryWallet, feeAmount.ToUSDC(), memo).Get(ctx, nil); err != nil {
-			logger.Error("Failed to transfer fee to treasury.", "error", err)
-		}
-	}
-
-	// Main loop for listening to signals, cancellation, or timing out
-	assessmentChan := workflow.GetSignalChannel(ctx, AssessmentSignalName)
-
-	for {
-		// Check if insufficient balance for next payout
-		if bountyState.ValueRemaining.IsPositive() && bountyState.ValueRemaining.Cmp(bountyState.BountyPerPost) < 0 {
-			logger.Info("Insufficient balance for next payout. Closing bounty.",
-				"remaining", bountyState.ValueRemaining, "needed", bountyState.BountyPerPost)
-			bountyState.Status = BountyStatusDrained
-			if err := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusDrained))); err != nil {
-				logger.Error("Failed to upsert search attributes for drained status", "error", err)
-			}
-			break
+		bountyState := &BountyState{
+			BountyID:       workflow.GetInfo(ctx).WorkflowExecution.ID,
+			Status:         BountyStatusAwaitingFunding,
+			Requirements:   input.Requirements,
+			BountyPerPost:  input.BountyPerPost,
+			ValueRemaining: input.TotalBounty,
+			Payouts:        make([]PayoutDetail, 0),
+			PayoutCounts:   make(map[string]int),
+			Platform:       input.Platform,
+			ContentKind:    input.ContentKind,
+			Timeout:        input.Timeout,
+			FailedClaims:   make(map[string]time.Time),
 		}
 
-		selector := workflow.NewSelector(ctx)
-
-		// Listen for assessment signals
-		selector.AddReceive(assessmentChan, func(c workflow.ReceiveChannel, more bool) {
-			var signal AssessContentSignal
-			c.Receive(ctx, &signal)
-			processClaim(ctx, a, bountyState, signal, logger, input)
+		workflow.SetQueryHandler(ctx, GetPaidBountiesQueryType, func() ([]PayoutDetail, error) {
+			return bountyState.Payouts, nil
 		})
 
-		// Listen for cancellation via the workflow's context
-		selector.AddReceive(ctx.Done(), func(c workflow.ReceiveChannel, more bool) {
-			logger.Info("Bounty cancellation requested")
-			bountyState.Status = BountyStatusCancelled
-			if err := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusCancelled))); err != nil {
-				logger.Error("Failed to upsert search attributes for cancelled status", "error", err)
+		workflow.SetQueryHandler(ctx, GetBountyDetailsQueryType, func() (*BountyDetails, error) {
+			info := workflow.GetInfo(ctx)
+			details := &BountyDetails{
+				BountyID:             info.WorkflowExecution.ID,
+				Title:                input.Title,
+				Status:               bountyState.Status,
+				Requirements:         input.Requirements,
+				BountyPerPost:        input.BountyPerPost.ToUSDC(),
+				TotalBounty:          input.TotalBounty.ToUSDC(),
+				TotalCharged:         input.TotalCharged.ToUSDC(),
+				RemainingBountyValue: bountyState.ValueRemaining.ToUSDC(),
+				BountyFunderWallet:   bountyState.FunderWallet,
+				PlatformKind:         input.Platform,
+				ContentKind:          input.ContentKind,
+				Tier:                 input.Tier,
+				CreatedAt:            startTime,
+				EndAt:                startTime.Add(input.Timeout),
 			}
+			if details.Status == BountyStatusAwaitingFunding {
+				expiresAt := startTime.Add(input.PaymentTimeout)
+				details.PaymentTimeoutExpiresAt = &expiresAt
+			}
+			return details, nil
 		})
 
-		// Listen for timeout
-		selector.AddFuture(workflow.NewTimer(ctx, bountyState.Timeout), func(f workflow.Future) {
-			logger.Info("Bounty timeout reached")
-			bountyState.Status = BountyStatusClosed
-			if err := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusClosed))); err != nil {
-				logger.Error("Failed to upsert search attributes for closed status", "error", err)
-			}
-		})
+		// Wait for funding
+		var verifyResult VerifyPaymentResult
+		expectedRecipient := solanago.MustPublicKeyFromBase58(input.EscrowWallet)
 
-		selector.Select(ctx)
-
-		if bountyState.Status != BountyStatusListening {
-			break
+		// Use a longer timeout for payment verification, as it depends on user action.
+		verifyPaymentAo := workflow.ActivityOptions{
+			StartToCloseTimeout: input.PaymentTimeout + time.Minute, // Give a buffer
+			RetryPolicy: &temporal.RetryPolicy{
+				MaximumAttempts: 1,
+			},
 		}
-	}
+		verifyPaymentCtx := workflow.WithActivityOptions(ctx, verifyPaymentAo)
 
-	// Send any remaining balance back to the funder wallet
-	if bountyState.ValueRemaining.IsPositive() {
-		logger.Info("Refunding remaining balance", "amount", bountyState.ValueRemaining, "funder_wallet", bountyState.FunderWallet)
-
-		// Use a disconnected context to ensure refund completes even if the parent workflow is cancelled.
-		refundCtx, cancel := workflow.NewDisconnectedContext(ctx)
-		defer cancel()
-		err := workflow.ExecuteActivity(refundCtx, a.RefundBountyActivity, bountyState.BountyID, bountyState.FunderWallet, bountyState.ValueRemaining).Get(refundCtx, nil)
+		// Verify the bounty funding.
+		err := workflow.ExecuteActivity(verifyPaymentCtx, a.VerifyPayment,
+			expectedRecipient,
+			input.TotalCharged,
+			bountyState.BountyID,
+			input.PaymentTimeout,
+		).Get(ctx, &verifyResult)
 		if err != nil {
-			logger.Error("Failed to refund remaining balance", "error", err)
-			return err
+			logger.Error("Funding check activity failed.", "error", err)
+			return err // Returning error to let temporal handle retry/failure
 		}
-		logger.Info("Successfully refunded remaining balance", "amount", bountyState.ValueRemaining)
-	}
+		if !verifyResult.Verified {
+			logger.Error("Funding verification failed or timed out.", "error", verifyResult.Error)
+			return nil // End workflow gracefully if not funded
+		}
+		bountyState.FunderWallet = verifyResult.FunderWallet
+		bountyState.Status = BountyStatusListening
 
-	logger.Info("BountyAssessmentWorkflow finished.")
-	return nil
+		// Update search attributes to reflect the funded status
+		if err := workflow.UpsertTypedSearchAttributes(ctx,
+			BountyFunderWalletKey.ValueSet(verifyResult.FunderWallet),
+			BountyStatusKey.ValueSet(string(BountyStatusListening)),
+		); err != nil {
+			logger.Error("Failed to upsert search attributes after funding", "error", err)
+		}
+
+		// Send the fee to the treasury wallet if there is one.
+		feeAmount := input.TotalCharged.Sub(input.TotalBounty)
+		if feeAmount.IsPositive() {
+			logger.Info("Transferring fee to treasury wallet.", "amount", feeAmount.ToUSDC())
+			memo := fmt.Sprintf("{\"bounty_id\": \"%s\", \"purpose\": \"fee_transfer\"}", bountyState.BountyID)
+			transferAo := workflow.ActivityOptions{
+				StartToCloseTimeout: 10 * time.Minute,
+				RetryPolicy: &temporal.RetryPolicy{
+					MaximumAttempts: 1,
+				},
+			}
+			transferCtx := workflow.WithActivityOptions(ctx, transferAo)
+			if err := workflow.ExecuteActivity(transferCtx, a.TransferUSDC, input.TreasuryWallet, feeAmount.ToUSDC(), memo).Get(ctx, nil); err != nil {
+				logger.Error("Failed to transfer fee to treasury.", "error", err)
+			}
+		}
+		// Main loop for listening to signals, cancellation, or timing out
+		assessmentChan := workflow.GetSignalChannel(ctx, AssessmentSignalName)
+
+		for {
+			// Check if insufficient balance for next payout
+			if bountyState.ValueRemaining.IsPositive() && bountyState.ValueRemaining.Cmp(bountyState.BountyPerPost) < 0 {
+				logger.Info("Insufficient balance for next payout. Closing bounty.",
+					"remaining", bountyState.ValueRemaining, "needed", bountyState.BountyPerPost)
+				bountyState.Status = BountyStatusDrained
+				if err := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusDrained))); err != nil {
+					logger.Error("Failed to upsert search attributes for drained status", "error", err)
+				}
+				break
+			}
+
+			selector := workflow.NewSelector(ctx)
+
+			// Listen for assessment signals
+			selector.AddReceive(assessmentChan, func(c workflow.ReceiveChannel, more bool) {
+				var signal AssessContentSignal
+				c.Receive(ctx, &signal)
+				processClaim(ctx, a, bountyState, signal, logger, input)
+			})
+
+			// Listen for cancellation via the workflow's context
+			selector.AddReceive(ctx.Done(), func(c workflow.ReceiveChannel, more bool) {
+				logger.Info("Bounty cancellation requested")
+				bountyState.Status = BountyStatusCancelled
+				if err := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusCancelled))); err != nil {
+					logger.Error("Failed to upsert search attributes for cancelled status", "error", err)
+				}
+			})
+
+			// Listen for timeout
+			selector.AddFuture(workflow.NewTimer(ctx, bountyState.Timeout), func(f workflow.Future) {
+				logger.Info("Bounty timeout reached")
+				bountyState.Status = BountyStatusClosed
+				if err := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusClosed))); err != nil {
+					logger.Error("Failed to upsert search attributes for closed status", "error", err)
+				}
+			})
+
+			selector.Select(ctx)
+
+			if bountyState.Status != BountyStatusListening {
+				break
+			}
+		}
+
+		// Send any remaining balance back to the funder wallet
+		if bountyState.ValueRemaining.IsPositive() {
+			logger.Info("Refunding remaining balance", "amount", bountyState.ValueRemaining, "funder_wallet", bountyState.FunderWallet)
+
+			// Use a disconnected context to ensure refund completes even if the parent workflow is cancelled.
+			refundCtx, cancel := workflow.NewDisconnectedContext(ctx)
+			defer cancel()
+			err := workflow.ExecuteActivity(refundCtx, a.RefundBountyActivity, bountyState.BountyID, bountyState.FunderWallet, bountyState.ValueRemaining).Get(refundCtx, nil)
+			if err != nil {
+				logger.Error("Failed to refund remaining balance", "error", err)
+				return err
+			}
+			logger.Info("Successfully refunded remaining balance", "amount", bountyState.ValueRemaining)
+		}
+		logger.Info("BountyAssessmentWorkflow finished.")
+		return nil
+	} else {
+		logger := workflow.GetLogger(ctx)
+		startTime := workflow.Now(ctx)
+		ao := workflow.ActivityOptions{StartToCloseTimeout: 1 * time.Minute}
+		ctx = workflow.WithActivityOptions(ctx, ao)
+		a := &Activities{}
+
+		bountyState := &BountyState{
+			BountyID:       workflow.GetInfo(ctx).WorkflowExecution.ID,
+			Status:         BountyStatusAwaitingFunding,
+			Requirements:   input.Requirements,
+			BountyPerPost:  input.BountyPerPost,
+			ValueRemaining: input.TotalBounty,
+			Payouts:        make([]PayoutDetail, 0),
+			PayoutCounts:   make(map[string]int),
+			Platform:       input.Platform,
+			ContentKind:    input.ContentKind,
+			Timeout:        input.Timeout,
+			FailedClaims:   make(map[string]time.Time),
+		}
+
+		workflow.SetQueryHandler(ctx, GetPaidBountiesQueryType, func() ([]PayoutDetail, error) {
+			return bountyState.Payouts, nil
+		})
+
+		workflow.SetQueryHandler(ctx, GetBountyDetailsQueryType, func() (*BountyDetails, error) {
+			info := workflow.GetInfo(ctx)
+			details := &BountyDetails{
+				BountyID:             info.WorkflowExecution.ID,
+				Title:                input.Title,
+				Status:               bountyState.Status,
+				Requirements:         input.Requirements,
+				BountyPerPost:        input.BountyPerPost.ToUSDC(),
+				TotalBounty:          input.TotalBounty.ToUSDC(),
+				TotalCharged:         input.TotalCharged.ToUSDC(),
+				RemainingBountyValue: bountyState.ValueRemaining.ToUSDC(),
+				BountyFunderWallet:   bountyState.FunderWallet,
+				PlatformKind:         input.Platform,
+				ContentKind:          input.ContentKind,
+				Tier:                 input.Tier,
+				CreatedAt:            startTime,
+				EndAt:                startTime.Add(input.Timeout),
+			}
+			if details.Status == BountyStatusAwaitingFunding {
+				expiresAt := startTime.Add(input.PaymentTimeout)
+				details.PaymentTimeoutExpiresAt = &expiresAt
+			}
+			return details, nil
+		})
+
+		// Wait for funding
+		var verifyResult VerifyPaymentResult
+		expectedRecipient := solanago.MustPublicKeyFromBase58(input.EscrowWallet)
+
+		// Use a longer timeout for payment verification, as it depends on user action.
+		verifyPaymentAo := workflow.ActivityOptions{
+			StartToCloseTimeout: input.PaymentTimeout + time.Minute, // Give a buffer
+			RetryPolicy: &temporal.RetryPolicy{
+				MaximumAttempts: 1,
+			},
+		}
+		verifyPaymentCtx := workflow.WithActivityOptions(ctx, verifyPaymentAo)
+
+		// Verify the bounty funding.
+		err := workflow.ExecuteActivity(verifyPaymentCtx, a.VerifyPayment,
+			expectedRecipient,
+			input.TotalCharged,
+			bountyState.BountyID,
+			input.PaymentTimeout,
+		).Get(ctx, &verifyResult)
+		if err != nil {
+			logger.Error("Funding check activity failed.", "error", err)
+			return err // Returning error to let temporal handle retry/failure
+		}
+		if !verifyResult.Verified {
+			logger.Error("Funding verification failed or timed out.", "error", verifyResult.Error)
+			return nil // End workflow gracefully if not funded
+		}
+		bountyState.FunderWallet = verifyResult.FunderWallet
+		bountyState.Status = BountyStatusListening
+
+		// Update search attributes to reflect the funded status
+		if err := workflow.UpsertTypedSearchAttributes(ctx,
+			BountyFunderWalletKey.ValueSet(verifyResult.FunderWallet),
+			BountyStatusKey.ValueSet(string(BountyStatusListening)),
+		); err != nil {
+			logger.Error("Failed to upsert search attributes after funding", "error", err)
+		}
+
+		// Send the fee to the treasury wallet if there is one.
+		feeAmount := input.TotalCharged.Sub(input.TotalBounty)
+		if feeAmount.IsPositive() {
+			logger.Info("Transferring fee to treasury wallet.", "amount", feeAmount.ToUSDC())
+			memo := fmt.Sprintf("{\"bounty_id\": \"%s\", \"purpose\": \"fee_transfer\"}", bountyState.BountyID)
+			transferAo := workflow.ActivityOptions{
+				StartToCloseTimeout: 10 * time.Minute,
+				RetryPolicy: &temporal.RetryPolicy{
+					MaximumAttempts: 1,
+				},
+			}
+			transferCtx := workflow.WithActivityOptions(ctx, transferAo)
+			if err := workflow.ExecuteActivity(transferCtx, a.TransferUSDC, input.TreasuryWallet, feeAmount.ToUSDC(), memo).Get(ctx, nil); err != nil {
+				logger.Error("Failed to transfer fee to treasury.", "error", err)
+			}
+		}
+		// Main loop for listening to signals, cancellation, or timing out
+		assessmentChan := workflow.GetSignalChannel(ctx, AssessmentSignalName)
+
+		for {
+			// Check if insufficient balance for next payout
+			if bountyState.ValueRemaining.IsPositive() && bountyState.ValueRemaining.Cmp(bountyState.BountyPerPost) < 0 {
+				logger.Info("Insufficient balance for next payout. Closing bounty.",
+					"remaining", bountyState.ValueRemaining, "needed", bountyState.BountyPerPost)
+				bountyState.Status = BountyStatusDrained
+				if err := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusDrained))); err != nil {
+					logger.Error("Failed to upsert search attributes for drained status", "error", err)
+				}
+				break
+			}
+
+			selector := workflow.NewSelector(ctx)
+
+			// Listen for assessment signals
+			selector.AddReceive(assessmentChan, func(c workflow.ReceiveChannel, more bool) {
+				var signal AssessContentSignal
+				c.Receive(ctx, &signal)
+				processClaim(ctx, a, bountyState, signal, logger, input)
+			})
+
+			// Listen for cancellation via the workflow's context
+			selector.AddReceive(ctx.Done(), func(c workflow.ReceiveChannel, more bool) {
+				logger.Info("Bounty cancellation requested")
+				bountyState.Status = BountyStatusCancelled
+				if err := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusCancelled))); err != nil {
+					logger.Error("Failed to upsert search attributes for cancelled status", "error", err)
+				}
+			})
+
+			// Listen for timeout
+			selector.AddFuture(workflow.NewTimer(ctx, bountyState.Timeout), func(f workflow.Future) {
+				logger.Info("Bounty timeout reached")
+				bountyState.Status = BountyStatusClosed
+				if err := workflow.UpsertTypedSearchAttributes(ctx, BountyStatusKey.ValueSet(string(BountyStatusClosed))); err != nil {
+					logger.Error("Failed to upsert search attributes for closed status", "error", err)
+				}
+			})
+
+			selector.Select(ctx)
+
+			if bountyState.Status != BountyStatusListening {
+				break
+			}
+		}
+
+		// Send any remaining balance back to the funder wallet
+		if bountyState.ValueRemaining.IsPositive() {
+			logger.Info("Refunding remaining balance", "amount", bountyState.ValueRemaining, "funder_wallet", bountyState.FunderWallet)
+
+			// Use a disconnected context to ensure refund completes even if the parent workflow is cancelled.
+			refundCtx, cancel := workflow.NewDisconnectedContext(ctx)
+			defer cancel()
+			err := workflow.ExecuteActivity(refundCtx, a.RefundBountyActivity, bountyState.BountyID, bountyState.FunderWallet, bountyState.ValueRemaining).Get(refundCtx, nil)
+			if err != nil {
+				logger.Error("Failed to refund remaining balance", "error", err)
+				return err
+			}
+			logger.Info("Successfully refunded remaining balance", "amount", bountyState.ValueRemaining)
+		}
+		logger.Info("BountyAssessmentWorkflow finished.")
+		return nil
+	}
 }
 
 func processClaim(ctx workflow.Context, a *Activities, bountyState *BountyState, signal AssessContentSignal, logger log.Logger, bountyInput BountyAssessmentWorkflowInput) {
@@ -404,161 +590,319 @@ type OrchestratorWorkflowOutput struct {
 }
 
 func OrchestratorWorkflow(ctx workflow.Context, input OrchestratorWorkflowInput) (*OrchestratorWorkflowOutput, error) {
-	ao := workflow.ActivityOptions{
-		StartToCloseTimeout: 2 * time.Minute,
-		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 3},
-	}
-	ctx = workflow.WithActivityOptions(ctx, ao)
-	logger := workflow.GetLogger(ctx)
-	a := &Activities{}
-
-	var orchestratorPrompt string
-	err := workflow.ExecuteActivity(ctx, a.GetOrchestratorPromptActivity).Get(ctx, &orchestratorPrompt)
-	if err != nil {
-		logger.Error("Failed to get orchestrator prompt", "error", err)
-		return nil, err
-	}
-
-	bountyInfo := fmt.Sprintf(
-		"You are assessing a piece of content for a bounty.\n\nBounty Title: %s\nBounty Requirements:\n- %s\n\nInitial content to assess:\nPlatform: %s\nContent Kind: %s\nContent ID: %s\n\nWhen you have fetched all the information you need, you MUST call the `submit_decision` tool.",
-		input.Bounty.Title,
-		strings.Join(input.Bounty.Requirements, "\n- "),
-		input.InitialSignal.Platform,
-		input.InitialSignal.ContentKind,
-		input.InitialSignal.ContentID,
-	)
-	fullPrompt := bountyInfo + "\n\n" + orchestratorPrompt
-
-	// Add the decision tool to the list of available tools.
-	tools := append(input.Tools, SubmitDecisionTool)
-
-	previousResponseID := ""
-	pendingOutputs := map[string]string{}
-
-	for i := 0; i < OrchestratorMaxTurns; i++ {
-		var turnResult ResponsesTurnResult
-		var actErr error
-		if previousResponseID == "" {
-			actErr = workflow.ExecuteActivity(ctx, a.GenerateResponsesTurn, previousResponseID, fullPrompt, tools, nil).Get(ctx, &turnResult)
-		} else {
-			actErr = workflow.ExecuteActivity(ctx, a.GenerateResponsesTurn, previousResponseID, "", tools, pendingOutputs).Get(ctx, &turnResult)
+	version := workflow.GetVersion(ctx, OrchestratorWorkflowLogicChangeID, workflow.DefaultVersion, OrchestratorWorkflowLogicV1)
+	if version == OrchestratorWorkflowLogicV1 {
+		ao := workflow.ActivityOptions{
+			StartToCloseTimeout: 2 * time.Minute,
+			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 3},
 		}
-		if actErr != nil {
-			logger.Error("LLM activity failed", "error", actErr)
-			return nil, actErr
-		}
-		previousResponseID = turnResult.ID
-		pendingOutputs = map[string]string{}
+		ctx = workflow.WithActivityOptions(ctx, ao)
+		logger := workflow.GetLogger(ctx)
+		a := &Activities{}
 
-		if len(turnResult.Calls) > 0 {
-			for _, toolCall := range turnResult.Calls {
-				var toolResult string
-				switch toolCall.Name {
-				case ToolNamePullContent:
-					var args PullContentInput
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var contentBytes []byte
-						activityErr := workflow.ExecuteActivity(ctx, a.PullContentActivity, args).Get(ctx, &contentBytes)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							toolResult = string(contentBytes)
-						}
-					}
-				case ToolNameGetRedditChildrenComments:
-					var args struct {
-						ID string `json:"id"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result []*RedditContent
-						activityErr := workflow.ExecuteActivity(ctx, a.GetRedditChildrenComments, args.ID).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							resultBytes, _ := json.Marshal(result)
-							toolResult = string(resultBytes)
-						}
-					}
-				case ToolNameGetClosingPR:
-					var args struct {
-						Owner       string `json:"owner"`
-						Repo        string `json:"repo"`
-						IssueNumber int    `json:"issue_number"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result GitHubPullRequestContent
-						activityErr := workflow.ExecuteActivity(ctx, a.GetClosingPullRequest, args.Owner, args.Repo, args.IssueNumber).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							resultBytes, _ := json.Marshal(result)
-							toolResult = string(resultBytes)
-						}
-					}
-				case ToolNameAnalyzeImageURL:
-					var args struct {
-						ImageURL string `json:"image_url"`
-						Prompt   string `json:"prompt"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result CheckContentRequirementsResult
-						activityErr := workflow.ExecuteActivity(ctx, a.AnalyzeImageURL, args.ImageURL, args.Prompt).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							resultBytes, _ := json.Marshal(result)
-							toolResult = string(resultBytes)
-						}
-					}
-				case ToolNameDetectMaliciousContent:
-					var args struct {
-						Content string `json:"content"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
-						toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
-					} else {
-						var result DetectMaliciousContentResult
-						activityErr := workflow.ExecuteActivity(ctx, a.DetectMaliciousContent, args.Content).Get(ctx, &result)
-						if activityErr != nil {
-							toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
-						} else {
-							resultBytes, _ := json.Marshal(result)
-							toolResult = string(resultBytes)
-						}
-					}
-				case ToolNameSubmitDecision:
-					var decisionArgs struct {
-						IsApproved bool   `json:"is_approved"`
-						Reason     string `json:"reason"`
-					}
-					if err := json.Unmarshal([]byte(toolCall.Arguments), &decisionArgs); err != nil {
-						logger.Error("Failed to unmarshal decision tool arguments", "error", err, "arguments", toolCall.Arguments)
-						return &OrchestratorWorkflowOutput{
-							IsApproved: false,
-							Reason:     "Failed to parse LLM decision.",
-						}, nil
-					}
-					return &OrchestratorWorkflowOutput{IsApproved: decisionArgs.IsApproved, Reason: decisionArgs.Reason}, nil
-				default:
-					toolResult = `{"error": "unknown tool requested"}`
-				}
-				pendingOutputs[toolCall.ID] = toolResult
+		var orchestratorPrompt string
+		err := workflow.ExecuteActivity(ctx, a.GetOrchestratorPromptActivity).Get(ctx, &orchestratorPrompt)
+		if err != nil {
+			logger.Error("Failed to get orchestrator prompt", "error", err)
+			return nil, err
+		}
+		bountyInfo := fmt.Sprintf(
+			"You are assessing a piece of content for a bounty.\n\nBounty Title: %s\nBounty Requirements:\n- %s\n\nInitial content to assess:\nPlatform: %s\nContent Kind: %s\nContent ID: %s\n\nWhen you have fetched all the information you need, you MUST call the `submit_decision` tool.",
+			input.Bounty.Title,
+			strings.Join(input.Bounty.Requirements, "\n- "),
+			input.InitialSignal.Platform,
+			input.InitialSignal.ContentKind,
+			input.InitialSignal.ContentID,
+		)
+		fullPrompt := bountyInfo + "\n\n" + orchestratorPrompt
+
+		// Add the decision tool to the list of available tools.
+		tools := append(input.Tools, SubmitDecisionTool)
+
+		previousResponseID := ""
+		pendingOutputs := map[string]string{}
+
+		for i := 0; i < OrchestratorMaxTurns; i++ {
+			var turnResult ResponsesTurnResult
+			var actErr error
+			if previousResponseID == "" {
+				actErr = workflow.ExecuteActivity(ctx, a.GenerateResponsesTurn, previousResponseID, fullPrompt, tools, nil).Get(ctx, &turnResult)
+			} else {
+				actErr = workflow.ExecuteActivity(ctx, a.GenerateResponsesTurn, previousResponseID, "", tools, pendingOutputs).Get(ctx, &turnResult)
 			}
-			continue
+			if actErr != nil {
+				logger.Error("LLM activity failed", "error", actErr)
+				return nil, actErr
+			}
+			previousResponseID = turnResult.ID
+			pendingOutputs = map[string]string{}
+
+			if len(turnResult.Calls) > 0 {
+				for _, toolCall := range turnResult.Calls {
+					var toolResult string
+					switch toolCall.Name {
+					case ToolNamePullContent:
+						var args PullContentInput
+						if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+						} else {
+							var contentBytes []byte
+							activityErr := workflow.ExecuteActivity(ctx, a.PullContentActivity, args).Get(ctx, &contentBytes)
+							if activityErr != nil {
+								toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+							} else {
+								toolResult = string(contentBytes)
+							}
+						}
+					case ToolNameGetRedditChildrenComments:
+						var args struct {
+							ID string `json:"id"`
+						}
+						if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+						} else {
+							var result []*RedditContent
+							activityErr := workflow.ExecuteActivity(ctx, a.GetRedditChildrenComments, args.ID).Get(ctx, &result)
+							if activityErr != nil {
+								toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+							} else {
+								resultBytes, _ := json.Marshal(result)
+								toolResult = string(resultBytes)
+							}
+						}
+					case ToolNameGetClosingPR:
+						var args struct {
+							Owner       string `json:"owner"`
+							Repo        string `json:"repo"`
+							IssueNumber int    `json:"issue_number"`
+						}
+						if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+						} else {
+							var result GitHubPullRequestContent
+							activityErr := workflow.ExecuteActivity(ctx, a.GetClosingPullRequest, args.Owner, args.Repo, args.IssueNumber).Get(ctx, &result)
+							if activityErr != nil {
+								toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+							} else {
+								resultBytes, _ := json.Marshal(result)
+								toolResult = string(resultBytes)
+							}
+						}
+					case ToolNameAnalyzeImageURL:
+						var args struct {
+							ImageURL string `json:"image_url"`
+							Prompt   string `json:"prompt"`
+						}
+						if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+						} else {
+							var result CheckContentRequirementsResult
+							activityErr := workflow.ExecuteActivity(ctx, a.AnalyzeImageURL, args.ImageURL, args.Prompt).Get(ctx, &result)
+							if activityErr != nil {
+								toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+							} else {
+								resultBytes, _ := json.Marshal(result)
+								toolResult = string(resultBytes)
+							}
+						}
+					case ToolNameDetectMaliciousContent:
+						var args struct {
+							Content string `json:"content"`
+						}
+						if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+						} else {
+							var result DetectMaliciousContentResult
+							activityErr := workflow.ExecuteActivity(ctx, a.DetectMaliciousContent, args.Content).Get(ctx, &result)
+							if activityErr != nil {
+								toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+							} else {
+								resultBytes, _ := json.Marshal(result)
+								toolResult = string(resultBytes)
+							}
+						}
+					case ToolNameSubmitDecision:
+						var decisionArgs struct {
+							IsApproved bool   `json:"is_approved"`
+							Reason     string `json:"reason"`
+						}
+						if err := json.Unmarshal([]byte(toolCall.Arguments), &decisionArgs); err != nil {
+							logger.Error("Failed to unmarshal decision tool arguments", "error", err, "arguments", toolCall.Arguments)
+							return &OrchestratorWorkflowOutput{
+								IsApproved: false,
+								Reason:     "Failed to parse LLM decision.",
+							}, nil
+						}
+						return &OrchestratorWorkflowOutput{IsApproved: decisionArgs.IsApproved, Reason: decisionArgs.Reason}, nil
+					default:
+						toolResult = `{"error": "unknown tool requested"}`
+					}
+					pendingOutputs[toolCall.ID] = toolResult
+				}
+				continue
+			}
+			if strings.TrimSpace(turnResult.Assistant) == "" {
+				logger.Warn("No tool calls and no assistant content; ending conversation")
+				break
+			}
 		}
-		if strings.TrimSpace(turnResult.Assistant) == "" {
-			logger.Warn("No tool calls and no assistant content; ending conversation")
-			break
+	} else {
+		ao := workflow.ActivityOptions{
+			StartToCloseTimeout: 2 * time.Minute,
+			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 3},
+		}
+		ctx = workflow.WithActivityOptions(ctx, ao)
+		logger := workflow.GetLogger(ctx)
+		a := &Activities{}
+
+		var orchestratorPrompt string
+		err := workflow.ExecuteActivity(ctx, a.GetOrchestratorPromptActivity).Get(ctx, &orchestratorPrompt)
+		if err != nil {
+			logger.Error("Failed to get orchestrator prompt", "error", err)
+			return nil, err
+		}
+		bountyInfo := fmt.Sprintf(
+			"You are assessing a piece of content for a bounty.\n\nBounty Title: %s\nBounty Requirements:\n- %s\n\nInitial content to assess:\nPlatform: %s\nContent Kind: %s\nContent ID: %s\n\nWhen you have fetched all the information you need, you MUST call the `submit_decision` tool.",
+			input.Bounty.Title,
+			strings.Join(input.Bounty.Requirements, "\n- "),
+			input.InitialSignal.Platform,
+			input.InitialSignal.ContentKind,
+			input.InitialSignal.ContentID,
+		)
+		fullPrompt := bountyInfo + "\n\n" + orchestratorPrompt
+
+		// Add the decision tool to the list of available tools.
+		tools := append(input.Tools, SubmitDecisionTool)
+
+		previousResponseID := ""
+		pendingOutputs := map[string]string{}
+
+		for i := 0; i < OrchestratorMaxTurns; i++ {
+			var turnResult ResponsesTurnResult
+			var actErr error
+			if previousResponseID == "" {
+				actErr = workflow.ExecuteActivity(ctx, a.GenerateResponsesTurn, previousResponseID, fullPrompt, tools, nil).Get(ctx, &turnResult)
+			} else {
+				actErr = workflow.ExecuteActivity(ctx, a.GenerateResponsesTurn, previousResponseID, "", tools, pendingOutputs).Get(ctx, &turnResult)
+			}
+			if actErr != nil {
+				logger.Error("LLM activity failed", "error", actErr)
+				return nil, actErr
+			}
+			previousResponseID = turnResult.ID
+			pendingOutputs = map[string]string{}
+
+			if len(turnResult.Calls) > 0 {
+				for _, toolCall := range turnResult.Calls {
+					var toolResult string
+					switch toolCall.Name {
+					case ToolNamePullContent:
+						var args PullContentInput
+						if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+						} else {
+							var contentBytes []byte
+							activityErr := workflow.ExecuteActivity(ctx, a.PullContentActivity, args).Get(ctx, &contentBytes)
+							if activityErr != nil {
+								toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+							} else {
+								toolResult = string(contentBytes)
+							}
+						}
+					case ToolNameGetRedditChildrenComments:
+						var args struct {
+							ID string `json:"id"`
+						}
+						if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+						} else {
+							var result []*RedditContent
+							activityErr := workflow.ExecuteActivity(ctx, a.GetRedditChildrenComments, args.ID).Get(ctx, &result)
+							if activityErr != nil {
+								toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+							} else {
+								resultBytes, _ := json.Marshal(result)
+								toolResult = string(resultBytes)
+							}
+						}
+					case ToolNameGetClosingPR:
+						var args struct {
+							Owner       string `json:"owner"`
+							Repo        string `json:"repo"`
+							IssueNumber int    `json:"issue_number"`
+						}
+						if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+						} else {
+							var result GitHubPullRequestContent
+							activityErr := workflow.ExecuteActivity(ctx, a.GetClosingPullRequest, args.Owner, args.Repo, args.IssueNumber).Get(ctx, &result)
+							if activityErr != nil {
+								toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+							} else {
+								resultBytes, _ := json.Marshal(result)
+								toolResult = string(resultBytes)
+							}
+						}
+					case ToolNameAnalyzeImageURL:
+						var args struct {
+							ImageURL string `json:"image_url"`
+							Prompt   string `json:"prompt"`
+						}
+						if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+						} else {
+							var result CheckContentRequirementsResult
+							activityErr := workflow.ExecuteActivity(ctx, a.AnalyzeImageURL, args.ImageURL, args.Prompt).Get(ctx, &result)
+							if activityErr != nil {
+								toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+							} else {
+								resultBytes, _ := json.Marshal(result)
+								toolResult = string(resultBytes)
+							}
+						}
+					case ToolNameDetectMaliciousContent:
+						var args struct {
+							Content string `json:"content"`
+						}
+						if err := json.Unmarshal([]byte(toolCall.Arguments), &args); err != nil {
+							toolResult = fmt.Sprintf(`{"error": "failed to parse arguments: %v"}`, err)
+						} else {
+							var result DetectMaliciousContentResult
+							activityErr := workflow.ExecuteActivity(ctx, a.DetectMaliciousContent, args.Content).Get(ctx, &result)
+							if activityErr != nil {
+								toolResult = fmt.Sprintf(`{"error": "failed to execute tool: %v"}`, activityErr)
+							} else {
+								resultBytes, _ := json.Marshal(result)
+								toolResult = string(resultBytes)
+							}
+						}
+					case ToolNameSubmitDecision:
+						var decisionArgs struct {
+							IsApproved bool   `json:"is_approved"`
+							Reason     string `json:"reason"`
+						}
+						if err := json.Unmarshal([]byte(toolCall.Arguments), &decisionArgs); err != nil {
+							logger.Error("Failed to unmarshal decision tool arguments", "error", err, "arguments", toolCall.Arguments)
+							return &OrchestratorWorkflowOutput{
+								IsApproved: false,
+								Reason:     "Failed to parse LLM decision.",
+							}, nil
+						}
+						return &OrchestratorWorkflowOutput{IsApproved: decisionArgs.IsApproved, Reason: decisionArgs.Reason}, nil
+					default:
+						toolResult = `{"error": "unknown tool requested"}`
+					}
+					pendingOutputs[toolCall.ID] = toolResult
+				}
+				continue
+			}
+			if strings.TrimSpace(turnResult.Assistant) == "" {
+				logger.Warn("No tool calls and no assistant content; ending conversation")
+				break
+			}
 		}
 	}
+
 	return nil, temporal.NewApplicationError("Orchestrator reached max turns", "MaxTurnsExceeded")
 }
 
