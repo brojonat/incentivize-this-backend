@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -861,6 +862,56 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 
 			bounties = append(bounties, bounty)
 		}
+
+		// --- In-memory Sorting ---
+		sortBy := r.URL.Query().Get("sort_by")
+		order := strings.ToUpper(r.URL.Query().Get("order"))
+
+		// Default sort field
+		if sortBy == "" {
+			sortBy = "creation_time"
+		}
+
+		// Default sort order, can be overridden by user
+		if order != "ASC" && order != "DESC" {
+			if sortBy == "time_remaining" {
+				order = "ASC"
+			} else {
+				order = "DESC"
+			}
+		}
+
+		sort.Slice(bounties, func(i, j int) bool {
+			// Default to creation_time DESC for invalid sortBy
+			switch sortBy {
+			case "creation_time":
+				if order == "ASC" {
+					return bounties[i].CreatedAt.Before(bounties[j].CreatedAt)
+				}
+				return bounties[i].CreatedAt.After(bounties[j].CreatedAt)
+			case "time_remaining":
+				if order == "ASC" {
+					return bounties[i].EndAt.Before(bounties[j].EndAt)
+				}
+				return bounties[i].EndAt.After(bounties[j].EndAt)
+			case "per_post_amount":
+				if order == "ASC" {
+					return bounties[i].BountyPerPost < bounties[j].BountyPerPost
+				}
+				return bounties[i].BountyPerPost > bounties[j].BountyPerPost
+			case "total_amount":
+				if order == "ASC" {
+					return bounties[i].TotalBounty < bounties[j].TotalBounty
+				}
+				return bounties[i].TotalBounty > bounties[j].TotalBounty
+			default:
+				// Fallback for invalid sort_by parameter
+				if order == "ASC" {
+					return bounties[i].CreatedAt.Before(bounties[j].CreatedAt)
+				}
+				return bounties[i].CreatedAt.After(bounties[j].CreatedAt)
+			}
+		})
 
 		writeJSONResponse(w, bounties, http.StatusOK)
 	}
