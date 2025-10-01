@@ -237,6 +237,17 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 			logger.Error("Failed to upsert search attributes after funding", "error", err)
 		}
 
+		// Generate and store embedding
+		embeddingInput := GenerateAndStoreBountyEmbeddingActivityInput{
+			BountyID:      bountyState.BountyID,
+			WorkflowInput: input,
+		}
+		err = workflow.ExecuteActivity(ctx, a.GenerateAndStoreBountyEmbeddingActivity, embeddingInput).Get(ctx, nil)
+		if err != nil {
+			logger.Error("Failed to generate and store bounty embedding.", "error", err)
+			// This is a non-fatal error for the bounty's core logic, so we just log it.
+		}
+
 		// Send the fee to the treasury wallet if there is one.
 		feeAmount := input.TotalCharged.Sub(input.TotalBounty)
 		if feeAmount.IsPositive() {
