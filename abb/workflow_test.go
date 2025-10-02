@@ -319,6 +319,7 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_SuccessfulClaim() {
 	}
 
 	s.env.OnActivity(s.a.VerifyPayment, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: "funder_wallet_123"}, nil)
+	s.env.OnActivity(s.a.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.a.GetOrchestratorPromptActivity, mock.Anything).Return("prompt", nil)
 	s.env.OnActivity(s.a.GenerateResponsesTurn, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
 		Calls: []ToolCall{{
@@ -351,6 +352,7 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_RejectedClaim() {
 	}
 
 	s.env.OnActivity(s.a.VerifyPayment, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: "funder_wallet_123"}, nil)
+	s.env.OnActivity(s.a.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.a.GetOrchestratorPromptActivity, mock.Anything).Return("prompt", nil)
 	s.env.OnActivity(s.a.GenerateResponsesTurn, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
 		Calls: []ToolCall{{
@@ -383,6 +385,7 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_Timeout() {
 	}
 
 	s.env.OnActivity(s.a.VerifyPayment, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: funderWallet}, nil)
+	s.env.OnActivity(s.a.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.a.RefundBountyActivity, mock.Anything, mock.Anything, funderWallet, totalBounty).Return(nil)
 
 	s.env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
@@ -402,6 +405,7 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_ClaimCooldown() {
 	}
 
 	s.env.OnActivity(s.a.VerifyPayment, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: "funder_wallet_123"}, nil)
+	s.env.OnActivity(s.a.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.a.GetOrchestratorPromptActivity, mock.Anything).Return("prompt", nil)
 	s.env.OnActivity(s.a.GenerateResponsesTurn, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
 		Calls: []ToolCall{{
@@ -436,6 +440,7 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_SuccessfulRefund() {
 	}
 
 	s.env.OnActivity(s.a.VerifyPayment, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: funderWallet}, nil)
+	s.env.OnActivity(s.a.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.a.RefundBountyActivity, mock.Anything, mock.Anything, funderWallet, totalBounty).Return(nil)
 
 	s.env.ExecuteWorkflow(BountyAssessmentWorkflow, input)
@@ -457,6 +462,7 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_QueryBountyDetails() {
 	}
 
 	s.env.OnActivity(s.a.VerifyPayment, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: "funder-wallet-123"}, nil).Once()
+	s.env.OnActivity(s.a.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.a.RefundBountyActivity, mock.Anything, mock.Anything, "funder-wallet-123", totalBounty).Return(nil).Once()
 
 	s.env.RegisterDelayedCallback(func() {
@@ -488,6 +494,7 @@ func (s *WorkflowTestSuite) Test_BountyAssessmentWorkflow_QueryPaidBounties() {
 	}
 
 	s.env.OnActivity(s.a.VerifyPayment, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&VerifyPaymentResult{Verified: true, FunderWallet: "funder_wallet_123"}, nil)
+	s.env.OnActivity(s.a.GenerateAndStoreBountyEmbeddingActivity, mock.Anything, mock.Anything).Return(nil)
 	s.env.OnActivity(s.a.GetOrchestratorPromptActivity, mock.Anything).Return("prompt", nil)
 	s.env.OnActivity(s.a.GenerateResponsesTurn, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(ResponsesTurnResult{
 		Calls: []ToolCall{{
