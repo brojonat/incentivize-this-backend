@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 	"strings"
 	"time"
 
 	solanautil "github.com/brojonat/affiliate-bounty-board/solana"
+	"github.com/brojonat/forohtoo/client"
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/jsonrpc"
@@ -132,37 +135,64 @@ func (a *Activities) VerifyPayment(
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	ticker := time.NewTicker(10 * time.Second) // Poll every 10 seconds
-	defer ticker.Stop()
+	// Create forohtoo client
+	fmt.Println("Creating forohtoo client", "url", os.Getenv(EnvForohtooServerURL))
+	cl := client.NewClient(os.Getenv(EnvForohtooServerURL), nil, slog.Default())
 
-	for {
-		select {
-		case <-timeoutCtx.Done():
-			return &VerifyPaymentResult{
-				Verified: false,
-				Error:    "payment verification timed out",
-			}, nil
-		case <-ticker.C:
-			transactions, err := a.QueryForBountyTransactions(ctx, bountyID)
-			if err != nil {
-				logger.Error("Failed to query for transaction by bounty ID", "error", err)
-				return nil, fmt.Errorf("failed to query for transaction: %w", err)
-			}
-
-			// Check transactions matching the workflow bounty ID
-			for _, tx := range transactions {
-				if tx.RecipientWallet == expectedRecipient.String() &&
-					tx.AmountSmallestUnit == int64(expectedAmountLamports) &&
-					tx.Memo != nil && strings.Contains(*tx.Memo, bountyID) {
-					return &VerifyPaymentResult{
-						Verified:     true,
-						Amount:       expectedAmount,
-						FunderWallet: tx.FunderWallet,
-					}, nil
-				}
-			}
-		}
+	// start tracking the wallet
+	err := cl.Register(timeoutCtx, expectedRecipient.String(), 10*time.Second)
+	if err != nil {
+		logger.Error("Failed to register wallet", "error", err)
+		return nil, fmt.Errorf("failed to register wallet: %w", err)
 	}
+
+	// Wait for a transaction that matches the workflow ID in the memo
+	txn, err := cl.Await(timeoutCtx, expectedRecipient.String(), func(txn *client.Transaction) bool {
+		// Check if the transaction memo contains the workflow ID
+		return strings.Contains(txn.Memo, bountyID) && txn.Amount == int64(expectedAmountLamports)
+	})
+
+	if err != nil {
+		logger.Error("Failed to receive payment", "error", err)
+		return nil, fmt.Errorf("failed to receive payment: %w", err)
+	}
+	return &VerifyPaymentResult{
+		Verified:     true,
+		Amount:       expectedAmount,
+		FunderWallet: *txn.FromAddress,
+	}, nil
+
+	// ticker := time.NewTicker(10 * time.Second) // Poll every 10 seconds
+	// defer ticker.Stop()
+
+	// for {
+	// 	select {
+	// 	case <-timeoutCtx.Done():
+	// 		return &VerifyPaymentResult{
+	// 			Verified: false,
+	// 			Error:    "payment verification timed out",
+	// 		}, nil
+	// 	case <-ticker.C:
+	// 		transactions, err := a.QueryForBountyTransactions(ctx, bountyID)
+	// 		if err != nil {
+	// 			logger.Error("Failed to query for transaction by bounty ID", "error", err)
+	// 			return nil, fmt.Errorf("failed to query for transaction: %w", err)
+	// 		}
+
+	// 		// Check transactions matching the workflow bounty ID
+	// 		for _, tx := range transactions {
+	// 			if tx.RecipientWallet == expectedRecipient.String() &&
+	// 				tx.AmountSmallestUnit == int64(expectedAmountLamports) &&
+	// 				tx.Memo != nil && strings.Contains(*tx.Memo, bountyID) {
+	// 				return &VerifyPaymentResult{
+	// 					Verified:     true,
+	// 					Amount:       expectedAmount,
+	// 					FunderWallet: tx.FunderWallet,
+	// 				}, nil
+	// 			}
+	// 		}
+	// 	}
+	// }
 }
 
 func (a *Activities) PayBountyActivity(

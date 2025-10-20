@@ -2,6 +2,11 @@
 
 This project is a bounty board for online content creation, powered by Temporal workflows and Solana for payments. Advertisers can create bounties, and content creators can fulfill them to earn rewards.
 
+## TODO:
+
+- I'm almost certain based on wallet transaction histories that we've misconfigured the escrow wallet to send the fee transfer to itself instead of the treasury wallet.
+- Add StackOverflow as a platform. This will work just like GitHub issues.
+
 ## How It Works
 
 1.  A **Funder** (e.g., a business owner) creates a bounty with a reward amount and specific requirements.

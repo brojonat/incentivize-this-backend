@@ -60,7 +60,6 @@ func RunWorker(ctx context.Context, l *slog.Logger, thp, tns, tq string) error {
 	w.RegisterWorkflow(abb.GumroadNotifyWorkflow)
 	w.RegisterWorkflow(abb.ContactUsNotifyWorkflow)
 	w.RegisterWorkflow(abb.EmailTokenWorkflow)
-	w.RegisterWorkflow(abb.PollSolanaTransactionsWorkflow)
 
 	// Register all activities on the activities struct
 	w.RegisterActivity(activities)

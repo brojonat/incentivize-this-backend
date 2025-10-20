@@ -36,6 +36,7 @@ const (
 	EnvLLMMaxTokens      = "LLM_MAX_TOKENS"
 	EnvLLMEmbeddingModel = "LLM_EMBEDDING_MODEL"
 
+	EnvForohtooServerURL      = "FOROHTOO_SERVER_URL"
 	EnvSolanaRPCEndpoint      = "SOLANA_RPC_ENDPOINT"
 	EnvSolanaWSEndpoint       = "SOLANA_WS_ENDPOINT"
 	EnvSolanaEscrowPrivateKey = "SOLANA_ESCROW_PRIVATE_KEY" // Base58 encoded private key for escrow
