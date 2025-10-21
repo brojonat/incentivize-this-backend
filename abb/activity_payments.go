@@ -135,19 +135,25 @@ func (a *Activities) VerifyPayment(
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	cfg, err := getConfiguration(ctx)
+	if err != nil {
+		logger.Error("Failed to get configuration", "error", err)
+		return nil, fmt.Errorf("failed to get configuration: %w", err)
+	}
+
 	// Create forohtoo client
 	fmt.Println("Creating forohtoo client", "url", os.Getenv(EnvForohtooServerURL))
 	cl := client.NewClient(os.Getenv(EnvForohtooServerURL), nil, slog.Default())
+	network := DetermineForohtooNetwork(cfg.SolanaConfig.RPCEndpoint)
 
 	// start tracking the wallet
-	err := cl.Register(timeoutCtx, expectedRecipient.String(), 10*time.Second)
-	if err != nil {
+	if err = cl.Register(timeoutCtx, expectedRecipient.String(), network, 10*time.Second); err != nil {
 		logger.Error("Failed to register wallet", "error", err)
 		return nil, fmt.Errorf("failed to register wallet: %w", err)
 	}
 
 	// Wait for a transaction that matches the workflow ID in the memo
-	txn, err := cl.Await(timeoutCtx, expectedRecipient.String(), func(txn *client.Transaction) bool {
+	txn, err := cl.Await(timeoutCtx, expectedRecipient.String(), network, func(txn *client.Transaction) bool {
 		// Check if the transaction memo contains the workflow ID
 		return strings.Contains(txn.Memo, bountyID) && txn.Amount == int64(expectedAmountLamports)
 	})
