@@ -153,7 +153,7 @@ func (a *Activities) VerifyPayment(
 	}
 
 	// Wait for a transaction that matches the workflow ID in the memo
-	txn, err := cl.Await(timeoutCtx, expectedRecipient.String(), network, func(txn *client.Transaction) bool {
+	txn, err := cl.Await(timeoutCtx, expectedRecipient.String(), network, 10*time.Second, func(txn *client.Transaction) bool {
 		// Check if the transaction memo contains the workflow ID
 		return strings.Contains(txn.Memo, bountyID) && txn.Amount == int64(expectedAmountLamports)
 	})
