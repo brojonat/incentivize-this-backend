@@ -81,7 +81,9 @@ const (
 	EnvDiscordChannelID = "DISCORD_CHANNEL_ID"
 
 	EnvRapidAPIInstagramKey = "RAPIDAPI_INSTAGRAM_KEY"
-	EnvTripadvisorAPIKey    = "TRIPADVISOR_API_KEY"
+	EnvTripadvisorAPIKey   = "TRIPADVISOR_API_KEY"
+	EnvStackOverflowAPIKey = "STACKOVERFLOW_API_KEY"
+	EnvStackOverflowSite   = "STACKOVERFLOW_SITE"
 
 	MaxRequirementsCharsForLLMCheck = 5000
 	MaxContentCharsForLLMCheck      = 80000
@@ -110,6 +112,7 @@ const (
 	PlatformTripAdvisor     PlatformKind = "tripadvisor"
 	PlatformSteam           PlatformKind = "steam"
 	PlatformGitHub          PlatformKind = "github"
+	PlatformStackOverflow   PlatformKind = "stackoverflow"
 
 	ContentKindPost      ContentKind = "post"
 	ContentKindComment   ContentKind = "comment"
@@ -122,6 +125,8 @@ const (
 	ContentKindUser      ContentKind = "user"
 	ContentKindSubreddit ContentKind = "subreddit"
 	ContentKindChannel   ContentKind = "channel"
+	ContentKindQuestion  ContentKind = "question"
+	ContentKindAnswer    ContentKind = "answer"
 
 	PaymentPlatformGumroad PaymentPlatformKind = "gumroad"
 	PaymentPlatformBMC     PaymentPlatformKind = "bmc"
@@ -173,8 +178,9 @@ type Configuration struct {
 	OrchestratorPrompt               string                      `json:"orchestrator_prompt"`
 	PublishTargetSubreddit           string                      `json:"publish_target_subreddit"`
 	Environment                      string                      `json:"environment"`
-	RedditFlairID                    string                      `json:"reddit_flair_id"`
-	GitHubDeps                       GitHubDependencies          `json:"github_deps"`
+	RedditFlairID                    string                         `json:"reddit_flair_id"`
+	GitHubDeps                       GitHubDependencies             `json:"github_deps"`
+	StackOverflowDeps                StackOverflowDependencies      `json:"stackoverflow_deps"`
 }
 
 // Activities holds all activity implementations and their dependencies
@@ -202,6 +208,11 @@ type ResponsesTurnResult struct {
 // GenerateResponsesTurn runs a single Responses API turn via the configured provider
 func (a *Activities) GenerateResponsesTurn(ctx context.Context, previousResponseID string, userInput string, tools []Tool, functionOutputs map[string]string) (ResponsesTurnResult, error) {
 	logger := activity.GetLogger(ctx)
+
+	// Add timeout to prevent workflow from hanging indefinitely on LLM calls
+	timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
 	cfg, err := getConfiguration(ctx)
 	if err != nil {
 		logger.Error("Failed to get configuration in GenerateResponsesTurn activity", "error", err)
@@ -212,8 +223,14 @@ func (a *Activities) GenerateResponsesTurn(ctx context.Context, previousResponse
 		logger.Error("Failed to create LLM provider in GenerateResponsesTurn activity", "error", err)
 		return ResponsesTurnResult{}, fmt.Errorf("failed to create LLM provider: %w", err)
 	}
-	assistant, calls, id, err := provider.GenerateResponsesTurn(ctx, previousResponseID, userInput, tools, functionOutputs)
+
+	assistant, calls, id, err := provider.GenerateResponsesTurn(timeoutCtx, previousResponseID, userInput, tools, functionOutputs)
 	if err != nil {
+		// Check if it was a timeout
+		if timeoutCtx.Err() == context.DeadlineExceeded {
+			logger.Error("LLM call timed out after 60 seconds")
+			return ResponsesTurnResult{}, fmt.Errorf("LLM call timed out after 60 seconds: %w", err)
+		}
 		return ResponsesTurnResult{}, err
 	}
 	return ResponsesTurnResult{Assistant: assistant, Calls: calls, ID: id}, nil
@@ -402,6 +419,12 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		APIKey: os.Getenv(EnvOpenDotaAPIKey),
 	}
 
+	// --- Stack Overflow Dependencies ---
+	stackOverflowDeps := StackOverflowDependencies{
+		APIKey: os.Getenv(EnvStackOverflowAPIKey),
+		Site:   os.Getenv(EnvStackOverflowSite),
+	}
+
 	// --- Discord Config ---
 	discordConfig := DiscordConfig{
 		BotToken:  os.Getenv(EnvDiscordBotToken),
@@ -444,6 +467,7 @@ func getConfiguration(ctx context.Context) (*Configuration, error) {
 		Environment:            environmentToStore,
 		RedditFlairID:          flairID,
 		GitHubDeps:             GitHubDependencies{},
+		StackOverflowDeps:      stackOverflowDeps,
 	}
 	return config, nil
 }
@@ -1027,6 +1051,91 @@ func (a *Activities) PullContentActivity(ctx context.Context, input PullContentI
 		default:
 			return nil, fmt.Errorf("unsupported content kind for github: %s", input.ContentKind)
 		}
+
+	case PlatformStackOverflow:
+		logger.Debug("Executing Stack Overflow pull logic within PullContentActivity")
+		deps := cfg.StackOverflowDeps
+		if deps.Type() != PlatformStackOverflow {
+			return nil, fmt.Errorf("internal configuration error: StackOverflowDeps type is not PlatformStackOverflow")
+		}
+		switch input.ContentKind {
+		case ContentKindQuestion:
+			question, err := a.fetchStackOverflowQuestion(ctx, deps, input.ContentID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch Stack Overflow question: %w", err)
+			}
+			contentBytes, err = json.Marshal(map[string]any{
+				"platform":           string(PlatformStackOverflow),
+				"kind":               string(ContentKindQuestion),
+				"id":                 question.QuestionID,
+				"title":              question.Title,
+				"body":               question.Body,
+				"body_markdown":      question.BodyMarkdown,
+				"link":               question.Link,
+				"score":              question.Score,
+				"view_count":         question.ViewCount,
+				"answer_count":       question.AnswerCount,
+				"is_answered":        question.IsAnswered,
+				"accepted_answer_id": question.AcceptedAnswerID,
+				"tags":               question.Tags,
+				"owner_user_id":      question.OwnerUserID,
+				"owner_display_name": question.OwnerDisplayName,
+				"creation_date":      question.CreationDate,
+				"last_activity_date": question.LastActivityDate,
+				"source_url":         question.Link,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal Stack Overflow question: %w", err)
+			}
+		case ContentKindAnswer:
+			answer, err := a.fetchStackOverflowAnswer(ctx, deps, input.ContentID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch Stack Overflow answer: %w", err)
+			}
+			contentBytes, err = json.Marshal(map[string]any{
+				"platform":           string(PlatformStackOverflow),
+				"kind":               string(ContentKindAnswer),
+				"id":                 answer.AnswerID,
+				"question_id":        answer.QuestionID,
+				"body":               answer.Body,
+				"body_markdown":      answer.BodyMarkdown,
+				"link":               answer.Link,
+				"score":              answer.Score,
+				"is_accepted":        answer.IsAccepted,
+				"owner_user_id":      answer.OwnerUserID,
+				"owner_display_name": answer.OwnerDisplayName,
+				"creation_date":      answer.CreationDate,
+				"last_activity_date": answer.LastActivityDate,
+				"source_url":         answer.Link,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal Stack Overflow answer: %w", err)
+			}
+		case ContentKindUser:
+			user, err := a.fetchStackOverflowUser(ctx, deps, input.ContentID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch Stack Overflow user: %w", err)
+			}
+			contentBytes, err = json.Marshal(map[string]any{
+				"platform":      string(PlatformStackOverflow),
+				"kind":          string(ContentKindUser),
+				"id":            user.UserID,
+				"display_name":  user.DisplayName,
+				"about_me":      user.AboutMe,      // HTML bio - may contain wallet
+				"location":      user.Location,     // May contain wallet
+				"website_url":   user.WebsiteURL,   // May link to wallet
+				"profile_image": user.ProfileImage,
+				"reputation":    user.Reputation,
+				"profile_text":  user.AboutMe + "\n" + user.Location + "\n" + user.WebsiteURL, // Combined text for wallet extraction
+				"source_url":    user.Link,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal Stack Overflow user: %w", err)
+			}
+		default:
+			return nil, fmt.Errorf("unsupported content kind for Stack Overflow: %s. Supported kinds: '%s', '%s', '%s'", input.ContentKind, ContentKindQuestion, ContentKindAnswer, ContentKindUser)
+		}
+
 	default:
 		err = fmt.Errorf("unsupported platform type in PullContentActivity: %s", input.PlatformType)
 	}
@@ -1370,6 +1479,11 @@ type DetectMaliciousContentResult struct {
 // prompt injection or other attempts to manipulate a downstream AI.
 func (a *Activities) DetectMaliciousContent(ctx context.Context, content string) (DetectMaliciousContentResult, error) {
 	logger := activity.GetLogger(ctx)
+
+	// Add timeout to prevent workflow from hanging indefinitely on LLM calls
+	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
 	cfg, err := getConfiguration(ctx)
 	if err != nil {
 		return DetectMaliciousContentResult{IsMalicious: true, Reason: "Configuration error"}, fmt.Errorf("failed to get configuration: %w", err)
@@ -1412,8 +1526,13 @@ func (a *Activities) DetectMaliciousContent(ctx context.Context, content string)
 		return DetectMaliciousContentResult{IsMalicious: true, Reason: "Schema marshal error"}, fmt.Errorf("failed to marshal malicious content schema: %w", err)
 	}
 
-	response, err := provider.GenerateResponse(ctx, cfg.MaliciousContentPrompt, content, schemaJSON)
+	response, err := provider.GenerateResponse(timeoutCtx, cfg.MaliciousContentPrompt, content, schemaJSON)
 	if err != nil {
+		// Check if it was a timeout
+		if timeoutCtx.Err() == context.DeadlineExceeded {
+			logger.Error("Malicious content detection timed out after 30 seconds")
+			return DetectMaliciousContentResult{IsMalicious: true, Reason: "LLM timeout"}, fmt.Errorf("LLM call timed out after 30 seconds: %w", err)
+		}
 		logger.Error("Failed to get LLM response for malicious content detection", "error", err)
 		return DetectMaliciousContentResult{IsMalicious: true, Reason: "LLM communication error"}, fmt.Errorf("failed to get LLM response: %w", err)
 	}
@@ -1434,6 +1553,11 @@ func (a *Activities) AnalyzeImageURL(ctx context.Context, imageUrl string, promp
 	logger := activity.GetLogger(ctx)
 	logger.Info("Starting image analysis", "imageUrl", imageUrl)
 
+	// Add timeout to prevent workflow from hanging indefinitely on image analysis
+	// Image analysis typically takes longer than text, so using 90 seconds
+	timeoutCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+
 	cfg, err := getConfiguration(ctx)
 	if err != nil {
 		return CheckContentRequirementsResult{Satisfies: false, Reason: "Configuration error"}, fmt.Errorf("failed to get configuration: %w", err)
@@ -1447,8 +1571,13 @@ func (a *Activities) AnalyzeImageURL(ctx context.Context, imageUrl string, promp
 
 	// The provider now handles downloading the image.
 	logger.Info("Sending image URL to LLM for analysis", "model", cfg.LLMConfig.Model)
-	analysisResult, err := provider.AnalyzeImage(ctx, imageUrl, prompt)
+	analysisResult, err := provider.AnalyzeImage(timeoutCtx, imageUrl, prompt)
 	if err != nil {
+		// Check if it was a timeout
+		if timeoutCtx.Err() == context.DeadlineExceeded {
+			logger.Error("Image analysis timed out after 90 seconds")
+			return CheckContentRequirementsResult{Satisfies: false, Reason: "Image analysis timeout"}, fmt.Errorf("image analysis timed out after 90 seconds: %w", err)
+		}
 		logger.Error("LLM image analysis failed", "error", err)
 		return CheckContentRequirementsResult{Satisfies: false, Reason: fmt.Sprintf("LLM analysis failed: %v", err)}, fmt.Errorf("LLM image analysis failed: %w", err)
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/brojonat/affiliate-bounty-board/http/api"
 	"go.temporal.io/sdk/activity"
 	temporal_log "go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/temporal"
 )
 
 // RedditDependencies holds the dependencies for Reddit-related activities
@@ -852,6 +853,7 @@ func (a *Activities) getRedditToken(ctx context.Context, logger temporal_log.Log
 }
 
 // postToReddit posts the formatted content to the specified subreddit
+// CRITICAL: This activity is non-retryable after attempting to post to prevent duplicate Reddit posts.
 func (a *Activities) postToReddit(ctx context.Context, logger temporal_log.Logger, cfg *Configuration, client *http.Client, token, title, body, flairID string) error {
 	submitURL := "https://oauth.reddit.com/api/submit"
 
@@ -867,6 +869,7 @@ func (a *Activities) postToReddit(ctx context.Context, logger temporal_log.Logge
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, submitURL, strings.NewReader(form.Encode()))
 	if err != nil {
+		// Request creation error - safe to retry
 		return fmt.Errorf("failed to create reddit submit request: %w", err)
 	}
 
@@ -874,9 +877,15 @@ func (a *Activities) postToReddit(ctx context.Context, logger temporal_log.Logge
 	req.Header.Set("User-Agent", cfg.RedditDeps.UserAgent)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
+	// CRITICAL: After this point, we cannot retry because we don't know if the post was created
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("reddit submit request failed: %w", err)
+		// Post may have been created despite error - mark as non-retryable
+		return temporal.NewApplicationErrorWithOptions(
+			fmt.Sprintf("reddit submit request failed: %s", err.Error()),
+			"REDDIT_POST_FAILED",
+			temporal.ApplicationErrorOptions{NonRetryable: true},
+		)
 	}
 	defer resp.Body.Close()
 
@@ -884,7 +893,12 @@ func (a *Activities) postToReddit(ctx context.Context, logger temporal_log.Logge
 
 	if resp.StatusCode != http.StatusOK {
 		logger.Error("Reddit submit request failed", "status", resp.StatusCode, "body", string(respBodyBytes))
-		return fmt.Errorf("reddit submit request returned status %d: %s", resp.StatusCode, string(respBodyBytes))
+		// Post may have been created despite non-200 status - mark as non-retryable
+		return temporal.NewApplicationErrorWithOptions(
+			fmt.Sprintf("reddit submit request returned status %d: %s", resp.StatusCode, string(respBodyBytes)),
+			"REDDIT_POST_FAILED",
+			temporal.ApplicationErrorOptions{NonRetryable: true},
+		)
 	}
 
 	var result struct {
@@ -898,6 +912,12 @@ func (a *Activities) postToReddit(ctx context.Context, logger temporal_log.Logge
 
 	if err := json.Unmarshal(respBodyBytes, &result); err != nil {
 		logger.Warn("Failed to decode reddit submit response JSON, but status was OK", "error", err, "response_body", string(respBodyBytes))
+		// Post likely succeeded if we got 200 - don't retry
+		return temporal.NewApplicationErrorWithOptions(
+			fmt.Sprintf("failed to decode reddit response: %s", err.Error()),
+			"REDDIT_RESPONSE_DECODE_FAILED",
+			temporal.ApplicationErrorOptions{NonRetryable: true},
+		)
 	} else if len(result.JSON.Errors) > 0 {
 		logger.Error("Reddit API reported errors after submission", "errors", result.JSON.Errors, "response_body", string(respBodyBytes))
 		// Format errors for better display
@@ -909,7 +929,12 @@ func (a *Activities) postToReddit(ctx context.Context, logger temporal_log.Logge
 			}
 			errorMessages = append(errorMessages, strings.Join(currentError, ", "))
 		}
-		return fmt.Errorf("reddit API returned errors: [%s]", strings.Join(errorMessages, "; "))
+		// Post may have partially succeeded - mark as non-retryable
+		return temporal.NewApplicationErrorWithOptions(
+			fmt.Sprintf("reddit API returned errors: [%s]", strings.Join(errorMessages, "; ")),
+			"REDDIT_API_ERROR",
+			temporal.ApplicationErrorOptions{NonRetryable: true},
+		)
 	} else {
 		logger.Info("Reddit post submitted successfully", "post_url", result.JSON.Data.URL)
 	}

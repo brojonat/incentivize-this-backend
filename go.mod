@@ -76,7 +76,7 @@ require (
 )
 
 require (
-	github.com/brojonat/forohtoo v0.0.0-20251024021630-bdb8d687d86b
+	github.com/brojonat/forohtoo v0.0.0-20251024032935-9d8bc50376ef
 	github.com/felixge/httpsnoop v1.0.3 // indirect
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/jmespath/go-jmespath v0.4.0

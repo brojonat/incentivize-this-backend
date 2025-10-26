@@ -396,10 +396,10 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	// --- Create Forohtoo client ---
 	fcl := fclient.NewClient(os.Getenv(abb.EnvForohtooServerURL), nil, logger)
 	forohtooNetwork := abb.DetermineForohtooNetwork(cfg.Solana.RPCEndpoint)
-	err = fcl.Register(ctx, cfg.Solana.EscrowWallet.String(), forohtooNetwork, 10*time.Second)
+	err = fcl.RegisterAsset(ctx, cfg.Solana.EscrowWallet.String(), forohtooNetwork, "token", cfg.Solana.USDCMintAddress.String(), 10*time.Second)
 	if err != nil {
-		logger.Error("Failed to register wallet", "error", err)
-		return fmt.Errorf("failed to register wallet: %w", err)
+		logger.Error("Failed to register wallet asset", "error", err)
+		return fmt.Errorf("failed to register wallet asset: %w", err)
 	}
 
 	// --- Initialize LLMProviders ---

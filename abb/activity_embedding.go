@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/pgvector/pgvector-go"
 	"go.temporal.io/sdk/activity"
@@ -25,6 +26,11 @@ type GenerateAndStoreBountyEmbeddingActivityInput struct {
 // generates an embedding, and stores it via an HTTP call to the server.
 func (a *Activities) GenerateAndStoreBountyEmbeddingActivity(ctx context.Context, input GenerateAndStoreBountyEmbeddingActivityInput) error {
 	logger := activity.GetLogger(ctx)
+
+	// Add timeout to prevent workflow from hanging indefinitely on embedding generation
+	timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
 	cfg, err := getConfiguration(ctx) // Fetch fresh configuration
 	if err != nil {
 		return fmt.Errorf("failed to get configuration: %w", err)
@@ -61,8 +67,13 @@ func (a *Activities) GenerateAndStoreBountyEmbeddingActivity(ctx context.Context
 		return fmt.Errorf("failed to init LLM embedding provider: %w", err)
 	}
 
-	embeddingSlice, err := llmProvider.GenerateEmbedding(ctx, embeddingText, cfg.EmbeddingConfig.Model)
+	embeddingSlice, err := llmProvider.GenerateEmbedding(timeoutCtx, embeddingText, cfg.EmbeddingConfig.Model)
 	if err != nil {
+		// Check if it was a timeout
+		if timeoutCtx.Err() == context.DeadlineExceeded {
+			logger.Error("Embedding generation timed out after 60 seconds", "bounty_id", input.BountyID)
+			return fmt.Errorf("embedding generation timed out after 60 seconds: %w", err)
+		}
 		return fmt.Errorf("failed to generate embedding: %w", err)
 	}
 

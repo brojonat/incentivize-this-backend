@@ -12,6 +12,7 @@ import (
 	"github.com/brojonat/affiliate-bounty-board/http/api"
 	"go.temporal.io/sdk/activity"
 	temporal_log "go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/temporal"
 )
 
 // PublishNewBountyDiscord fetches a specific bounty and posts it to Discord as a new bounty announcement.
@@ -102,6 +103,7 @@ func (a *Activities) formatNewBountyForDiscord(bounty *api.BountyListItem, publi
 }
 
 // postToDiscord sends a message to the configured Discord channel
+// CRITICAL: This activity is non-retryable after attempting to post to prevent duplicate Discord messages.
 func (a *Activities) postToDiscord(ctx context.Context, logger temporal_log.Logger, cfg *Configuration, client *http.Client, message string, env string) error {
 	discordAPIURL := fmt.Sprintf("https://discord.com/api/v10/channels/%s/messages", cfg.DiscordConfig.ChannelID)
 
@@ -135,11 +137,13 @@ func (a *Activities) postToDiscord(ctx context.Context, logger temporal_log.Logg
 
 	jsonPayload, err := json.Marshal(payload)
 	if err != nil {
+		// Payload marshaling error - safe to retry
 		return fmt.Errorf("failed to marshal discord payload: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", discordAPIURL, bytes.NewBuffer(jsonPayload))
 	if err != nil {
+		// Request creation error - safe to retry
 		return fmt.Errorf("failed to create discord message request: %w", err)
 	}
 
@@ -147,9 +151,15 @@ func (a *Activities) postToDiscord(ctx context.Context, logger temporal_log.Logg
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "AffiliateBountyBoard-Worker/1.0 (DiscordPublisher)")
 
+	// CRITICAL: After this point, we cannot retry because we don't know if the message was posted
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("discord message request failed: %w", err)
+		// Message may have been posted despite error - mark as non-retryable
+		return temporal.NewApplicationErrorWithOptions(
+			fmt.Sprintf("discord message request failed: %s", err.Error()),
+			"DISCORD_POST_FAILED",
+			temporal.ApplicationErrorOptions{NonRetryable: true},
+		)
 	}
 	defer resp.Body.Close()
 
@@ -157,7 +167,12 @@ func (a *Activities) postToDiscord(ctx context.Context, logger temporal_log.Logg
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 { // Discord uses 200, 201, 204 for success usually
 		logger.Error("Discord API request failed", "status_code", resp.StatusCode, "response_body", string(bodyBytes), "url", discordAPIURL)
-		return fmt.Errorf("discord API request returned status %d: %s", resp.StatusCode, string(bodyBytes))
+		// Message may have been posted despite non-2xx status - mark as non-retryable
+		return temporal.NewApplicationErrorWithOptions(
+			fmt.Sprintf("discord API request returned status %d: %s", resp.StatusCode, string(bodyBytes)),
+			"DISCORD_POST_FAILED",
+			temporal.ApplicationErrorOptions{NonRetryable: true},
+		)
 	}
 
 	logger.Debug("Discord API message post successful", "status_code", resp.StatusCode, "response_body", string(bodyBytes))

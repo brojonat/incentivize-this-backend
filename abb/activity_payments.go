@@ -72,6 +72,8 @@ func (a *Activities) TransferUSDC(ctx context.Context, recipientWallet string, a
 	rpcClient := solanautil.NewRPCClient(cfg.SolanaConfig.RPCEndpoint)
 
 	// Perform the transfer with memo
+	// CRITICAL: Once we call SendUSDCWithMemo, we MUST NOT retry the activity
+	// to prevent double-spending. All errors after this point are non-retryable.
 	txSig, err := solanautil.SendUSDCWithMemo(
 		ctx,
 		rpcClient,
@@ -90,21 +92,33 @@ func (a *Activities) TransferUSDC(ctx context.Context, recipientWallet string, a
 				NonRetryable: true,
 			})
 		}
-		return fmt.Errorf("failed to send usdc: %w", err)
+		// CRITICAL: Even if the send "failed", the transaction may have been submitted
+		// to the network. We MUST NOT retry to prevent double-spending.
+		return temporal.NewApplicationErrorWithOptions(
+			fmt.Sprintf("failed to send usdc: %s", err.Error()),
+			"SEND_FAILED",
+			temporal.ApplicationErrorOptions{
+				NonRetryable: true,
+			},
+		)
 	}
 
 	logger.Info("USDC transfer submitted", "signature", txSig.String())
 
-	// We need to confirm the transaction, but if we fail to do so, we should not retry
-	// the activity because the transaction may have already been sent. This would
+	// CRITICAL: The transaction has been submitted. If confirmation fails, we MUST NOT
+	// retry the activity because the transaction may already be on-chain. Retrying would
 	// result in a double spend.
 	confirmCtx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 	err = solanautil.ConfirmTransaction(confirmCtx, rpcClient, txSig, rpc.CommitmentFinalized)
 	if err != nil {
-		return temporal.NewApplicationError(
-			fmt.Sprintf("failed to confirm transaction: %s", err.Error()),
+		// CRITICAL: Mark as non-retryable to prevent double-spend
+		return temporal.NewApplicationErrorWithOptions(
+			fmt.Sprintf("transaction submitted but confirmation failed: %s (txSig: %s)", err.Error(), txSig.String()),
 			"CONFIRMATION_FAILED",
+			temporal.ApplicationErrorOptions{
+				NonRetryable: true,
+			},
 		)
 	}
 	return nil
@@ -146,10 +160,10 @@ func (a *Activities) VerifyPayment(
 	cl := client.NewClient(os.Getenv(EnvForohtooServerURL), nil, slog.Default())
 	network := DetermineForohtooNetwork(cfg.SolanaConfig.RPCEndpoint)
 
-	// start tracking the wallet
-	if err = cl.Register(timeoutCtx, expectedRecipient.String(), network, 10*time.Second); err != nil {
-		logger.Error("Failed to register wallet", "error", err)
-		return nil, fmt.Errorf("failed to register wallet: %w", err)
+	// start tracking the wallet asset (USDC token)
+	if err = cl.RegisterAsset(timeoutCtx, expectedRecipient.String(), network, "token", cfg.SolanaConfig.USDCMintAddress.String(), 10*time.Second); err != nil {
+		logger.Error("Failed to register wallet asset", "error", err)
+		return nil, fmt.Errorf("failed to register wallet asset: %w", err)
 	}
 
 	// Wait for a transaction that matches the workflow ID in the memo
