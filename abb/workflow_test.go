@@ -48,6 +48,9 @@ func (s *WorkflowTestSuite) AfterTest(suiteName, testName string) {
 }
 
 func TestWorkflowTestSuite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping workflow integration tests in short mode")
+	}
 	suite.Run(t, new(WorkflowTestSuite))
 }
 
