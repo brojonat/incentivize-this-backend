@@ -71,6 +71,9 @@ func TestTransferUSDC_Validation(t *testing.T) {
 }
 
 func TestVerifyPayment_Configuration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
 	// This test verifies that VerifyPayment properly loads configuration
 	// In test mode, it should use dummy configuration
 	os.Setenv("ENV", "test")
@@ -137,6 +140,9 @@ func TestVerifyPaymentResult(t *testing.T) {
 
 // TestTransferUSDC_ContextCancellation tests that the activity respects context cancellation
 func TestTransferUSDC_ContextCancellation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
 	os.Setenv("ENV", "test")
 	os.Setenv("SOLANA_ESCROW_PRIVATE_KEY", "dummy_private_key_for_testing")
 
@@ -162,6 +168,9 @@ func TestTransferUSDC_ContextCancellation(t *testing.T) {
 
 // TestVerifyPayment_Timeout tests that VerifyPayment respects the timeout parameter
 func TestVerifyPayment_Timeout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
 	os.Setenv("ENV", "test")
 	os.Setenv("SOLANA_ESCROW_PRIVATE_KEY", "dummy_private_key_for_testing")
 	os.Setenv("FOROHTOO_SERVER_URL", "http://localhost:9999") // Non-existent server
@@ -198,6 +207,9 @@ func TestVerifyPayment_Timeout(t *testing.T) {
 }
 
 func TestTransferUSDC_InTestEnvironment(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
 	// This test verifies that in test environment, TransferUSDC uses dummy configuration
 	os.Setenv("ENV", "test")
 	os.Setenv("SOLANA_ESCROW_PRIVATE_KEY", "dummy_private_key_for_testing")
@@ -224,6 +236,9 @@ func TestTransferUSDC_InTestEnvironment(t *testing.T) {
 
 // CRITICAL TEST: Ensures USDC transfer errors are NON-RETRYABLE to prevent double-spends
 func TestTransferUSDC_NonRetryableAfterSend(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
 	os.Setenv("ENV", "test")
 	os.Setenv("SOLANA_ESCROW_PRIVATE_KEY", "dummy_private_key_for_testing")
 
@@ -257,6 +272,9 @@ func TestTransferUSDC_NonRetryableAfterSend(t *testing.T) {
 
 // CRITICAL TEST: Ensures PayBountyActivity errors are NON-RETRYABLE
 func TestPayBountyActivity_NonRetryable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
 	os.Setenv("ENV", "test")
 	os.Setenv("SOLANA_ESCROW_PRIVATE_KEY", "dummy_private_key_for_testing")
 
@@ -288,6 +306,9 @@ func TestPayBountyActivity_NonRetryable(t *testing.T) {
 
 // CRITICAL TEST: Ensures RefundBountyActivity errors are NON-RETRYABLE
 func TestRefundBountyActivity_NonRetryable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
 	os.Setenv("ENV", "test")
 	os.Setenv("SOLANA_ESCROW_PRIVATE_KEY", "dummy_private_key_for_testing")
 
