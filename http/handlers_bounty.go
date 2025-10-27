@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"net/http"
 	"os"
 	"sort"
@@ -21,6 +20,7 @@ import (
 	"github.com/brojonat/affiliate-bounty-board/internal/stools"
 	"github.com/brojonat/affiliate-bounty-board/solana"
 
+	fclient "github.com/brojonat/forohtoo/client"
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
 	"github.com/hashicorp/golang-lru/v2/expirable"
@@ -961,80 +961,85 @@ func handleAssessContent(l *slog.Logger, tc client.Client) http.HandlerFunc {
 }
 
 // handleListPaidBounties handles listing all paid bounties from the database
-func handleListPaidBounties(l *slog.Logger, querier dbgen.Querier, escrowWallet string) http.HandlerFunc {
+func handleListPaidBounties(l *slog.Logger, fcl *fclient.Client, querier dbgen.Querier, escrowWallet string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Get limit from query parameter, default to 100
-		limit := int32(100)
-		if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-			if parsedLimit, err := strconv.ParseInt(limitStr, 10, 32); err == nil && parsedLimit > 0 {
-				limit = int32(parsedLimit)
-			}
-		}
+		// limit := int32(100)
+		// if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		// 	if parsedLimit, err := strconv.ParseInt(limitStr, 10, 32); err == nil && parsedLimit > 0 {
+		// 		limit = int32(parsedLimit)
+		// 	}
+		// }
 
 		// Get outgoing transactions from database
-		transactions, err := querier.GetOutgoingSolanaTransactions(r.Context(), dbgen.GetOutgoingSolanaTransactionsParams{
-			FunderWallet: escrowWallet,
-			Limit:        limit,
-		})
-		if err != nil {
-			writeInternalError(l, w, fmt.Errorf("failed to get outgoing transactions: %w", err))
-			return
-		}
+		// FIXME: update forohtoo to support this query
+		writeInternalError(l, w, fmt.Errorf("FIXME: need to update forohtoo to support this query"))
+		return
+		// transactions, err := fcl.GetOutgoingTransactions(r.Context(), escrowWallet, limit)
+
+		// transactions, err := querier.GetOutgoingSolanaTransactions(r.Context(), dbgen.GetOutgoingSolanaTransactionsParams{
+		// 	FunderWallet: escrowWallet,
+		// 	Limit:        limit,
+		// })
+		// if err != nil {
+		// 	writeInternalError(l, w, fmt.Errorf("failed to get outgoing transactions: %w", err))
+		// 	return
+		// }
 
 		// Get treasury wallet for filtering
-		treasuryWalletAddress := os.Getenv(EnvSolanaTreasuryWallet)
+		// treasuryWalletAddress := os.Getenv(EnvSolanaTreasuryWallet)
 
-		// Filter and convert transactions to PaidBountyItem format
-		paidBounties := make([]PaidBountyItem, 0)
-		for _, tx := range transactions {
-			// Skip transactions to treasury wallet
-			if treasuryWalletAddress != "" && tx.RecipientWallet == treasuryWalletAddress {
-				continue
-			}
+		// // Filter and convert transactions to PaidBountyItem format
+		// paidBounties := make([]PaidBountyItem, 0)
+		// for _, tx := range transactions {
+		// 	// Skip transactions to treasury wallet
+		// 	if treasuryWalletAddress != "" && tx.RecipientWallet == treasuryWalletAddress {
+		// 		continue
+		// 	}
 
-			// Check if this is a bounty payout (has bounty memo)
-			isBountyPayout := false
-			if tx.Memo.Valid && tx.Memo.String != "" {
-				var memoData map[string]interface{}
-				if err := json.Unmarshal([]byte(tx.Memo.String), &memoData); err == nil {
-					_, hasWorkflowID := memoData["bounty_id"]
-					_, hasContentID := memoData["content_id"]
-					isBountyPayout = hasWorkflowID && hasContentID
-				}
-			}
+		// 	// Check if this is a bounty payout (has bounty memo)
+		// 	isBountyPayout := false
+		// 	if tx.Memo.Valid && tx.Memo.String != "" {
+		// 		var memoData map[string]interface{}
+		// 		if err := json.Unmarshal([]byte(tx.Memo.String), &memoData); err == nil {
+		// 			_, hasWorkflowID := memoData["bounty_id"]
+		// 			_, hasContentID := memoData["content_id"]
+		// 			isBountyPayout = hasWorkflowID && hasContentID
+		// 		}
+		// 	}
 
-			if !isBountyPayout {
-				continue
-			}
+		// 	if !isBountyPayout {
+		// 		continue
+		// 	}
 
-			// Convert amount from smallest unit to USDC
-			amountUSDC := float64(tx.AmountSmallestUnit) / math.Pow10(6)
+		// 	// Convert amount from smallest unit to USDC
+		// 	amountUSDC := float64(tx.AmountSmallestUnit) / math.Pow10(6)
 
-			paidBounty := PaidBountyItem{
-				Signature:            tx.Signature,
-				Timestamp:            tx.BlockTime.Time.UTC(),
-				RecipientOwnerWallet: tx.RecipientWallet,
-				Amount:               amountUSDC,
-			}
-			if tx.Memo.Valid {
-				paidBounty.Memo = tx.Memo.String
-			}
-			paidBounties = append(paidBounties, paidBounty)
-		}
+		// 	paidBounty := PaidBountyItem{
+		// 		Signature:            tx.Signature,
+		// 		Timestamp:            tx.BlockTime.Time.UTC(),
+		// 		RecipientOwnerWallet: tx.RecipientWallet,
+		// 		Amount:               amountUSDC,
+		// 	}
+		// 	if tx.Memo.Valid {
+		// 		paidBounty.Memo = tx.Memo.String
+		// 	}
+		// 	paidBounties = append(paidBounties, paidBounty)
+		// }
 
-		// Apply final limit for response
-		recentBountyCountLimit := 10
-		if r.URL.Query().Get("limit") != "" {
-			if parsedLimit, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && parsedLimit > 0 {
-				recentBountyCountLimit = parsedLimit
-			}
-		}
-		if len(paidBounties) > recentBountyCountLimit {
-			paidBounties = paidBounties[:recentBountyCountLimit]
-		}
+		// // Apply final limit for response
+		// recentBountyCountLimit := 10
+		// if r.URL.Query().Get("limit") != "" {
+		// 	if parsedLimit, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && parsedLimit > 0 {
+		// 		recentBountyCountLimit = parsedLimit
+		// 	}
+		// }
+		// if len(paidBounties) > recentBountyCountLimit {
+		// 	paidBounties = paidBounties[:recentBountyCountLimit]
+		// }
 
-		l.Debug("Serving paid bounties from database", "item_count", len(paidBounties))
-		writeJSONResponse(w, paidBounties, http.StatusOK)
+		// l.Debug("Serving paid bounties from database", "item_count", len(paidBounties))
+		// writeJSONResponse(w, paidBounties, http.StatusOK)
 	}
 }
 

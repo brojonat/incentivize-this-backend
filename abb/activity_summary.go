@@ -47,6 +47,10 @@ func (a *Activities) SummarizeAndStoreBountyActivity(ctx context.Context, input 
 	logger := activity.GetLogger(ctx)
 	logger.Info("SummarizeAndStoreBountyActivity started", "bounty_id", input.SummaryData.BountyID, "final_status", input.SummaryData.FinalStatus)
 
+	// Add timeout to prevent workflow from hanging on summary storage
+	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
 	cfg, err := getConfiguration(ctx)
 	if err != nil {
 		logger.Error("Failed to get configuration for summary activity", "bounty_id", input.SummaryData.BountyID, "error", err)
@@ -58,7 +62,7 @@ func (a *Activities) SummarizeAndStoreBountyActivity(ctx context.Context, input 
 		return fmt.Errorf("ABB_API_ENDPOINT not configured")
 	}
 
-	abbToken, err := a.getABBAuthToken(ctx, logger, cfg, a.httpClient)
+	abbToken, err := a.getABBAuthToken(timeoutCtx, logger, cfg, a.httpClient)
 	if err != nil {
 		logger.Error("Failed to get ABB auth token for summary storage", "bounty_id", input.SummaryData.BountyID, "error", err)
 		return fmt.Errorf("failed to get ABB auth token: %w", err)
@@ -72,7 +76,7 @@ func (a *Activities) SummarizeAndStoreBountyActivity(ctx context.Context, input 
 
 	// Using a more specific internal endpoint
 	storeURL := strings.TrimSuffix(cfg.ABBServerConfig.APIEndpoint, "/") + "/bounties/summaries"
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, storeURL, bytes.NewReader(payloadBytes))
+	httpReq, err := http.NewRequestWithContext(timeoutCtx, http.MethodPost, storeURL, bytes.NewReader(payloadBytes))
 	if err != nil {
 		logger.Error("Failed to create store bounty summary HTTP request", "bounty_id", input.SummaryData.BountyID, "error", err)
 		return fmt.Errorf("failed to create store summary HTTP request: %w", err)
@@ -82,6 +86,11 @@ func (a *Activities) SummarizeAndStoreBountyActivity(ctx context.Context, input 
 
 	resp, err := a.httpClient.Do(httpReq)
 	if err != nil {
+		// Check if it was a timeout
+		if timeoutCtx.Err() == context.DeadlineExceeded {
+			logger.Error("Summary storage timed out after 30 seconds", "bounty_id", input.SummaryData.BountyID)
+			return fmt.Errorf("summary storage timed out after 30 seconds: %w", err)
+		}
 		logger.Error("Store bounty summary HTTP request failed", "bounty_id", input.SummaryData.BountyID, "url", storeURL, "error", err)
 		return fmt.Errorf("store summary HTTP request failed: %w", err)
 	}

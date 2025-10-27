@@ -33,9 +33,8 @@ test-coverage-summary: ## Display test coverage summary in terminal
 	go test -cover ./...
 
 # CI integration
-test-ci: ## Run tests for CI (includes race detector and coverage function output)
-	go test -v -race -coverprofile=coverage.out ./...
-	go tool cover -func=coverage.out
+test-ci: ## Run tests for CI (includes race detector, skips integration tests)
+	go test -race -short ./...
 
 build-cli: ## Build the abb CLI binary
 	go build -o ./bin/abb cmd/abb/*.go

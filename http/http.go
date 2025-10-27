@@ -16,6 +16,7 @@ import (
 	"github.com/brojonat/affiliate-bounty-board/db/dbgen"
 	"github.com/brojonat/affiliate-bounty-board/http/api"
 	"github.com/brojonat/affiliate-bounty-board/internal/stools"
+	fclient "github.com/brojonat/forohtoo/client"
 	solanago "github.com/gagliardetto/solana-go"
 	solanarpc "github.com/gagliardetto/solana-go/rpc"
 	"github.com/gorilla/handlers"
@@ -392,6 +393,15 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	llmRateLimiter := NewRateLimiter(1*time.Minute, cfg.RateLimit.LLMPerMinute)
 	hardenBountyCache := expirable.NewLRU[string, any](128, nil, time.Hour)
 
+	// --- Create Forohtoo client ---
+	fcl := fclient.NewClient(os.Getenv(abb.EnvForohtooServerURL), nil, logger)
+	forohtooNetwork := abb.DetermineForohtooNetwork(cfg.Solana.RPCEndpoint)
+	err = fcl.RegisterAsset(ctx, cfg.Solana.EscrowWallet.String(), forohtooNetwork, "token", cfg.Solana.USDCMintAddress.String(), 10*time.Second)
+	if err != nil {
+		logger.Error("Failed to register wallet asset", "error", err)
+		return fmt.Errorf("failed to register wallet asset: %w", err)
+	}
+
 	// --- Initialize LLMProviders ---
 	// standard provider
 	llmProvider, err := abb.NewLLMProvider(abb.LLMConfig{
@@ -456,7 +466,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	))
 
 	mux.HandleFunc("GET /bounties/paid", stools.AdaptHandler(
-		handleListPaidBounties(logger, querier, cfg.Solana.EscrowWallet.String()),
+		handleListPaidBounties(logger, fcl, querier, cfg.Solana.EscrowWallet.String()),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
@@ -571,27 +581,27 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		requireStatus(UserStatusSudo),
 	))
 
-	mux.HandleFunc("POST /solana/transactions", stools.AdaptHandler(
-		handleInsertSolanaTransaction(logger, querier),
-		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
-		withLogging(logger),
-		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-		requireStatus(UserStatusSudo),
-	))
+	// mux.HandleFunc("POST /solana/transactions", stools.AdaptHandler(
+	// 	handleInsertSolanaTransaction(logger, querier),
+	// 	apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
+	// 	withLogging(logger),
+	// 	atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+	// 	requireStatus(UserStatusSudo),
+	// ))
 
-	mux.HandleFunc("GET /bounties/{bounty_id}/transactions", stools.AdaptHandler(
-		handleGetBountyTransactions(logger, querier),
-		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
-		withLogging(logger),
-	))
+	// mux.HandleFunc("GET /bounties/{bounty_id}/transactions", stools.AdaptHandler(
+	// 	handleGetBountyTransactions(logger, querier),
+	// 	apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
+	// 	withLogging(logger),
+	// ))
 
-	mux.HandleFunc("GET /solana/transactions/latest/{recipient_wallet}", stools.AdaptHandler(
-		handleGetLatestSolanaTransactionForRecipient(logger, querier),
-		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
-		withLogging(logger),
-		atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
-		requireStatus(UserStatusSudo),
-	))
+	// mux.HandleFunc("GET /solana/transactions/latest/{recipient_wallet}", stools.AdaptHandler(
+	// 	handleGetLatestSolanaTransactionForRecipient(logger, querier),
+	// 	apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
+	// 	withLogging(logger),
+	// 	atLeastOneAuth(bearerAuthorizerCtxSetToken(getSecretKey)),
+	// 	requireStatus(UserStatusSudo),
+	// ))
 
 	// Apply CORS globally
 	corsHandler := handlers.CORS(
@@ -621,10 +631,6 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	}
 	if err := setupGumroadNotifySchedule(ctx, logger, tc, cfg.Environment); err != nil {
 		logger.Error("Failed to set up Gumroad notify schedule", "error", err)
-	}
-
-	if err := setupSolanaPollerSchedule(ctx, logger, tc, cfg); err != nil {
-		logger.Error("Failed to set up Solana poller schedule", "error", err)
 	}
 
 	// Wait for context cancellation
@@ -763,38 +769,38 @@ func setupGumroadNotifySchedule(ctx context.Context, logger *slog.Logger, tc cli
 	return nil
 }
 
-func setupSolanaPollerSchedule(ctx context.Context, logger *slog.Logger, tc client.Client, cfg *Config) error {
-	scheduleID := fmt.Sprintf("solana-poller-schedule-%s", cfg.Environment)
-	taskQueue := os.Getenv(EnvTaskQueue)
-	if taskQueue == "" {
-		return fmt.Errorf("TASK_QUEUE environment variable not set, cannot set up schedule %s", scheduleID)
-	}
+// func setupSolanaPollerSchedule(ctx context.Context, logger *slog.Logger, tc client.Client, cfg *Config) error {
+// 	scheduleID := fmt.Sprintf("solana-poller-schedule-%s", cfg.Environment)
+// 	taskQueue := os.Getenv(EnvTaskQueue)
+// 	if taskQueue == "" {
+// 		return fmt.Errorf("TASK_QUEUE environment variable not set, cannot set up schedule %s", scheduleID)
+// 	}
 
-	scheduleInput := abb.PollAndStoreTransactionsInput{
-		EscrowWallet: cfg.Solana.EscrowWallet.String(),
-	}
+// 	scheduleInput := abb.PollAndStoreTransactionsInput{
+// 		EscrowWallet: cfg.Solana.EscrowWallet.String(),
+// 	}
 
-	scheduleOptions := client.ScheduleOptions{
-		ID: scheduleID,
-		Spec: client.ScheduleSpec{
-			Intervals: []client.ScheduleIntervalSpec{{Every: 10 * time.Second}},
-		},
-		Action: &client.ScheduleWorkflowAction{
-			Workflow:  abb.PollSolanaTransactionsWorkflow,
-			Args:      []interface{}{scheduleInput},
-			TaskQueue: taskQueue,
-			ID:        fmt.Sprintf("solana-poller-workflow-%s", cfg.Environment),
-		},
-	}
+// 	scheduleOptions := client.ScheduleOptions{
+// 		ID: scheduleID,
+// 		Spec: client.ScheduleSpec{
+// 			Intervals: []client.ScheduleIntervalSpec{{Every: 10 * time.Second}},
+// 		},
+// 		Action: &client.ScheduleWorkflowAction{
+// 			Workflow:  abb.PollSolanaTransactionsWorkflow,
+// 			Args:      []interface{}{scheduleInput},
+// 			TaskQueue: taskQueue,
+// 			ID:        fmt.Sprintf("solana-poller-workflow-%s", cfg.Environment),
+// 		},
+// 	}
 
-	_, err := tc.ScheduleClient().Create(ctx, scheduleOptions)
-	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
-			logger.Info("Solana Poller schedule already exists, no action taken.", "scheduleID", scheduleID)
-			return nil
-		}
-		logger.Error("Failed to create Solana Poller schedule", "scheduleID", scheduleID, "error", err)
-		return fmt.Errorf("failed to create Solana Poller schedule %s: %w", scheduleID, err)
-	}
-	return nil
-}
+// 	_, err := tc.ScheduleClient().Create(ctx, scheduleOptions)
+// 	if err != nil {
+// 		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
+// 			logger.Info("Solana Poller schedule already exists, no action taken.", "scheduleID", scheduleID)
+// 			return nil
+// 		}
+// 		logger.Error("Failed to create Solana Poller schedule", "scheduleID", scheduleID, "error", err)
+// 		return fmt.Errorf("failed to create Solana Poller schedule %s: %w", scheduleID, err)
+// 	}
+// 	return nil
+// }
