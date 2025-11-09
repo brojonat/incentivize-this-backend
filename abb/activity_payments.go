@@ -161,15 +161,19 @@ func (a *Activities) VerifyPayment(
 	network := DetermineForohtooNetwork(cfg.SolanaConfig.RPCEndpoint)
 
 	// start tracking the wallet asset (USDC token)
-	if err = cl.RegisterAsset(timeoutCtx, expectedRecipient.String(), network, "token", cfg.SolanaConfig.USDCMintAddress.String(), 10*time.Second); err != nil {
+	if err = cl.RegisterAsset(timeoutCtx, expectedRecipient.String(), network, "spl-token", cfg.SolanaConfig.USDCMintAddress.String(), 10*time.Second); err != nil {
 		logger.Error("Failed to register wallet asset", "error", err)
 		return nil, fmt.Errorf("failed to register wallet asset: %w", err)
 	}
 
 	// Wait for a transaction that matches the workflow ID in the memo
-	txn, err := cl.Await(timeoutCtx, expectedRecipient.String(), network, 10*time.Second, func(txn *client.Transaction) bool {
+	// lookback of 5 minutes to catch any transactions that might have arrived slightly before this call
+	txn, err := cl.Await(timeoutCtx, expectedRecipient.String(), network, 5*time.Minute, func(txn *client.Transaction) bool {
 		// Check if the transaction memo contains the workflow ID
-		return strings.Contains(txn.Memo, bountyID) && txn.Amount == int64(expectedAmountLamports)
+		if txn.Memo == nil {
+			return false
+		}
+		return strings.Contains(*txn.Memo, bountyID) && txn.Amount == int64(expectedAmountLamports)
 	})
 
 	if err != nil {

@@ -1,0 +1,245 @@
+{{define "title"}}IncentivizeThis{{end}}
+
+{{define "description"}}Browse and claim bounties for creating content across various platforms{{end}}
+
+{{define "styles"}}
+/* Info chip styling */
+.info-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 10px;
+    border-radius: 16px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    gap: 5px;
+}
+
+.info-chip .material-icons-outlined {
+    font-size: 16px;
+}
+
+/* Auto-refresh indicator */
+@keyframes pulse-dot {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
+.pulse-dot {
+    animation: pulse-dot 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+{{end}}
+
+{{define "content"}}
+<!-- App Container with Alpine.js state -->
+<div x-data="{
+    bounties: {{ .Bounties }},
+    recentlyPaid: {{ .RecentlyPaid }},
+    loading: false,
+    error: null,
+    autoRefreshEnabled: true,
+    lastRefresh: Date.now(),
+
+    async refreshData() {
+        this.loading = true;
+        this.error = null;
+        try {
+            const response = await fetch('/api/bounties/active');
+            if (!response.ok) throw new Error('Failed to load bounties');
+            const data = await response.json();
+            this.bounties = data.bounties || [];
+            this.recentlyPaid = data.recently_paid || [];
+            this.lastRefresh = Date.now();
+        } catch (err) {
+            this.error = err.message;
+        } finally {
+            this.loading = false;
+        }
+    },
+
+    formatAmount(amount) {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: 'USD'
+        }).format(amount);
+    },
+
+    formatTimeAgo(timestamp) {
+        const seconds = Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000);
+        if (seconds < 60) return `${seconds}s ago`;
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return `${minutes}m ago`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return `${hours}h ago`;
+        const days = Math.floor(hours / 24);
+        return `${days}d ago`;
+    }
+}"
+x-init="
+    // Auto-refresh every 5 seconds
+    setInterval(() => {
+        if (autoRefreshEnabled) {
+            refreshData();
+        }
+    }, 5000);
+" class="min-h-screen">
+
+    <!-- Fixed Header -->
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50">
+        <div class="max-w-content mx-auto px-4 py-4 flex items-center justify-between">
+            <!-- Left Section -->
+            <div class="flex items-center gap-2">
+                <span class="text-2xl">🥕</span>
+                <h1 class="text-xl font-semibold text-gray-900 truncate">IncentivizeThis</h1>
+            </div>
+
+            <!-- Right Section -->
+            <div class="flex items-center gap-2">
+                <!-- Create Bounty Button -->
+                <a href="/bounties/create"
+                   class="w-8 h-8 rounded-full bg-primary-700 text-white flex items-center justify-center hover:bg-primary-800 transition-colors"
+                   title="Create Bounty">
+                    <span class="material-icons-outlined text-lg">add</span>
+                </a>
+
+                <!-- Info Button -->
+                <a href="/about"
+                   class="w-8 h-8 rounded-full text-primary-700 flex items-center justify-center hover:bg-primary-50 transition-colors"
+                   title="About">
+                    <span class="material-icons-outlined text-xl">info_outline</span>
+                </a>
+
+                <!-- Refresh Button -->
+                <button @click="refreshData()"
+                        :disabled="loading"
+                        class="w-8 h-8 rounded-full text-primary-700 flex items-center justify-center hover:bg-primary-50 transition-colors disabled:opacity-50"
+                        title="Refresh">
+                    <span class="material-icons-outlined text-xl" :class="{ 'animate-spin': loading }">refresh</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Auto-refresh indicator -->
+        <div class="max-w-content mx-auto px-4 pb-2">
+            <div class="flex items-center gap-2 text-xs text-gray-500">
+                <span class="w-2 h-2 rounded-full bg-success-700 pulse-dot" x-show="autoRefreshEnabled"></span>
+                <span x-text="'Auto-refresh: ' + (autoRefreshEnabled ? 'ON' : 'OFF')"></span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-content mx-auto">
+        <!-- Loading State -->
+        <div x-show="loading && bounties.length === 0" class="flex flex-col items-center justify-center py-20">
+            <div class="w-12 h-12 border-4 border-primary-700 border-t-transparent rounded-full animate-spin"></div>
+            <p class="mt-4 text-gray-600">Loading bounties...</p>
+        </div>
+
+        <!-- Error State -->
+        <div x-show="error && bounties.length === 0" class="flex flex-col items-center justify-center py-20 px-4">
+            <span class="material-icons-outlined text-6xl text-error-700">error_outline</span>
+            <h2 class="mt-4 text-2xl font-bold text-error-700">Error</h2>
+            <p class="mt-2 text-gray-600 text-center" x-text="error"></p>
+            <button @click="refreshData()" class="mt-6 px-6 py-2 bg-primary-700 text-white rounded-lg hover:bg-primary-800 transition-colors">
+                Try Again
+            </button>
+        </div>
+
+        <!-- Active Bounties Section -->
+        <div x-show="!loading || bounties.length > 0" x-cloak>
+            <div class="px-4 pt-4 pb-2">
+                <h2 class="text-2xl font-semibold text-primary-700">Active Bounties</h2>
+            </div>
+
+            <!-- Empty State -->
+            <div x-show="bounties.length === 0 && !loading" class="flex flex-col items-center justify-center py-12 px-4">
+                <span class="material-icons-outlined text-6xl text-gray-400">layers_clear</span>
+                <h3 class="mt-4 text-xl font-bold text-gray-900">No Bounties Available</h3>
+                <p class="mt-2 text-gray-600 text-center">There are no active bounties to display right now. Pull down to refresh.</p>
+            </div>
+
+            <!-- Bounty Cards -->
+            <template x-for="bounty in bounties" :key="bounty.id">
+                <div class="mx-4 my-2">
+                    <a :href="'/bounties/' + bounty.id"
+                       class="block bg-white rounded-card border border-gray-300 p-4 hover:shadow-md transition-shadow ripple">
+                        <!-- Card Header -->
+                        <div class="flex items-start justify-between gap-4 mb-3">
+                            <h3 class="text-lg font-bold text-gray-900 line-clamp-2 flex-1" x-text="bounty.title"></h3>
+                            <span class="px-3 py-1 bg-primary-100 text-primary-700 rounded-chip text-sm font-semibold whitespace-nowrap"
+                                  x-text="bounty.status"></span>
+                        </div>
+
+                        <!-- Card Info Chips -->
+                        <div class="flex flex-wrap gap-2">
+                            <!-- Reward Amount -->
+                            <div class="info-chip"
+                                 :class="bounty.funded ? 'bg-success-100 text-success-700' : 'bg-gray-100 text-gray-600'">
+                                <span class="material-icons-outlined">monetization_on</span>
+                                <span x-text="bounty.funded ? formatAmount(bounty.reward_per_post) : 'Unfunded'"></span>
+                            </div>
+
+                            <!-- Platform -->
+                            <div class="info-chip bg-tertiary-100 text-tertiary-700">
+                                <span class="material-icons-outlined">language</span>
+                                <span x-text="bounty.platform"></span>
+                            </div>
+
+                            <!-- Content Type -->
+                            <div class="info-chip bg-warning-100 text-warning-700">
+                                <span class="material-icons-outlined">article</span>
+                                <span x-text="bounty.content_type"></span>
+                            </div>
+
+                            <!-- Remaining Posts -->
+                            <div class="info-chip bg-secondary-100 text-secondary-700">
+                                <span class="material-icons-outlined">inventory_2</span>
+                                <span x-text="bounty.unlimited ? 'Unlimited' : bounty.remaining + ' remaining'"></span>
+                            </div>
+                        </div>
+
+                        <!-- Fund Button (only for unfunded bounties) -->
+                        <div x-show="!bounty.funded" class="mt-4 flex justify-end">
+                            <button class="px-4 py-2 bg-primary-700 text-white rounded-lg hover:bg-primary-800 transition-colors flex items-center gap-2">
+                                <span class="material-icons-outlined">qr_code_scanner</span>
+                                <span>Fund Bounty</span>
+                            </button>
+                        </div>
+                    </a>
+                </div>
+            </template>
+        </div>
+
+        <!-- Recently Paid Section -->
+        <div x-show="recentlyPaid.length > 0" class="mt-6" x-cloak>
+            <div class="px-4 pt-6 pb-2">
+                <h2 class="text-2xl font-semibold text-secondary-700">Recently Paid</h2>
+            </div>
+
+            <template x-for="payment in recentlyPaid" :key="payment.signature">
+                <div class="mx-4 px-5 py-3 flex items-center gap-4 hover:bg-gray-50 transition-colors">
+                    <div class="w-10 h-10 rounded-full bg-secondary-100 flex items-center justify-center flex-shrink-0">
+                        <span class="material-icons-outlined text-secondary-700">receipt_long</span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="text-base font-semibold text-gray-900" x-text="formatAmount(payment.amount)"></div>
+                        <div class="text-sm text-gray-600" x-text="formatTimeAgo(payment.timestamp)"></div>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <!-- Bottom Spacing -->
+        <div class="h-8"></div>
+    </main>
+</div>
+{{end}}
+
+{{define "scripts"}}
+// x-cloak utility to hide elements until Alpine is ready
+document.addEventListener('alpine:init', () => {
+    const style = document.createElement('style');
+    style.innerHTML = '[x-cloak] { display: none !important; }';
+    document.head.appendChild(style);
+});
+{{end}}

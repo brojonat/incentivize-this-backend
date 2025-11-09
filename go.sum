@@ -24,6 +24,8 @@ github.com/brojonat/forohtoo v0.0.0-20251024032935-9d8bc50376ef h1:oHMHV0UcrtDKr
 github.com/brojonat/forohtoo v0.0.0-20251024032935-9d8bc50376ef/go.mod h1:OZiQXPcc2fZATxh8uudl0djDbvyZis8N2mx2JtcPAoY=
 github.com/brojonat/forohtoo v0.0.0-20251026235647-7ff2c095a0ab h1:QP500//WQBuHgvTZ/bjHlGwMdYlLDbq07sWDQjM5EI4=
 github.com/brojonat/forohtoo v0.0.0-20251026235647-7ff2c095a0ab/go.mod h1:OZiQXPcc2fZATxh8uudl0djDbvyZis8N2mx2JtcPAoY=
+github.com/brojonat/forohtoo v0.0.0-20251101014541-a5ae5c44b07d h1:KYoTwmS+oU8rlD4E7pvPNcwZqwMF1Dsub8YU39sxSXU=
+github.com/brojonat/forohtoo v0.0.0-20251101014541-a5ae5c44b07d/go.mod h1:6EBCM2Uxgx+kKw5DpgFfmPEXvA2NTvuE6hDwp1Ewvug=
 github.com/cpuguy83/go-md2man/v2 v2.0.7 h1:zbFlGlXEAKlwXpmvle3d8Oe3YnkKIK4xSRTd3sHPnBo=
 github.com/cpuguy83/go-md2man/v2 v2.0.7/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

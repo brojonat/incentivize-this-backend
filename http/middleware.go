@@ -149,6 +149,18 @@ func apiMode(l *slog.Logger, rl *RateLimiter, maxBytes int64, headers, methods, 
 	}
 }
 
+// htmlMode is similar to apiMode but for HTML responses.
+// It applies graceful panic recovery, rate limiting, and sets content type to text/html.
+// Unlike apiMode, it doesn't apply CORS since HTML pages are served from the same origin.
+func htmlMode(l *slog.Logger, rl *RateLimiter) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		next = makeGraceful(l)(next)
+		next = setContentType("text/html; charset=utf-8")(next)
+		next = rateLimitMiddleware(rl, l)(next)
+		return next
+	}
+}
+
 func setContentType(content string) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {

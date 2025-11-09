@@ -396,7 +396,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	// --- Create Forohtoo client ---
 	fcl := fclient.NewClient(os.Getenv(abb.EnvForohtooServerURL), nil, logger)
 	forohtooNetwork := abb.DetermineForohtooNetwork(cfg.Solana.RPCEndpoint)
-	err = fcl.RegisterAsset(ctx, cfg.Solana.EscrowWallet.String(), forohtooNetwork, "token", cfg.Solana.USDCMintAddress.String(), 10*time.Second)
+	err = fcl.RegisterAsset(ctx, cfg.Solana.EscrowWallet.String(), forohtooNetwork, "spl-token", cfg.Solana.USDCMintAddress.String(), 1*time.Minute)
 	if err != nil {
 		logger.Error("Failed to register wallet asset", "error", err)
 		return fmt.Errorf("failed to register wallet asset: %w", err)
@@ -424,7 +424,23 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		return fmt.Errorf("failed to initialize LLM Embedding Provider: %w", err)
 	}
 
-	// Add routes
+	// Add HTML routes (served with htmlMode middleware)
+	mux.HandleFunc("GET /", stools.AdaptHandler(
+		handleLanding(logger),
+		htmlMode(logger, defaultRateLimiter),
+		withLogging(logger),
+	))
+
+	mux.HandleFunc("GET /browse", stools.AdaptHandler(
+		handleBounties(logger),
+		htmlMode(logger, defaultRateLimiter),
+		withLogging(logger),
+	))
+
+	// Serve static files (images, css, js)
+	mux.Handle("GET /static/", http.StripPrefix("/static", handleStaticFiles()))
+
+	// Add API routes (served with apiMode middleware)
 	mux.HandleFunc("GET /ping", stools.AdaptHandler(
 		handlePing(),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
@@ -466,7 +482,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	))
 
 	mux.HandleFunc("GET /bounties/paid", stools.AdaptHandler(
-		handleListPaidBounties(logger, fcl, querier, cfg.Solana.EscrowWallet.String()),
+		handleListPaidBounties(logger, fcl, querier, cfg.Solana.EscrowWallet.String(), forohtooNetwork),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
@@ -704,7 +720,6 @@ func setupPruneStaleEmbeddingsSchedule(ctx context.Context, logger *slog.Logger,
 			),
 		},
 	})
-
 	if err != nil {
 		// Check if the error is specifically that the schedule already exists
 		if strings.Contains(err.Error(), "schedule already exists") {
@@ -753,7 +768,6 @@ func setupGumroadNotifySchedule(ctx context.Context, logger *slog.Logger, tc cli
 
 	// Use the same pattern as setupPeriodicPublisherSchedule and setupPruneStaleEmbeddingsSchedule
 	_, err := tc.ScheduleClient().Create(ctx, scheduleOptions)
-
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
 			logger.Info("Gumroad Notify schedule already exists, no action taken.", "scheduleID", scheduleID)

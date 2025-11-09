@@ -1,0 +1,286 @@
+{{define "title"}}Welcome{{end}}
+
+{{define "description"}}IncentivizeThis - Pay creators to promote your product or service across Reddit, YouTube, and more{{end}}
+
+{{define "styles"}}
+/* Parallax background */
+.parallax-bg {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100vh;
+    background-image: url('/static/images/marketing-carrot.jpg');
+    background-size: cover;
+    background-position: center;
+    z-index: 0;
+    pointer-events: none;
+}
+
+/* Ensure content is above background */
+.content-sections {
+    position: relative;
+    z-index: 1;
+}
+
+/* Platform badge styles */
+.platform-badge {
+    display: inline-block;
+    padding: 8px;
+    border-radius: 8px;
+    font-weight: bold;
+    line-height: 1.5;
+}
+
+/* Scroll indicator bounce animation */
+@keyframes bounce-arrow {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(15px); }
+}
+
+.bounce-arrow {
+    animation: bounce-arrow 1s ease-in-out infinite;
+}
+
+/* Section animations - default to visible, animate on intersection */
+.fade-slide-left,
+.fade-slide-right,
+.fade-slide-up {
+    opacity: 1;
+    transform: translate(0) scale(1);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+/* Only apply animation when intersection observer is supported */
+@supports (opacity: 0) {
+    .fade-slide-left:not(.visible) {
+        opacity: 0;
+        transform: translateX(-50px);
+    }
+
+    .fade-slide-right:not(.visible) {
+        opacity: 0;
+        transform: translateX(50px);
+    }
+
+    .fade-slide-up:not(.visible) {
+        opacity: 0;
+        transform: translateY(50px) scale(0.95);
+    }
+}
+
+.visible {
+    opacity: 1 !important;
+    transform: translate(0) scale(1) !important;
+}
+
+/* Platform text fade transition */
+.platform-text-enter {
+    opacity: 0;
+    transform: translateY(25px);
+}
+
+.platform-text-active {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 0.5s ease-in-out, transform 0.5s ease-in-out;
+}
+{{end}}
+
+{{define "content"}}
+<div x-data="{
+    scrollY: 0,
+    screenHeight: window.innerHeight,
+    currentPlatformIndex: 0,
+    platforms: [
+        { text: 'a Reddit post with at least 1k upvotes mentioning Home Depot', platform: 'Reddit', bg: 'rgb(234, 78, 0)', textColor: 'white' },
+        { text: 'a Reddit comment in r/OrangeCounty about SuzieCakes bakery', platform: 'Reddit', bg: 'rgb(234, 78, 0)', textColor: 'white' },
+        { text: 'a YouTube video about Mark Weins visiting Lisbon, Portugal', platform: 'YouTube', bg: 'rgb(255, 33, 33)', textColor: 'white' },
+        { text: 'a YouTube comment with at least 100 likes on a video about oysters', platform: 'YouTube', bg: 'rgb(255, 33, 33)', textColor: 'white' },
+        { text: 'a Bluesky post about how A.I. doesn\\'t live up to the hype', platform: 'Bluesky', bg: 'rgb(45, 165, 245)', textColor: 'white' },
+        { text: 'an Instagram post with at least 2M likes about Positano, Italy', platform: 'Instagram', bg: 'linear-gradient(45deg, #833AB4, #F77737)', textColor: 'white' },
+        { text: 'a Twitch video about Dota 2 with at least 100k views', platform: 'Twitch', bg: 'rgb(127, 21, 157)', textColor: 'white' },
+        { text: 'a Twitch clip from Purge\\'s channel with at least 25k views', platform: 'Twitch', bg: 'rgb(127, 21, 157)', textColor: 'white' },
+        { text: 'a HackerNews post about Temporal with at least 100 upvotes', platform: 'HackerNews', bg: '#FF6600', textColor: 'rgb(250, 239, 227)' },
+        { text: 'a HackerNews comment with tips on using Goose', platform: 'HackerNews', bg: '#FF6600', textColor: 'rgb(250, 239, 227)' },
+        { text: 'a TripAdvisor review for a hotel in Honolulu with a 5 star rating', platform: 'TripAdvisor', bg: 'rgb(44, 175, 122)', textColor: 'white' },
+        { text: 'a TripAdvisor review for a restaurant in New York', platform: 'TripAdvisor', bg: 'rgb(44, 175, 122)', textColor: 'white' }
+    ],
+    shuffledPlatforms: [],
+
+    init() {
+        // Shuffle platforms on load
+        this.shuffledPlatforms = this.platforms.sort(() => Math.random() - 0.5);
+
+        // Rotate platforms every 3 seconds
+        setInterval(() => {
+            this.currentPlatformIndex = (this.currentPlatformIndex + 1) % this.shuffledPlatforms.length;
+        }, 3000);
+
+        // Track scroll
+        window.addEventListener('scroll', () => {
+            this.scrollY = window.scrollY;
+        });
+    },
+
+    get currentPlatform() {
+        return this.shuffledPlatforms[this.currentPlatformIndex] || this.platforms[0];
+    },
+
+    get arrowOpacity() {
+        return Math.max(0, 1 - (this.scrollY / 100));
+    },
+
+    get welcomeOpacity() {
+        return Math.max(0, 1 - (this.scrollY / (this.screenHeight * 0.75)));
+    },
+
+    get parallaxY() {
+        return -(this.scrollY * 0.5);
+    }
+}">
+    <!-- Parallax Background -->
+    <div class="parallax-bg" :style="`transform: translateY(${parallaxY}px)`"></div>
+
+    <div class="content-sections">
+    <!-- Hero Section -->
+    <section class="relative min-h-screen flex flex-col items-center justify-start px-6 pt-32">
+        <div class="max-w-3xl w-full mx-auto">
+            <!-- Scroll Arrow -->
+            <div class="flex justify-center mb-10 bounce-arrow" :style="`opacity: ${arrowOpacity}`">
+                <span class="material-icons-outlined text-6xl text-white">keyboard_arrow_down</span>
+            </div>
+
+            <!-- Welcome Message -->
+            <div class="mb-20" :style="`opacity: ${welcomeOpacity}`">
+                <div class="bg-black bg-opacity-50 rounded-2xl p-8 backdrop-blur-sm">
+                    <h1 class="text-4xl md:text-5xl font-bold text-white text-center">
+                        Welcome to IncentivizeThis
+                    </h1>
+                </div>
+            </div>
+
+            <!-- Video Player -->
+            <div class="rounded-2xl overflow-hidden shadow-2xl">
+                <div class="relative" style="padding-bottom: 56.25%;">
+                    <iframe
+                        src="https://finicky-elephant.clueso.site/embed/ab980b4e-8c41-4562-b04b-5181e798307d"
+                        class="absolute top-0 left-0 w-full h-full"
+                        frameborder="0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowfullscreen>
+                    </iframe>
+                </div>
+            </div>
+        </div>
+
+        <!-- Spacer to next section -->
+        <div :style="`height: calc(100vh - 250px)`"></div>
+    </section>
+
+    <!-- Section 2: Ads Suck -->
+    <section class="relative py-12 px-6 bg-gray-100" style="min-height: 500px;">
+        <div class="max-w-4xl mx-auto h-full flex items-center">
+            <div class="grid md:grid-cols-2 gap-6 w-full">
+                <div class="flex flex-col justify-center">
+                    <h2 class="text-3xl md:text-4xl font-bold mb-4">Ads Suck.</h2>
+                    <p class="text-lg leading-relaxed">Yuck. Nobody's clicking on this. At least not on purpose.</p>
+                </div>
+                <div class="flex items-center">
+                    <img src="/static/images/marketing-yuck-full.png" alt="Annoying ads" class="rounded-2xl w-full object-cover">
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section 3: Just Incentivize Creators! -->
+    <section class="relative py-12 px-6 bg-white" style="min-height: 500px;">
+        <div class="max-w-4xl mx-auto h-full flex items-center">
+            <div class="grid md:grid-cols-2 gap-6 w-full">
+                <div class="flex items-center">
+                    <img src="/static/images/marketing-browse.png" alt="Browse bounties" class="rounded-2xl w-full object-cover">
+                </div>
+                <div class="flex flex-col justify-center items-center text-center">
+                    <h2 class="text-3xl md:text-4xl font-bold mb-4">Just Incentivize Creators!</h2>
+                    <p class="text-lg leading-relaxed mb-2">Tell us you want:</p>
+
+                    <!-- Rotating Platform Examples -->
+                    <div class="min-h-24 flex items-center justify-center">
+                        <p class="text-lg leading-relaxed">
+                            <template x-for="(platform, index) in shuffledPlatforms" :key="index">
+                                <span x-show="currentPlatformIndex === index"
+                                      x-transition:enter="platform-text-enter platform-text-active"
+                                      x-transition:leave="opacity-0"
+                                      class="inline-block">
+                                    <span class="platform-badge"
+                                          :style="`background: ${platform.bg}; color: ${platform.textColor}`"
+                                          x-text="platform.platform"></span>
+                                    <span x-text="' ' + platform.text"></span>
+                                </span>
+                            </template>
+                        </p>
+                    </div>
+
+                    <p class="text-lg leading-relaxed mt-2">and we'll fund bounties that match your niche and audience.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section 4: Regular Users Post... -->
+    <section class="relative py-12 px-6 bg-gray-100" style="min-height: 500px;">
+        <div class="max-w-4xl mx-auto h-full flex items-center">
+            <div class="grid md:grid-cols-2 gap-6 w-full">
+                <div class="flex flex-col justify-center">
+                    <h2 class="text-3xl md:text-4xl font-bold mb-4">Regular Users Post...</h2>
+                    <p class="text-lg leading-relaxed">Just 3 upvotes. That's all it took to steer thousands of dollars away from a big-box retailer and into the hands of a local business owner.</p>
+                </div>
+                <div class="flex items-center">
+                    <img src="/static/images/marketing-content.png" alt="User content" class="rounded-2xl w-full object-cover">
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section 5: ...And Get Paid! -->
+    <section class="relative py-12 px-6 bg-white" style="min-height: 500px;">
+        <div class="max-w-4xl mx-auto h-full flex items-center">
+            <div class="grid md:grid-cols-2 gap-6 w-full">
+                <div class="flex items-center">
+                    <img src="/static/images/marketing-paid.png" alt="Get paid" class="rounded-2xl w-full object-cover">
+                </div>
+                <div class="flex flex-col justify-center">
+                    <h2 class="text-3xl md:text-4xl font-bold mb-4">...And Get Paid!</h2>
+                    <p class="text-lg leading-relaxed">Anyone can submit their content for review. If it meets the bounty criteria, they get paid instantly with USDC!</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section 6: CTA -->
+    <section class="relative py-24 px-6 bg-gray-100 flex items-center justify-center" style="min-height: 500px;">
+        <div class="max-w-2xl mx-auto text-center">
+            <h2 class="text-4xl md:text-5xl font-bold mb-8">Ready to Get Started?</h2>
+            <div class="flex flex-wrap gap-5 justify-center">
+                <a href="/bounties/create"
+                   class="px-6 py-4 bg-primary-700 text-white rounded-xl font-bold text-lg hover:bg-primary-800 transition-colors">
+                    Create a Bounty
+                </a>
+                <a href="/browse"
+                   class="px-6 py-4 border-2 border-primary-700 text-primary-700 rounded-xl font-bold text-lg hover:bg-primary-50 transition-colors">
+                    Browse Bounties
+                </a>
+                <a href="/contact"
+                   class="px-6 py-4 border border-gray-400 text-gray-700 rounded-xl text-lg hover:bg-gray-50 transition-colors">
+                    Contact Us
+                </a>
+            </div>
+        </div>
+    </section>
+    </div><!-- end content-sections -->
+</div>
+{{end}}
+
+{{define "scripts"}}
+// Initialize Alpine.js intersect
+{{end}}
