@@ -32,6 +32,12 @@ func handleContactUs(logger *slog.Logger, querier dbgen.Querier, tc client.Clien
 
 		// Basic validation
 		if req.Email == "" || req.Message == "" {
+			if r.Header.Get("HX-Request") == "true" {
+				w.Header().Set("Content-Type", "text/html")
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprintf(w, `<p class="text-red-600">✗ Email and message are required fields.</p>`)
+				return
+			}
 			writeBadRequestError(w, fmt.Errorf("email and message are required fields"))
 			return
 		}
@@ -66,6 +72,14 @@ func handleContactUs(logger *slog.Logger, querier dbgen.Querier, tc client.Clien
 			if err != nil {
 				logger.Error("failed to kick off contact us workflow", "error", err, "submission_id", submission.ID)
 			}
+		}
+
+		// Check if this is an HTMX request
+		if r.Header.Get("HX-Request") == "true" {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, `<p class="text-green-600 font-medium">✓ Thank you! Your message has been sent successfully.</p>`)
+			return
 		}
 
 		writeJSONResponse(w, submission, http.StatusCreated)

@@ -91,6 +91,9 @@
     <!-- Material Icons -->
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
 
+    <!-- Page-specific head scripts -->
+    {{template "head-scripts" .}}
+
     <!-- Custom Styles -->
     <style>
         body {
@@ -150,8 +153,98 @@
         {{template "styles" .}}
     </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body class="bg-gray-50 min-h-screen" x-data="{ contactModalOpen: false }">
     {{template "content" .}}
+
+    <!-- Contact Us Modal -->
+    <div x-show="contactModalOpen"
+         x-cloak
+         @keydown.escape.window="contactModalOpen = false"
+         class="fixed inset-0 z-50 overflow-y-auto"
+         style="display: none;">
+        <!-- Backdrop -->
+        <div x-show="contactModalOpen"
+             x-transition:enter="transition-opacity ease-out duration-300"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100"
+             x-transition:leave="transition-opacity ease-in duration-200"
+             x-transition:leave-start="opacity-100"
+             x-transition:leave-end="opacity-0"
+             @click="contactModalOpen = false"
+             class="fixed inset-0 bg-black bg-opacity-50"></div>
+
+        <!-- Modal Content -->
+        <div class="flex items-center justify-center min-h-screen px-4">
+            <div x-show="contactModalOpen"
+                 x-transition:enter="transition ease-out duration-300"
+                 x-transition:enter-start="opacity-0 transform scale-95"
+                 x-transition:enter-end="opacity-100 transform scale-100"
+                 x-transition:leave="transition ease-in duration-200"
+                 x-transition:leave-start="opacity-100 transform scale-100"
+                 x-transition:leave-end="opacity-0 transform scale-95"
+                 class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 relative z-10">
+
+                <!-- Close Button -->
+                <button @click="contactModalOpen = false"
+                        class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                    <span class="material-icons-outlined">close</span>
+                </button>
+
+                <!-- Modal Header -->
+                <h2 class="text-2xl font-bold mb-4 text-gray-900">Contact Us</h2>
+                <p class="text-gray-600 mb-6">Have a question or want to learn more? Send us a message!</p>
+
+                <!-- Contact Form -->
+                <form hx-post="/contact-us"
+                      hx-swap="innerHTML"
+                      hx-target="#contact-form-result"
+                      class="space-y-4"
+                      @htmx:after-request="if($event.detail.successful) { setTimeout(() => contactModalOpen = false, 2000) }">
+
+                    <div>
+                        <label for="contact-name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                        <input type="text"
+                               id="contact-name"
+                               name="name"
+                               required
+                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                    </div>
+
+                    <div>
+                        <label for="contact-email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                        <input type="email"
+                               id="contact-email"
+                               name="email"
+                               required
+                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                    </div>
+
+                    <div>
+                        <label for="contact-message" class="block text-sm font-medium text-gray-700 mb-1">Message</label>
+                        <textarea id="contact-message"
+                                  name="message"
+                                  required
+                                  rows="4"
+                                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"></textarea>
+                    </div>
+
+                    <div id="contact-form-result" class="text-sm"></div>
+
+                    <div class="flex gap-3">
+                        <button type="submit"
+                                class="flex-1 px-6 py-3 bg-primary-700 text-white rounded-lg font-bold hover:bg-primary-800 transition-colors">
+                            Send Message
+                        </button>
+                        <button type="button"
+                                @click="contactModalOpen = false"
+                                class="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 
     <!-- Custom Scripts -->
     <script>
