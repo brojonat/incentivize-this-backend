@@ -41,3 +41,4 @@ prompts.worker.yaml
 integration-stdout.log
 integration-worker.log
 todo.txt
+tmp/

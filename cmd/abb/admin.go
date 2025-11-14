@@ -83,7 +83,7 @@ func getAuthToken(ctx *cli.Context) error {
 
 	r, err := http.NewRequest(
 		http.MethodPost,
-		serverAddr+"/token",
+		serverAddr+"/api/v1/token",
 		bytes.NewBufferString(formData.Encode()), // Use encoded form data
 	)
 	if err != nil {
@@ -160,7 +160,7 @@ func getUserToken(ctx *cli.Context) error {
 
 	r, err := http.NewRequest(
 		http.MethodPost,
-		serverAddr+"/token/user",
+		serverAddr+"/api/v1/token/user",
 		bytes.NewBufferString(formData.Encode()), // Use encoded form data
 	)
 	if err != nil {
@@ -220,7 +220,7 @@ func createBounty(ctx *cli.Context) error {
 	// Create and send the HTTP request
 	httpReq, err := http.NewRequest(
 		http.MethodPost,
-		ctx.String("endpoint")+"/bounties",
+		ctx.String("endpoint")+"/api/v1/bounties",
 		bytes.NewBuffer(body),
 	)
 	if err != nil {
@@ -251,7 +251,7 @@ func listBounties(ctx *cli.Context) error {
 	// Create and send the HTTP request
 	httpReq, err := http.NewRequest(
 		http.MethodGet,
-		ctx.String("endpoint")+"/bounties",
+		ctx.String("endpoint")+"/api/v1/bounties",
 		nil,
 	)
 	if err != nil {
@@ -273,7 +273,7 @@ func listBounties(ctx *cli.Context) error {
 // Action function for listing paid bounties
 func listPaidBountiesAction(ctx *cli.Context) error {
 	limit := ctx.Int("limit")
-	requestURL := fmt.Sprintf("%s/bounties/paid?limit=%d", ctx.String("endpoint"), limit)
+	requestURL := fmt.Sprintf("%s/api/v1/bounties/paid?limit=%d", ctx.String("endpoint"), limit)
 
 	httpReq, err := http.NewRequest(
 		http.MethodGet,
@@ -702,7 +702,7 @@ func searchBountiesAction(ctx *cli.Context) error {
 	token := ctx.String("token")
 	limit := ctx.Int("limit")
 
-	searchURL, err := url.Parse(endpoint + "/bounties/search")
+	searchURL, err := url.Parse(endpoint + "/api/v1/bounties/search")
 	if err != nil {
 		return fmt.Errorf("failed to parse search endpoint URL: %w", err)
 	}
@@ -953,7 +953,7 @@ func bootstrapBountiesAction(ctx *cli.Context) error {
 				return
 			}
 
-			httpReq, err := http.NewRequest(http.MethodPost, apiEndpoint+"/bounties", bytes.NewBuffer(payloadBytes))
+			httpReq, err := http.NewRequest(http.MethodPost, apiEndpoint+"/api/v1/bounties", bytes.NewBuffer(payloadBytes))
 			if err != nil {
 				bountyLogger.Error("Failed to create HTTP request for bounty creation", "error", err)
 				return
@@ -1252,7 +1252,7 @@ func adminCommands() []*cli.Command {
 				{
 					Name:        "list-paid",
 					Usage:       "List recently paid bounties",
-					Description: "Lists recently paid bounties from the /bounties/paid endpoint",
+					Description: "Lists recently paid bounties from the /api/v1/bounties/paid endpoint",
 					Flags: []cli.Flag{
 						&cli.StringFlag{
 							Name:    "endpoint",

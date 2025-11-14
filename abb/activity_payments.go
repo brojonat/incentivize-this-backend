@@ -161,7 +161,8 @@ func (a *Activities) VerifyPayment(
 	network := DetermineForohtooNetwork(cfg.SolanaConfig.RPCEndpoint)
 
 	// start tracking the wallet asset (USDC token)
-	if err = cl.RegisterAsset(timeoutCtx, expectedRecipient.String(), network, "spl-token", cfg.SolanaConfig.USDCMintAddress.String(), 10*time.Second); err != nil {
+	// Note: forohtoo requires a minimum poll interval of 1 minute
+	if err = cl.RegisterAsset(timeoutCtx, expectedRecipient.String(), network, "spl-token", cfg.SolanaConfig.USDCMintAddress.String(), 1*time.Minute); err != nil {
 		logger.Error("Failed to register wallet asset", "error", err)
 		return nil, fmt.Errorf("failed to register wallet asset: %w", err)
 	}

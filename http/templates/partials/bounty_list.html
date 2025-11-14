@@ -1,0 +1,51 @@
+{{define "bounty-list"}}
+{{range .Bounties}}
+<div>
+    <a href="/browse/{{.BountyID}}"
+       class="bounty-card block"
+       style="text-decoration: none;">
+        <!-- Card Title and Time Remaining -->
+        <div class="flex items-start justify-between gap-4 mb-4">
+            <h3 class="bounty-card-title flex-1">{{.Title}}</h3>
+            <div class="badge badge-time">
+                <span class="material-icons-outlined">hourglass_empty</span>
+                <span>119 days left</span>
+            </div>
+        </div>
+
+        <!-- Card Badges -->
+        <div class="flex flex-wrap gap-3">
+            <!-- Reward Amount -->
+            <div class="badge badge-reward">
+                <span class="material-icons-outlined">attach_money</span>
+                <span>${{printf "%.2f" .BountyPerPost}}</span>
+            </div>
+
+            <!-- Platform -->
+            <div class="badge badge-platform">
+                <span class="material-icons-outlined">code</span>
+                <span>{{.PlatformKind}}</span>
+            </div>
+
+            <!-- Content Type -->
+            <div class="badge badge-content-type">
+                <span class="material-icons-outlined">forum</span>
+                <span>{{.ContentKind}}</span>
+            </div>
+
+            <!-- Remaining Posts -->
+            <div class="badge badge-remaining">
+                <span class="material-icons-outlined">description</span>
+                <span>{{.Remaining}} remain</span>
+            </div>
+        </div>
+    </a>
+</div>
+{{else}}
+<div class="flex flex-col items-center justify-center py-12">
+    <span class="material-icons-outlined text-6xl" style="color: rgba(255, 255, 255, 0.3);">layers_clear</span>
+    <h3 class="mt-4 text-xl font-bold" style="color: var(--text-primary);">No Bounties Available</h3>
+    <p class="mt-2 text-center" style="color: var(--text-secondary);">Check back soon for new opportunities!</p>
+</div>
+{{end}}
+{{end}}

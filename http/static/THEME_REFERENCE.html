@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Theme Reference - IncentivizeThis</title>
+    <link rel="stylesheet" href="/static/css/theme.css">
+    <style>
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: var(--spacing-2xl);
+        }
+
+        .section {
+            margin-bottom: var(--spacing-2xl);
+        }
+
+        .color-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: var(--spacing-lg);
+            margin-top: var(--spacing-md);
+        }
+
+        .color-card {
+            padding: var(--spacing-lg);
+            border-radius: var(--radius-lg);
+            text-align: center;
+        }
+
+        .color-sample {
+            height: 100px;
+            border-radius: var(--radius-md);
+            margin-bottom: var(--spacing-sm);
+            border: 1px solid var(--border-default);
+        }
+
+        .component-grid {
+            display: grid;
+            gap: var(--spacing-lg);
+            margin-top: var(--spacing-md);
+        }
+
+        .component-example {
+            padding: var(--spacing-lg);
+            background-color: var(--bg-elevated);
+            border-radius: var(--radius-lg);
+        }
+
+        h1 {
+            color: var(--text-primary);
+            margin-bottom: var(--spacing-lg);
+        }
+
+        h2 {
+            color: var(--text-primary);
+            margin-bottom: var(--spacing-md);
+            margin-top: var(--spacing-xl);
+        }
+
+        h3 {
+            color: var(--text-secondary);
+            margin-bottom: var(--spacing-sm);
+        }
+
+        code {
+            background-color: var(--bg-surface);
+            padding: 0.2rem 0.5rem;
+            border-radius: var(--radius-sm);
+            color: var(--accent-blue);
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .code-block {
+            background-color: var(--bg-surface);
+            padding: var(--spacing-md);
+            border-radius: var(--radius-md);
+            overflow-x: auto;
+            margin-top: var(--spacing-sm);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>IncentivizeThis - Theme Reference</h1>
+        <p class="text-secondary">Quick visual reference for the dark theme system</p>
+
+        <!-- Color Palette -->
+        <section class="section">
+            <h2>Color Palette</h2>
+
+            <h3>Backgrounds</h3>
+            <div class="color-grid">
+                <div class="color-card" style="background-color: var(--bg-main);">
+                    <div class="color-sample" style="background-color: var(--bg-main);"></div>
+                    <div class="text-secondary">Main Background</div>
+                    <code>--bg-main</code>
+                    <div class="text-muted" style="font-size: 0.875rem;">rgb(16, 20, 24)</div>
+                </div>
+
+                <div class="color-card" style="background-color: var(--bg-elevated);">
+                    <div class="color-sample" style="background-color: var(--bg-elevated);"></div>
+                    <div class="text-secondary">Elevated</div>
+                    <code>--bg-elevated</code>
+                    <div class="text-muted" style="font-size: 0.875rem;">rgb(38, 42, 46)</div>
+                </div>
+
+                <div class="color-card" style="background-color: var(--bg-surface);">
+                    <div class="color-sample" style="background-color: var(--bg-surface);"></div>
+                    <div class="text-secondary">Surface</div>
+                    <code>--bg-surface</code>
+                    <div class="text-muted" style="font-size: 0.875rem;">rgb(24, 28, 32)</div>
+                </div>
+            </div>
+
+            <h3>Text Colors</h3>
+            <div class="color-grid">
+                <div class="color-card" style="background-color: var(--bg-elevated);">
+                    <div class="text-primary" style="font-size: 1.5rem; margin-bottom: var(--spacing-sm);">Primary Text</div>
+                    <code>--text-primary</code>
+                    <div class="text-muted" style="font-size: 0.875rem;">rgb(159, 201, 253)</div>
+                </div>
+
+                <div class="color-card" style="background-color: var(--bg-elevated);">
+                    <div class="text-secondary" style="font-size: 1.5rem; margin-bottom: var(--spacing-sm);">Secondary Text</div>
+                    <code>--text-secondary</code>
+                    <div class="text-muted" style="font-size: 0.875rem;">rgba(255, 255, 255, 0.7)</div>
+                </div>
+
+                <div class="color-card" style="background-color: var(--bg-elevated);">
+                    <div class="text-muted" style="font-size: 1.5rem; margin-bottom: var(--spacing-sm);">Muted Text</div>
+                    <code>--text-muted</code>
+                    <div class="text-muted" style="font-size: 0.875rem;">rgba(255, 255, 255, 0.5)</div>
+                </div>
+            </div>
+
+            <h3>Accent & Status Colors</h3>
+            <div class="color-grid">
+                <div class="color-card" style="background-color: var(--bg-elevated);">
+                    <div class="color-sample" style="background-color: var(--accent-blue);"></div>
+                    <div class="text-secondary">Accent Blue</div>
+                    <code>--accent-blue</code>
+                </div>
+
+                <div class="color-card" style="background-color: var(--bg-elevated);">
+                    <div class="color-sample" style="background-color: var(--success);"></div>
+                    <div class="text-secondary">Success</div>
+                    <code>--success</code>
+                </div>
+
+                <div class="color-card" style="background-color: var(--bg-elevated);">
+                    <div class="color-sample" style="background-color: var(--warning);"></div>
+                    <div class="text-secondary">Warning</div>
+                    <code>--warning</code>
+                </div>
+
+                <div class="color-card" style="background-color: var(--bg-elevated);">
+                    <div class="color-sample" style="background-color: var(--error);"></div>
+                    <div class="text-secondary">Error</div>
+                    <code>--error</code>
+                </div>
+            </div>
+        </section>
+
+        <!-- Component Examples -->
+        <section class="section">
+            <h2>Component Examples</h2>
+
+            <div class="component-grid">
+                <!-- Buttons -->
+                <div class="component-example">
+                    <h3>Buttons</h3>
+                    <div style="display: flex; gap: var(--spacing-md); flex-wrap: wrap; margin-top: var(--spacing-md);">
+                        <button class="btn btn-primary">Primary Button</button>
+                        <button class="btn btn-secondary">Secondary Button</button>
+                    </div>
+                    <div class="code-block">
+                        <code>&lt;button class="btn btn-primary"&gt;Primary Button&lt;/button&gt;</code><br>
+                        <code>&lt;button class="btn btn-secondary"&gt;Secondary Button&lt;/button&gt;</code>
+                    </div>
+                </div>
+
+                <!-- Form Inputs -->
+                <div class="component-example">
+                    <h3>Form Inputs</h3>
+                    <div style="max-width: 400px; margin-top: var(--spacing-md);">
+                        <label class="label">Label Text</label>
+                        <input type="text" class="input" placeholder="Input placeholder">
+
+                        <label class="label" style="margin-top: var(--spacing-md);">Textarea</label>
+                        <textarea class="textarea" rows="3" placeholder="Textarea placeholder"></textarea>
+                    </div>
+                    <div class="code-block">
+                        <code>&lt;label class="label"&gt;Label&lt;/label&gt;</code><br>
+                        <code>&lt;input type="text" class="input" placeholder="..."&gt;</code><br>
+                        <code>&lt;textarea class="textarea"&gt;&lt;/textarea&gt;</code>
+                    </div>
+                </div>
+
+                <!-- Card -->
+                <div class="component-example">
+                    <h3>Card</h3>
+                    <div class="card" style="max-width: 400px; margin-top: var(--spacing-md);">
+                        <h4 class="text-primary">Card Title</h4>
+                        <p class="text-secondary">This is an example of a card component. Cards are used for grouping related content.</p>
+                        <button class="btn btn-primary" style="margin-top: var(--spacing-md);">Action</button>
+                    </div>
+                    <div class="code-block">
+                        <code>&lt;div class="card"&gt;...&lt;/div&gt;</code>
+                    </div>
+                </div>
+
+                <!-- Status Messages -->
+                <div class="component-example">
+                    <h3>Status Messages</h3>
+                    <div style="display: grid; gap: var(--spacing-md); margin-top: var(--spacing-md);">
+                        <div class="message-success">✓ This is a success message</div>
+                        <div class="message-warning">⚠ This is a warning message</div>
+                        <div class="message-error">✗ This is an error message</div>
+                    </div>
+                    <div class="code-block">
+                        <code>&lt;div class="message-success"&gt;...&lt;/div&gt;</code><br>
+                        <code>&lt;div class="message-warning"&gt;...&lt;/div&gt;</code><br>
+                        <code>&lt;div class="message-error"&gt;...&lt;/div&gt;</code>
+                    </div>
+                </div>
+
+                <!-- Links -->
+                <div class="component-example">
+                    <h3>Links</h3>
+                    <p class="text-secondary" style="margin-top: var(--spacing-md);">
+                        This is a paragraph with a <a href="#" class="link">styled link</a> in the middle of the text.
+                    </p>
+                    <div class="code-block">
+                        <code>&lt;a href="#" class="link"&gt;Link Text&lt;/a&gt;</code>
+                    </div>
+                </div>
+
+                <!-- Badge -->
+                <div class="component-example">
+                    <h3>Badges</h3>
+                    <div style="display: flex; gap: var(--spacing-md); flex-wrap: wrap; margin-top: var(--spacing-md);">
+                        <span class="badge" style="background-color: var(--accent-blue); color: var(--bg-main);">Active</span>
+                        <span class="badge" style="background-color: var(--success); color: white;">Success</span>
+                        <span class="badge" style="background-color: var(--warning); color: var(--bg-main);">Warning</span>
+                        <span class="badge" style="background-color: var(--error); color: white;">Error</span>
+                    </div>
+                    <div class="code-block">
+                        <code>&lt;span class="badge" style="background-color: var(--accent-blue);"&gt;Text&lt;/span&gt;</code>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- CSS Variables Reference -->
+        <section class="section">
+            <h2>CSS Variables Quick Reference</h2>
+            <div class="component-example">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: var(--spacing-md);">
+                    <div>
+                        <h3>Backgrounds</h3>
+                        <ul style="list-style: none; padding: 0;">
+                            <li><code>var(--bg-main)</code></li>
+                            <li><code>var(--bg-elevated)</code></li>
+                            <li><code>var(--bg-surface)</code></li>
+                        </ul>
+                    </div>
+
+                    <div>
+                        <h3>Text</h3>
+                        <ul style="list-style: none; padding: 0;">
+                            <li><code>var(--text-primary)</code></li>
+                            <li><code>var(--text-secondary)</code></li>
+                            <li><code>var(--text-muted)</code></li>
+                        </ul>
+                    </div>
+
+                    <div>
+                        <h3>Borders</h3>
+                        <ul style="list-style: none; padding: 0;">
+                            <li><code>var(--border-default)</code></li>
+                            <li><code>var(--border-focus)</code></li>
+                            <li><code>var(--border-hover)</code></li>
+                        </ul>
+                    </div>
+
+                    <div>
+                        <h3>Spacing</h3>
+                        <ul style="list-style: none; padding: 0;">
+                            <li><code>var(--spacing-xs)</code> - 0.25rem</li>
+                            <li><code>var(--spacing-sm)</code> - 0.5rem</li>
+                            <li><code>var(--spacing-md)</code> - 1rem</li>
+                            <li><code>var(--spacing-lg)</code> - 1.5rem</li>
+                            <li><code>var(--spacing-xl)</code> - 2rem</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div class="divider"></div>
+
+        <p class="text-muted" style="text-align: center; margin-top: var(--spacing-xl);">
+            For full documentation, see <code>THEME_GUIDE.md</code>
+        </p>
+    </div>
+</body>
+</html>

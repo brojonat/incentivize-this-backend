@@ -2,20 +2,177 @@
 
 {{define "description"}}Browse and claim bounties for creating content across various platforms{{end}}
 
+{{define "head-scripts"}}{{end}}
+
 {{define "styles"}}
-/* Info chip styling */
-.info-chip {
-    display: inline-flex;
-    align-items: center;
-    padding: 5px 10px;
-    border-radius: 16px;
-    font-size: 0.875rem;
-    font-weight: 600;
-    gap: 5px;
+/* Prevent horizontal overflow - AGGRESSIVE */
+* {
+    max-width: 100%;
 }
 
-.info-chip .material-icons-outlined {
-    font-size: 16px;
+html, body {
+    overflow-x: hidden !important;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+body, .min-h-screen {
+    overflow-x: hidden !important;
+    max-width: 100vw !important;
+    width: 100%;
+}
+
+/* Header styling */
+.app-header {
+    background-color: rgb(24, 28, 32);
+    padding: 0.75rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    width: 100%;
+    max-width: 100vw;
+    box-sizing: border-box;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.app-logo {
+    font-size: 2rem;
+}
+
+.app-title {
+    color: var(--text-primary);
+    font-size: 1.25rem;
+    font-weight: 500;
+    margin: 0;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.icon-button {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: transparent;
+    border: none;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.icon-button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+.icon-button.primary {
+    background-color: rgb(160, 202, 252);
+    color: rgb(0, 50, 88);
+}
+
+.icon-button.primary:hover {
+    background-color: rgb(140, 182, 232);
+}
+
+.icon-button .material-icons-outlined {
+    font-size: 24px;
+}
+
+/* Bounty card styling */
+.bounty-card {
+    background-color: rgb(24, 28, 32);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    max-width: 600px;
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+    cursor: pointer;
+    box-sizing: border-box;
+}
+
+.bounty-card:hover {
+    background-color: var(--bg-elevated);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+}
+
+.bounty-card-title {
+    color: var(--text-primary);
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    line-height: 1.4;
+}
+
+/* Badge styling */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.375rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    gap: 0.375rem;
+}
+
+.badge .material-icons-outlined {
+    font-size: 18px;
+}
+
+.badge-reward {
+    background-color: rgba(76, 175, 80, 0.2);
+    color: rgb(129, 199, 132);
+}
+
+.badge-platform {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.badge-content-type {
+    background-color: rgba(255, 152, 0, 0.2);
+    color: rgb(255, 183, 77);
+}
+
+.badge-remaining {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.badge-time {
+    background-color: rgba(159, 201, 253, 0.2);
+    color: rgb(159, 201, 253);
+}
+
+/* Page sections */
+.page-section {
+    padding: 2rem 1rem;
+}
+
+.section-title {
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 1.5rem;
 }
 
 /* Auto-refresh indicator */
@@ -27,211 +184,732 @@
 .pulse-dot {
     animation: pulse-dot 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
+
+/* Modal/Dialog styling */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    z-index: 1000;
+    padding: 4rem 1rem 1rem 1rem;
+    overflow-y: scroll;
+}
+
+.modal-content {
+    background-color: rgb(24, 28, 32);
+    border-radius: 12px;
+    padding: 2rem;
+    max-width: 500px;
+    width: calc(100% - 2rem);
+    max-height: 90vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+}
+
+.modal-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.modal-close {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background-color: transparent;
+    border: none;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.modal-close:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+.filter-section {
+    margin-bottom: 2rem;
+}
+
+.filter-section:last-child {
+    margin-bottom: 0;
+}
+
+.filter-label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.filter-checkboxes {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.checkbox-item:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.checkbox-item input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: rgb(160, 202, 252);
+}
+
+.checkbox-item label {
+    color: var(--text-secondary);
+    cursor: pointer;
+    flex: 1;
+}
+
+.filter-range {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.filter-input {
+    flex: 1;
+    min-width: 0;
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    color: var(--text-primary);
+    font-size: 16px;
+}
+
+.filter-input:focus {
+    outline: none;
+    border-color: rgb(160, 202, 252);
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.filter-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-default);
+}
+
+.filter-button {
+    flex: 1;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+    font-size: 0.875rem;
+}
+
+.filter-button-primary {
+    background-color: rgb(160, 202, 252);
+    color: rgb(0, 50, 88);
+}
+
+.filter-button-primary:hover {
+    background-color: rgb(140, 182, 232);
+}
+
+.filter-button-secondary {
+    background-color: transparent;
+    border: 1px solid var(--border-default);
+    color: var(--text-secondary);
+}
+
+.filter-button-secondary:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-color: var(--border-hover);
+}
+
+.filter-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.filter-button:disabled:hover {
+    background-color: rgb(160, 202, 252);
+}
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+    * {
+        box-sizing: border-box !important;
+    }
+
+    .modal-content {
+        padding: 1rem;
+        width: calc(100vw - 2rem) !important;
+        max-width: 500px;
+    }
+
+    .filter-range {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .filter-input {
+        width: 100%;
+    }
+
+    .app-header {
+        padding: 0.5rem 0.75rem;
+        margin: 0;
+        width: 100vw;
+    }
+
+    .app-logo {
+        font-size: 1.5rem;
+    }
+
+    .app-title {
+        font-size: 0.9rem;
+    }
+
+    .header-left {
+        gap: 0.5rem;
+        min-width: 0;
+        flex-shrink: 1;
+    }
+
+    .header-actions {
+        gap: 0.25rem;
+        flex-shrink: 0;
+    }
+
+    .icon-button {
+        width: 36px;
+        height: 36px;
+        flex-shrink: 0;
+    }
+
+    .icon-button .material-icons-outlined {
+        font-size: 20px;
+    }
+
+    main {
+        padding: 1rem 0.75rem !important;
+        max-width: 100vw !important;
+        width: 100vw !important;
+        box-sizing: border-box !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+    }
+
+    .bounty-card {
+        padding: 1rem;
+        margin-bottom: 1rem;
+        margin-left: 0;
+        margin-right: 0;
+    }
+
+    .bounty-card-title {
+        font-size: 1.125rem;
+        line-height: 1.3;
+    }
+
+    .badge {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+    }
+
+    .badge .material-icons-outlined {
+        font-size: 16px;
+    }
+
+    .section-title {
+        font-size: 1.5rem;
+    }
+
+    .page-section {
+        padding: 1rem 0.75rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .app-header {
+        padding: 0.5rem;
+        width: 100vw;
+    }
+
+    .app-title {
+        font-size: 0.75rem;
+    }
+
+    .header-actions {
+        gap: 0.25rem;
+    }
+
+    .icon-button {
+        width: 36px;
+        height: 36px;
+    }
+
+    .icon-button .material-icons-outlined {
+        font-size: 18px;
+    }
+
+    main {
+        padding: 0.75rem 0.5rem !important;
+        width: 100vw !important;
+        margin: 0 !important;
+    }
+
+    .bounty-card {
+        padding: 0.75rem;
+        width: 100%;
+    }
+
+    .modal-content {
+        padding: 1rem;
+    }
+}
 {{end}}
 
 {{define "content"}}
-<!-- App Container with Alpine.js state -->
+<!-- App Container - Alpine.js only for modal state -->
 <div x-data="{
-    bounties: {{ .Bounties }},
-    recentlyPaid: {{ .RecentlyPaid }},
-    loading: false,
-    error: null,
-    autoRefreshEnabled: true,
-    lastRefresh: Date.now(),
-
-    async refreshData() {
-        this.loading = true;
-        this.error = null;
+    filterModalOpen: false,
+    searchModalOpen: false,
+    createBountyModalOpen: false,
+    searchQuery: '',
+    filters: {
+        platforms: [],
+        contentTypes: [],
+        minReward: '',
+        maxReward: ''
+    },
+    newBounty: {
+        requirements: '',
+        platform: '',
+        contentType: '',
+        rewardPerPost: '',
+        numberOfBounties: '',
+        duration: '30'
+    },
+    clearNewBounty() {
+        this.newBounty = {
+            requirements: '',
+            platform: '',
+            contentType: '',
+            rewardPerPost: '',
+            numberOfBounties: '',
+            duration: '30'
+        };
+    },
+    get totalCost() {
+        const reward = parseFloat(this.newBounty.rewardPerPost) || 0;
+        const count = parseInt(this.newBounty.numberOfBounties) || 0;
+        const subtotal = reward * count;
+        const fee = subtotal * 1.00; // 100% platform fee
+        return {
+            subtotal: subtotal,
+            fee: fee,
+            total: subtotal + fee
+        };
+    },
+    async hardenRequirements() {
+        if (!this.newBounty.requirements) return;
         try {
-            const response = await fetch('/api/bounties/active');
-            if (!response.ok) throw new Error('Failed to load bounties');
+            const response = await fetch('/api/v1/bounties/harden', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ requirements: this.newBounty.requirements })
+            });
+            if (!response.ok) throw new Error('Failed to harden requirements');
             const data = await response.json();
-            this.bounties = data.bounties || [];
-            this.recentlyPaid = data.recently_paid || [];
-            this.lastRefresh = Date.now();
+            this.newBounty.requirements = data.hardened_requirements || data.requirements;
         } catch (err) {
-            this.error = err.message;
-        } finally {
-            this.loading = false;
+            console.error('Failed to harden requirements:', err);
+            alert('Failed to enhance requirements. Please try again.');
         }
-    },
-
-    formatAmount(amount) {
-        return new Intl.NumberFormat('en-US', {
-            style: 'currency',
-            currency: 'USD'
-        }).format(amount);
-    },
-
-    formatTimeAgo(timestamp) {
-        const seconds = Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000);
-        if (seconds < 60) return `${seconds}s ago`;
-        const minutes = Math.floor(seconds / 60);
-        if (minutes < 60) return `${minutes}m ago`;
-        const hours = Math.floor(minutes / 60);
-        if (hours < 24) return `${hours}h ago`;
-        const days = Math.floor(hours / 24);
-        return `${days}d ago`;
     }
-}"
-x-init="
-    // Auto-refresh every 5 seconds
-    setInterval(() => {
-        if (autoRefreshEnabled) {
-            refreshData();
-        }
-    }, 5000);
-" class="min-h-screen">
+}" class="min-h-screen">
 
-    <!-- Fixed Header -->
-    <header class="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div class="max-w-content mx-auto px-4 py-4 flex items-center justify-between">
-            <!-- Left Section -->
-            <div class="flex items-center gap-2">
-                <span class="text-2xl">🥕</span>
-                <h1 class="text-xl font-semibold text-gray-900 truncate">IncentivizeThis</h1>
-            </div>
-
-            <!-- Right Section -->
-            <div class="flex items-center gap-2">
-                <!-- Create Bounty Button -->
-                <a href="/bounties/create"
-                   class="w-8 h-8 rounded-full bg-primary-700 text-white flex items-center justify-center hover:bg-primary-800 transition-colors"
-                   title="Create Bounty">
-                    <span class="material-icons-outlined text-lg">add</span>
-                </a>
-
-                <!-- Info Button -->
-                <a href="/about"
-                   class="w-8 h-8 rounded-full text-primary-700 flex items-center justify-center hover:bg-primary-50 transition-colors"
-                   title="About">
-                    <span class="material-icons-outlined text-xl">info_outline</span>
-                </a>
-
-                <!-- Refresh Button -->
-                <button @click="refreshData()"
-                        :disabled="loading"
-                        class="w-8 h-8 rounded-full text-primary-700 flex items-center justify-center hover:bg-primary-50 transition-colors disabled:opacity-50"
-                        title="Refresh">
-                    <span class="material-icons-outlined text-xl" :class="{ 'animate-spin': loading }">refresh</span>
-                </button>
-            </div>
+    <!-- App Header -->
+    <header class="app-header">
+        <div class="header-left">
+            <span class="app-logo">🥕</span>
+            <h1 class="app-title">IncentivizeThis</h1>
         </div>
-
-        <!-- Auto-refresh indicator -->
-        <div class="max-w-content mx-auto px-4 pb-2">
-            <div class="flex items-center gap-2 text-xs text-gray-500">
-                <span class="w-2 h-2 rounded-full bg-success-700 pulse-dot" x-show="autoRefreshEnabled"></span>
-                <span x-text="'Auto-refresh: ' + (autoRefreshEnabled ? 'ON' : 'OFF')"></span>
-            </div>
+        <div class="header-actions">
+            <button class="icon-button primary" title="Create Bounty" @click="createBountyModalOpen = true; searchModalOpen = false; filterModalOpen = false">
+                <span class="material-icons-outlined">add</span>
+            </button>
+            <button class="icon-button" title="About" onclick="window.location.href='/about'">
+                <span class="material-icons-outlined">info</span>
+            </button>
+            <button class="icon-button" title="Search Bounties" @click="searchModalOpen = true; filterModalOpen = false; createBountyModalOpen = false">
+                <span class="material-icons-outlined">search</span>
+            </button>
+            <button class="icon-button" title="Filter Bounties" @click="filterModalOpen = true; searchModalOpen = false; createBountyModalOpen = false">
+                <span class="material-icons-outlined">tune</span>
+            </button>
         </div>
     </header>
 
     <!-- Main Content -->
-    <main class="max-w-content mx-auto">
-        <!-- Loading State -->
-        <div x-show="loading && bounties.length === 0" class="flex flex-col items-center justify-center py-20">
-            <div class="w-12 h-12 border-4 border-primary-700 border-t-transparent rounded-full animate-spin"></div>
-            <p class="mt-4 text-gray-600">Loading bounties...</p>
-        </div>
-
-        <!-- Error State -->
-        <div x-show="error && bounties.length === 0" class="flex flex-col items-center justify-center py-20 px-4">
-            <span class="material-icons-outlined text-6xl text-error-700">error_outline</span>
-            <h2 class="mt-4 text-2xl font-bold text-error-700">Error</h2>
-            <p class="mt-2 text-gray-600 text-center" x-text="error"></p>
-            <button @click="refreshData()" class="mt-6 px-6 py-2 bg-primary-700 text-white rounded-lg hover:bg-primary-800 transition-colors">
-                Try Again
-            </button>
-        </div>
-
-        <!-- Active Bounties Section -->
-        <div x-show="!loading || bounties.length > 0" x-cloak>
-            <div class="px-4 pt-4 pb-2">
-                <h2 class="text-2xl font-semibold text-primary-700">Active Bounties</h2>
+    <main class="mx-auto" style="max-width: 1200px; padding: 2rem 1rem;">
+        <!-- Active Bounties Section (HTMX-powered) -->
+        <div id="bounty-list-container"
+             hx-get="/partials/bounty-list"
+             hx-trigger="load, every 5s, refresh from:body"
+             hx-swap="innerHTML">
+            <!-- Loading state shown until HTMX loads content -->
+            <div class="flex flex-col items-center justify-center py-20">
+                <div class="w-12 h-12 border-4 border-primary-700 border-t-transparent rounded-full animate-spin"></div>
+                <p class="mt-4 text-gray-600">Loading bounties...</p>
             </div>
-
-            <!-- Empty State -->
-            <div x-show="bounties.length === 0 && !loading" class="flex flex-col items-center justify-center py-12 px-4">
-                <span class="material-icons-outlined text-6xl text-gray-400">layers_clear</span>
-                <h3 class="mt-4 text-xl font-bold text-gray-900">No Bounties Available</h3>
-                <p class="mt-2 text-gray-600 text-center">There are no active bounties to display right now. Pull down to refresh.</p>
-            </div>
-
-            <!-- Bounty Cards -->
-            <template x-for="bounty in bounties" :key="bounty.id">
-                <div class="mx-4 my-2">
-                    <a :href="'/bounties/' + bounty.id"
-                       class="block bg-white rounded-card border border-gray-300 p-4 hover:shadow-md transition-shadow ripple">
-                        <!-- Card Header -->
-                        <div class="flex items-start justify-between gap-4 mb-3">
-                            <h3 class="text-lg font-bold text-gray-900 line-clamp-2 flex-1" x-text="bounty.title"></h3>
-                            <span class="px-3 py-1 bg-primary-100 text-primary-700 rounded-chip text-sm font-semibold whitespace-nowrap"
-                                  x-text="bounty.status"></span>
-                        </div>
-
-                        <!-- Card Info Chips -->
-                        <div class="flex flex-wrap gap-2">
-                            <!-- Reward Amount -->
-                            <div class="info-chip"
-                                 :class="bounty.funded ? 'bg-success-100 text-success-700' : 'bg-gray-100 text-gray-600'">
-                                <span class="material-icons-outlined">monetization_on</span>
-                                <span x-text="bounty.funded ? formatAmount(bounty.reward_per_post) : 'Unfunded'"></span>
-                            </div>
-
-                            <!-- Platform -->
-                            <div class="info-chip bg-tertiary-100 text-tertiary-700">
-                                <span class="material-icons-outlined">language</span>
-                                <span x-text="bounty.platform"></span>
-                            </div>
-
-                            <!-- Content Type -->
-                            <div class="info-chip bg-warning-100 text-warning-700">
-                                <span class="material-icons-outlined">article</span>
-                                <span x-text="bounty.content_type"></span>
-                            </div>
-
-                            <!-- Remaining Posts -->
-                            <div class="info-chip bg-secondary-100 text-secondary-700">
-                                <span class="material-icons-outlined">inventory_2</span>
-                                <span x-text="bounty.unlimited ? 'Unlimited' : bounty.remaining + ' remaining'"></span>
-                            </div>
-                        </div>
-
-                        <!-- Fund Button (only for unfunded bounties) -->
-                        <div x-show="!bounty.funded" class="mt-4 flex justify-end">
-                            <button class="px-4 py-2 bg-primary-700 text-white rounded-lg hover:bg-primary-800 transition-colors flex items-center gap-2">
-                                <span class="material-icons-outlined">qr_code_scanner</span>
-                                <span>Fund Bounty</span>
-                            </button>
-                        </div>
-                    </a>
-                </div>
-            </template>
-        </div>
-
-        <!-- Recently Paid Section -->
-        <div x-show="recentlyPaid.length > 0" class="mt-6" x-cloak>
-            <div class="px-4 pt-6 pb-2">
-                <h2 class="text-2xl font-semibold text-secondary-700">Recently Paid</h2>
-            </div>
-
-            <template x-for="payment in recentlyPaid" :key="payment.signature">
-                <div class="mx-4 px-5 py-3 flex items-center gap-4 hover:bg-gray-50 transition-colors">
-                    <div class="w-10 h-10 rounded-full bg-secondary-100 flex items-center justify-center flex-shrink-0">
-                        <span class="material-icons-outlined text-secondary-700">receipt_long</span>
-                    </div>
-                    <div class="flex-1 min-w-0">
-                        <div class="text-base font-semibold text-gray-900" x-text="formatAmount(payment.amount)"></div>
-                        <div class="text-sm text-gray-600" x-text="formatTimeAgo(payment.timestamp)"></div>
-                    </div>
-                </div>
-            </template>
         </div>
 
         <!-- Bottom Spacing -->
-        <div class="h-8"></div>
+        <div class="h-16"></div>
     </main>
+
+    <!-- Search Modal -->
+    <div x-show="searchModalOpen"
+         class="modal-overlay"
+         @click.self="searchModalOpen = false"
+         @keydown.escape.window="searchModalOpen = false"
+         style="background-color: rgba(0, 0, 0, 0.7) !important;">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2 class="modal-title">Search Bounties</h2>
+                <button class="modal-close" @click="searchModalOpen = false">
+                    <span class="material-icons-outlined">close</span>
+                </button>
+            </div>
+
+            <!-- Search Input -->
+            <div class="filter-section">
+                <label class="filter-label">Search with natural language</label>
+                <div style="position: relative;">
+                    <input type="text"
+                           class="filter-input"
+                           placeholder="e.g., 'reddit posts about tech'"
+                           x-model="searchQuery"
+                           @keydown.escape="searchModalOpen = false"
+                           style="padding-right: 3rem; width: 100%;">
+                    <button x-show="searchQuery"
+                            @click="clearSearch()"
+                            style="position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 0.5rem; display: flex; align-items: center; justify-content: center;">
+                        <span class="material-icons-outlined" style="font-size: 20px;">close</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Quick Search Tips -->
+            <div class="filter-section" style="margin-bottom: 0;">
+                <label class="filter-label" style="margin-bottom: 0.5rem;">Example Searches</label>
+                <div style="font-size: 0.875rem; color: var(--text-secondary); line-height: 1.6;">
+                    <p style="margin-bottom: 0.5rem;">• <span style="color: var(--text-primary);">"twitter posts about gaming"</span></p>
+                    <p style="margin-bottom: 0.5rem;">• <span style="color: var(--text-primary);">"youtube videos with high rewards"</span></p>
+                    <p style="margin-bottom: 0.5rem;">• <span style="color: var(--text-primary);">"reddit comments about technology"</span></p>
+                    <p>• <span style="color: var(--text-primary);">"content about restaurants"</span></p>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="filter-actions">
+                <button class="filter-button filter-button-primary" @click="searchModalOpen = false" style="width: 100%;">
+                    Search
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filter Modal -->
+    <div x-show="filterModalOpen"
+         class="modal-overlay"
+         @click.self="filterModalOpen = false"
+         @keydown.escape.window="filterModalOpen = false"
+         style="background-color: rgba(0, 0, 0, 0.7) !important;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Filter Bounties</h2>
+                <button class="modal-close" @click="filterModalOpen = false">
+                    <span class="material-icons-outlined">close</span>
+                </button>
+            </div>
+
+            <!-- Platform Filter -->
+            <div class="filter-section">
+                <label class="filter-label">Platform</label>
+                <div class="filter-checkboxes">
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="platform-reddit" value="reddit" x-model="filters.platforms">
+                        <label for="platform-reddit">Reddit</label>
+                    </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="platform-youtube" value="youtube" x-model="filters.platforms">
+                        <label for="platform-youtube">YouTube</label>
+                    </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="platform-twitter" value="twitter" x-model="filters.platforms">
+                        <label for="platform-twitter">Twitter</label>
+                    </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="platform-hackernews" value="hackernews" x-model="filters.platforms">
+                        <label for="platform-hackernews">HackerNews</label>
+                    </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="platform-instagram" value="instagram" x-model="filters.platforms">
+                        <label for="platform-instagram">Instagram</label>
+                    </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="platform-twitch" value="twitch" x-model="filters.platforms">
+                        <label for="platform-twitch">Twitch</label>
+                    </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="platform-tripadvisor" value="tripadvisor" x-model="filters.platforms">
+                        <label for="platform-tripadvisor">TripAdvisor</label>
+                    </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="platform-bluesky" value="bluesky" x-model="filters.platforms">
+                        <label for="platform-bluesky">Bluesky</label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Content Type Filter -->
+            <div class="filter-section">
+                <label class="filter-label">Content Type</label>
+                <div class="filter-checkboxes">
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="type-post" value="post" x-model="filters.contentTypes">
+                        <label for="type-post">Post</label>
+                    </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="type-comment" value="comment" x-model="filters.contentTypes">
+                        <label for="type-comment">Comment</label>
+                    </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="type-video" value="video" x-model="filters.contentTypes">
+                        <label for="type-video">Video</label>
+                    </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="type-review" value="review" x-model="filters.contentTypes">
+                        <label for="type-review">Review</label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Reward Range Filter -->
+            <div class="filter-section">
+                <label class="filter-label">Reward Range (USD)</label>
+                <div class="filter-range">
+                    <input type="number"
+                           class="filter-input"
+                           placeholder="Min"
+                           step="0.01"
+                           min="0"
+                           x-model="filters.minReward">
+                    <span style="color: var(--text-secondary);">—</span>
+                    <input type="number"
+                           class="filter-input"
+                           placeholder="Max"
+                           step="0.01"
+                           min="0"
+                           x-model="filters.maxReward">
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="filter-actions">
+                <button class="filter-button filter-button-secondary" @click="clearFilters()">
+                    Clear All
+                </button>
+                <button class="filter-button filter-button-primary" @click="applyFilters()">
+                    Apply Filters
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Bounty Modal -->
+    <div x-show="createBountyModalOpen"
+         class="modal-overlay"
+         @click.self="createBountyModalOpen = false"
+         @keydown.escape.window="createBountyModalOpen = false"
+         style="background-color: rgba(0, 0, 0, 0.7) !important;">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2 class="modal-title">Create Bounty</h2>
+                <button class="modal-close" @click="createBountyModalOpen = false">
+                    <span class="material-icons-outlined">close</span>
+                </button>
+            </div>
+
+            <!-- Form -->
+            <form hx-post="/forms/create-bounty"
+                  hx-target="#form-response"
+                  hx-swap="innerHTML"
+                  @htmx:after-request="if($event.detail.successful) {
+                      htmx.trigger('#bounty-list-container', 'refresh');
+                      setTimeout(() => { createBountyModalOpen = false; clearNewBounty(); }, 2000);
+                  }">
+
+                <!-- Requirements -->
+                <div class="filter-section">
+                    <label class="filter-label">Requirements</label>
+                    <textarea class="filter-input"
+                              name="requirements"
+                              placeholder="Describe what content you want created..."
+                              x-model="newBounty.requirements"
+                              rows="4"
+                              required
+                              style="width: 100%; resize: vertical; font-family: inherit;"></textarea>
+                    <button type="button"
+                            @click="hardenRequirements()"
+                            style="margin-top: 0.5rem; padding: 0.5rem 1rem; background-color: rgba(160, 202, 252, 0.2); border: 1px solid rgb(160, 202, 252); border-radius: 6px; color: rgb(160, 202, 252); font-size: 0.875rem; font-weight: 600; cursor: pointer; transition: all 0.2s ease;"
+                            :disabled="!newBounty.requirements">
+                        ✨ Harden with AI
+                    </button>
+                </div>
+
+                <!-- Platform and Content Type (Single Row) -->
+                <div class="filter-section">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div>
+                            <label class="filter-label">Platform</label>
+                            <select class="filter-input" name="platform" x-model="newBounty.platform" required style="width: 100%;">
+                                <option value="">Select...</option>
+                                <option value="reddit">Reddit</option>
+                                <option value="youtube">YouTube</option>
+                                <option value="twitter">Twitter</option>
+                                <option value="hackernews">HackerNews</option>
+                                <option value="instagram">Instagram</option>
+                                <option value="twitch">Twitch</option>
+                                <option value="tripadvisor">TripAdvisor</option>
+                                <option value="bluesky">Bluesky</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="filter-label">Content Type</label>
+                            <select class="filter-input" name="content_type" x-model="newBounty.contentType" required style="width: 100%;">
+                                <option value="">Select...</option>
+                                <option value="post">Post</option>
+                                <option value="comment">Comment</option>
+                                <option value="video">Video</option>
+                                <option value="review">Review</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reward and Count (Single Row) -->
+                <div class="filter-section">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div>
+                            <label class="filter-label">Reward (USD)</label>
+                            <input type="number"
+                                   name="reward_per_post"
+                                   inputmode="decimal"
+                                   class="filter-input"
+                                   placeholder="0.00"
+                                   step="0.01"
+                                   min="0"
+                                   required
+                                   x-model="newBounty.rewardPerPost"
+                                   style="width: 100%;">
+                        </div>
+                        <div>
+                            <label class="filter-label">Quantity</label>
+                            <input type="number"
+                                   name="number_of_bounties"
+                                   inputmode="numeric"
+                                   class="filter-input"
+                                   placeholder="1"
+                                   step="1"
+                                   min="1"
+                                   required
+                                   x-model="newBounty.numberOfBounties"
+                                   style="width: 100%;">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Duration -->
+                <div class="filter-section">
+                    <label class="filter-label">Duration (Days)</label>
+                    <select class="filter-input" name="duration" x-model="newBounty.duration" style="width: 100%;">
+                        <option value="1">1 day</option>
+                        <option value="7">7 days</option>
+                        <option value="14">14 days</option>
+                        <option value="30" selected>30 days</option>
+                        <option value="60">60 days</option>
+                        <option value="90">90 days</option>
+                        <option value="180">180 days</option>
+                    </select>
+                </div>
+
+                <!-- Cost Breakdown -->
+                <div style="background-color: rgba(160, 202, 252, 0.1); border: 1px solid rgba(160, 202, 252, 0.3); border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem;">
+                    <p style="font-size: 0.875rem; color: var(--text-primary); margin: 0 0 0.75rem 0; font-weight: 600;">Cost Breakdown</p>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                        <span>Subtotal:</span>
+                        <span x-text="'$' + totalCost.subtotal.toFixed(2)"></span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                        <span>Platform Fee:</span>
+                        <span x-text="'$' + totalCost.fee.toFixed(2)"></span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 1rem; color: var(--text-primary); font-weight: 600; padding-top: 0.5rem; border-top: 1px solid rgba(160, 202, 252, 0.3);">
+                        <span>Total:</span>
+                        <span x-text="'$' + totalCost.total.toFixed(2)"></span>
+                    </div>
+                </div>
+
+                <!-- Form Response Area -->
+                <div id="form-response" style="margin-bottom: 1rem;"></div>
+
+                <!-- Actions -->
+                <div class="filter-actions">
+                    <button type="button" class="filter-button filter-button-secondary" @click="createBountyModalOpen = false">
+                        Cancel
+                    </button>
+                    <button type="submit" class="filter-button filter-button-primary">
+                        Create Bounty
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
 </div>
 {{end}}
 

@@ -331,8 +331,8 @@ create-reddit-post-bounty: build-cli ## Create a test Reddit Post bounty
 		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
-	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
 	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
 		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
 	else \
@@ -357,8 +357,8 @@ create-reddit-comment-bounty: build-cli ## Create a test Reddit Comment bounty
 		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
-	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
 	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
 		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
 	else \
@@ -383,8 +383,8 @@ create-youtube-bounty: build-cli ## Create a test YouTube bounty
 		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
-	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
 	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
 		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
 	else \
@@ -409,8 +409,8 @@ create-twitch-bounty: build-cli ## Create a test Twitch bounty
 		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
-	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
 	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
 		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
 	else \
@@ -435,8 +435,8 @@ create-bluesky-bounty: build-cli ## Create a test Bluesky bounty
 		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
-	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
 	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
 		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
 	else \
@@ -461,8 +461,8 @@ create-hackernews-comment-bounty: build-cli ## Create a test Hacker News Comment
 		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
-	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
 	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
 		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
 	else \
@@ -487,8 +487,8 @@ create-hackernews-post-bounty: build-cli ## Create a simple test Hacker News pos
 		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
-	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
 	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
 		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
 	else \
@@ -513,8 +513,8 @@ create-instagram-post-bounty: build-cli ## Create a test Instagram Post bounty f
 		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
-	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
 	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
 		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
 	else \

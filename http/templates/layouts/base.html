@@ -22,59 +22,54 @@
             theme: {
                 extend: {
                     colors: {
-                        // Material Design 3 Blue theme
+                        // Custom Dark Theme - IncentivizeThis
+                        brand: {
+                            // Page backgrounds
+                            bg: {
+                                DEFAULT: 'rgb(16, 20, 24)',      // Main background
+                                elevated: 'rgb(38, 42, 46)',     // Dialog/modal background
+                                surface: 'rgb(24, 28, 32)',      // Button/card backgrounds
+                            },
+                            // Text colors
+                            text: {
+                                primary: 'rgb(159, 201, 253)',   // Primary text/button text
+                                secondary: 'rgba(255, 255, 255, 0.7)', // Secondary text
+                                muted: 'rgba(255, 255, 255, 0.5)',     // Muted text
+                                inverse: 'rgb(16, 20, 24)',      // Text on light backgrounds
+                            },
+                            // Accent colors
+                            accent: {
+                                blue: 'rgb(159, 201, 253)',      // Primary accent
+                                'blue-dark': 'rgb(100, 150, 210)', // Darker blue for hover
+                            },
+                            // Status colors (with dark theme adaptation)
+                            success: {
+                                DEFAULT: 'rgb(76, 175, 80)',
+                                dark: 'rgb(56, 142, 60)',
+                            },
+                            warning: {
+                                DEFAULT: 'rgb(255, 152, 0)',
+                                dark: 'rgb(245, 124, 0)',
+                            },
+                            error: {
+                                DEFAULT: 'rgb(244, 67, 54)',
+                                dark: 'rgb(211, 47, 47)',
+                            },
+                        },
+                        // Keep some Material Design colors for compatibility
                         primary: {
-                            DEFAULT: '#1976D2',
+                            DEFAULT: 'rgb(159, 201, 253)',
                             50: '#E3F2FD',
                             100: '#BBDEFB',
                             200: '#90CAF9',
                             300: '#64B5F6',
                             400: '#42A5F5',
-                            500: '#2196F3',
+                            500: 'rgb(159, 201, 253)',
                             600: '#1E88E5',
-                            700: '#1976D2',
+                            700: 'rgb(100, 150, 210)',
                             800: '#1565C0',
                             900: '#0D47A1',
                         },
-                        secondary: {
-                            DEFAULT: '#7C4DFF',
-                            50: '#EDE7F6',
-                            100: '#D1C4E9',
-                            200: '#B39DDB',
-                            300: '#9575CD',
-                            400: '#7E57C2',
-                            500: '#673AB7',
-                            600: '#5E35B1',
-                            700: '#512DA8',
-                            800: '#4527A0',
-                            900: '#311B92',
-                        },
-                        tertiary: {
-                            DEFAULT: '#00BCD4',
-                            500: '#00BCD4',
-                            700: '#0097A7',
-                        },
-                        success: {
-                            DEFAULT: '#388E3C',
-                            700: '#388E3C',
-                        },
-                        warning: {
-                            DEFAULT: '#F57C00',
-                            700: '#F57C00',
-                        },
-                        error: {
-                            DEFAULT: '#D32F2F',
-                            700: '#D32F2F',
-                        },
-                        surface: {
-                            DEFAULT: '#FFFFFF',
-                            dark: '#121212',
-                        },
-                        outline: {
-                            DEFAULT: '#79747E',
-                            light: '#E0E0E0',
-                            dark: '#424242',
-                        }
                     },
                     borderRadius: {
                         'card': '16px',
@@ -91,11 +86,20 @@
     <!-- Material Icons -->
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
 
+    <!-- Theme CSS -->
+    <link rel="stylesheet" href="/static/css/theme.css">
+
     <!-- Page-specific head scripts -->
     {{template "head-scripts" .}}
 
     <!-- Custom Styles -->
     <style>
+        /* Prevent horizontal overflow */
+        html, body {
+            overflow-x: hidden;
+            max-width: 100%;
+        }
+
         body {
             font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         }
@@ -103,6 +107,11 @@
         /* Smooth scrolling */
         html {
             scroll-behavior: smooth;
+        }
+
+        /* Ensure all containers respect viewport width */
+        * {
+            box-sizing: border-box;
         }
 
         /* Material Design elevation shadows */
@@ -153,7 +162,7 @@
         {{template "styles" .}}
     </style>
 </head>
-<body class="bg-gray-50 min-h-screen" x-data="{ contactModalOpen: false }">
+<body class="min-h-screen" style="background-color: rgb(16, 20, 24);" x-data="{ contactModalOpen: false }">
     {{template "content" .}}
 
     <!-- Contact Us Modal -->
@@ -182,17 +191,19 @@
                  x-transition:leave="transition ease-in duration-200"
                  x-transition:leave-start="opacity-100 transform scale-100"
                  x-transition:leave-end="opacity-0 transform scale-95"
-                 class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 relative z-10">
+                 class="rounded-2xl shadow-2xl max-w-md w-full p-6 relative z-10"
+                 style="background-color: rgb(38, 42, 46);">
 
                 <!-- Close Button -->
                 <button @click="contactModalOpen = false"
-                        class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                        class="absolute top-4 right-4 hover:opacity-70 transition-opacity"
+                        style="color: rgba(255, 255, 255, 0.7);">
                     <span class="material-icons-outlined">close</span>
                 </button>
 
                 <!-- Modal Header -->
-                <h2 class="text-2xl font-bold mb-4 text-gray-900">Contact Us</h2>
-                <p class="text-gray-600 mb-6">Have a question or want to learn more? Send us a message!</p>
+                <h2 class="text-2xl font-bold mb-4" style="color: rgb(159, 201, 253);">Contact Us</h2>
+                <p class="mb-6" style="color: rgba(255, 255, 255, 0.7);">Have a question or want to learn more? Send us a message!</p>
 
                 <!-- Contact Form -->
                 <form hx-post="/contact-us"
@@ -202,42 +213,55 @@
                       @htmx:after-request="if($event.detail.successful) { setTimeout(() => contactModalOpen = false, 2000) }">
 
                     <div>
-                        <label for="contact-name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                        <label for="contact-name" class="block text-sm font-medium mb-1" style="color: rgba(255, 255, 255, 0.7);">Name</label>
                         <input type="text"
                                id="contact-name"
                                name="name"
                                required
-                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                               class="w-full px-4 py-2 rounded-lg focus:ring-2 focus:outline-none transition-all"
+                               style="background-color: rgb(24, 28, 32); color: rgba(255, 255, 255, 0.9); border: 1px solid rgba(255, 255, 255, 0.2);"
+                               onfocus="this.style.borderColor='rgb(159, 201, 253)'"
+                               onblur="this.style.borderColor='rgba(255, 255, 255, 0.2)'">
                     </div>
 
                     <div>
-                        <label for="contact-email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                        <label for="contact-email" class="block text-sm font-medium mb-1" style="color: rgba(255, 255, 255, 0.7);">Email</label>
                         <input type="email"
                                id="contact-email"
                                name="email"
                                required
-                               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                               class="w-full px-4 py-2 rounded-lg focus:ring-2 focus:outline-none transition-all"
+                               style="background-color: rgb(24, 28, 32); color: rgba(255, 255, 255, 0.9); border: 1px solid rgba(255, 255, 255, 0.2);"
+                               onfocus="this.style.borderColor='rgb(159, 201, 253)'"
+                               onblur="this.style.borderColor='rgba(255, 255, 255, 0.2)'">
                     </div>
 
                     <div>
-                        <label for="contact-message" class="block text-sm font-medium text-gray-700 mb-1">Message</label>
+                        <label for="contact-message" class="block text-sm font-medium mb-1" style="color: rgba(255, 255, 255, 0.7);">Message</label>
                         <textarea id="contact-message"
                                   name="message"
                                   required
                                   rows="4"
-                                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"></textarea>
+                                  class="w-full px-4 py-2 rounded-lg focus:ring-2 focus:outline-none transition-all"
+                                  style="background-color: rgb(24, 28, 32); color: rgba(255, 255, 255, 0.9); border: 1px solid rgba(255, 255, 255, 0.2);"
+                                  onfocus="this.style.borderColor='rgb(159, 201, 253)'"
+                                  onblur="this.style.borderColor='rgba(255, 255, 255, 0.2)'"></textarea>
                     </div>
 
                     <div id="contact-form-result" class="text-sm"></div>
 
                     <div class="flex gap-3">
                         <button type="submit"
-                                class="flex-1 px-6 py-3 bg-primary-700 text-white rounded-lg font-bold hover:bg-primary-800 transition-colors">
+                                class="flex-1 px-6 py-3 rounded-lg font-bold transition-all"
+                                style="background-color: rgb(160, 202, 252); color: rgb(0, 50, 88);"
+                                onmouseover="this.style.backgroundColor='rgb(140, 182, 232)'"
+                                onmouseout="this.style.backgroundColor='rgb(160, 202, 252)'">
                             Send Message
                         </button>
                         <button type="button"
                                 @click="contactModalOpen = false"
-                                class="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+                                class="px-6 py-3 rounded-lg transition-all hover:opacity-70"
+                                style="border: 1px solid rgba(255, 255, 255, 0.2); color: rgba(255, 255, 255, 0.7);">
                             Cancel
                         </button>
                     </div>

@@ -83,6 +83,7 @@ body {
     background-size: cover;
     background-position: center;
     background-attachment: fixed;
+    background-repeat: no-repeat;
 }
 
 .hero-content {
@@ -141,24 +142,24 @@ body {
     position: relative;
 }
 
-.section-gray {
-    background-color: #f5f5f5;
+.section-dark {
+    background-color: rgb(49, 53, 57);
 }
 
-.section-white {
-    background-color: #ffffff;
+.section-darker {
+    background-color: rgb(16, 20, 24);
 }
 
 .section h2 {
     font-size: 2rem;
     margin-bottom: 1rem;
-    color: #333;
+    color: var(--text-primary);
 }
 
 .section p {
     font-size: 1.125rem;
     line-height: 1.6;
-    color: #666;
+    color: var(--text-secondary);
 }
 
 .two-col {
@@ -211,6 +212,7 @@ body {
 .cta-section h2 {
     font-size: 2.5rem;
     margin-bottom: 2rem;
+    color: var(--text-primary);
 }
 
 .button-group {
@@ -230,35 +232,36 @@ body {
 }
 
 .button-primary {
-    background-color: #1976D2;
-    color: white;
+    background-color: rgb(160, 202, 252);
+    color: rgb(0, 50, 88);
 }
 
 .button-primary:hover {
-    background-color: #1565C0;
+    background-color: rgb(140, 182, 232);
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(25, 118, 210, 0.4);
+    box-shadow: 0 4px 12px rgba(160, 202, 252, 0.4);
 }
 
 .button-secondary {
-    border: 2px solid #1976D2;
-    color: #1976D2;
-    background-color: white;
+    border: 2px solid var(--accent-blue);
+    color: var(--accent-blue);
+    background-color: transparent;
 }
 
 .button-secondary:hover {
-    background-color: #E3F2FD;
+    background-color: rgba(159, 201, 253, 0.1);
     transform: translateY(-2px);
 }
 
 .button-tertiary {
-    border: 1px solid #999;
-    color: #666;
-    background-color: white;
+    border: 1px solid var(--border-default);
+    color: var(--text-secondary);
+    background-color: transparent;
 }
 
 .button-tertiary:hover {
-    background-color: #f5f5f5;
+    background-color: rgba(255, 255, 255, 0.05);
+    border-color: var(--border-hover);
     transform: translateY(-2px);
 }
 
@@ -267,8 +270,16 @@ body {
         grid-template-columns: 1fr;
     }
 
+    .hero {
+        background-attachment: scroll;
+        background-size: cover;
+        background-position: center center;
+        padding: 1rem;
+    }
+
     .hero h1 {
         font-size: 1.75rem;
+        padding: 1.5rem;
     }
 }
 {{end}}
@@ -292,7 +303,7 @@ body {
     </div>
 
     <!-- Section 2: Ads Suck -->
-    <div class="section section-gray fade-in">
+    <div class="section section-dark fade-in">
         <div class="two-col">
             <div>
                 <h2>Ads Suck.</h2>
@@ -305,7 +316,7 @@ body {
     </div>
 
     <!-- Section 3: Just Incentivize Creators! -->
-    <div class="section section-white fade-in">
+    <div class="section section-darker fade-in">
         <div class="two-col">
             <div>
                 <img src="/static/images/marketing-browse.png" alt="Browse bounties">
@@ -315,7 +326,7 @@ body {
                 <p style="margin-bottom: 1rem;">Tell us you want:</p>
 
                 <!-- Rotating Platform Examples -->
-                <div style="min-height: 80px; display: flex; align-items: center; justify-content: center; font-size: 1.125rem; line-height: 1.6; color: #666; position: relative;">
+                <div style="min-height: 80px; display: flex; align-items: center; justify-content: center; font-size: 1.125rem; line-height: 1.6; position: relative;">
                     <template x-for="(platform, index) in shuffledPlatforms" :key="index">
                         <div x-show="currentPlatformIndex === index"
                              x-transition:enter="transition-opacity duration-700 ease-in-out"
@@ -324,7 +335,7 @@ body {
                              x-transition:leave="transition-opacity duration-700 ease-in-out"
                              x-transition:leave-start="opacity-100"
                              x-transition:leave-end="opacity-0"
-                             style="position: absolute;">
+                             style="position: absolute; color: var(--text-secondary);">
                             <span>a </span>
                             <span class="platform-badge"
                                   :style="`background: ${platform.bg}; color: ${platform.textColor}`"
@@ -340,7 +351,7 @@ body {
     </div>
 
     <!-- Section 4: Regular Users Post... -->
-    <div class="section section-gray fade-in">
+    <div class="section section-dark fade-in">
         <div class="two-col">
             <div>
                 <h2>Regular Users Post...</h2>
@@ -353,7 +364,7 @@ body {
     </div>
 
     <!-- Section 5: ...And Get Paid! -->
-    <div class="section section-white fade-in">
+    <div class="section section-darker fade-in">
         <div class="two-col">
             <div>
                 <img src="/static/images/marketing-paid.png" alt="Get paid">
@@ -366,7 +377,7 @@ body {
     </div>
 
     <!-- Section 6: CTA -->
-    <div class="section section-gray cta-section fade-in">
+    <div class="section section-dark cta-section fade-in">
         <h2>Ready to Get Started?</h2>
         <div class="button-group">
             <a href="/bounties/create" class="button button-primary">Create a Bounty</a>
