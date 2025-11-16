@@ -60,12 +60,17 @@ run-http-server-local: ## Run the HTTP server locally (uses .env.server.debug)
 run-http-server-local-air: ## Run the HTTP server with Air hot-reload (uses .env.server.debug)
 	$(call setup_env, .env.server.debug)
 	@mkdir -p tmp logs
-	air
+	PATH="$(PATH):$$(go env GOPATH)/bin" air -c .air.server.toml
 
 run-worker-local: ## Run the Temporal worker locally (uses .env.worker.debug)
 	$(call setup_env, .env.worker.debug)
 	@$(MAKE) build-cli
 	./bin/abb run worker --temporal-address ${TEMPORAL_ADDRESS} --temporal-namespace ${TEMPORAL_NAMESPACE}
+
+run-worker-local-air: ## Run the Temporal worker with Air hot-reload (uses .env.worker.debug)
+	$(call setup_env, .env.worker.debug)
+	@mkdir -p tmp logs
+	PATH="$(PATH):$$(go env GOPATH)/bin" air -c .air.worker.toml
 
 # Deployment targets
 .PHONY: deploy-server deploy-worker deploy-all delete-server delete-worker delete-all
@@ -187,7 +192,7 @@ TMUX_SESSION := abb-dev
 PORT_FORWARD_CMD := "kubectl port-forward service/temporal-web 8081:8080"
 TEMPORAL_FORWARD_CMD := "kubectl port-forward services/temporal-frontend 7233:7233"
 SERVER_CMD := $(MAKE) run-http-server-local-air # Command to run the server with Air hot-reload
-WORKER_CMD := $(MAKE) run-worker-local   # Command to run the worker
+WORKER_CMD := $(MAKE) run-worker-local-air   # Command to run the worker with Air hot-reload
 
 # Stop existing session (if any) and start a new one
 dev-session: stop-dev-session start-dev-session ## Stop (if running) and start a new tmux dev session

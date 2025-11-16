@@ -3,9 +3,9 @@ testdata_dir = "testdata"
 tmp_dir = "tmp"
 
 [build]
-  args_bin = ["run", "http-server", "--temporal-address", "localhost:7233", "--temporal-namespace", "affiliate-bounty-board"]
-  bin = "./tmp/server"
-  cmd = "go build -o ./tmp/server ./cmd/abb"
+  args_bin = ["run", "worker", "--temporal-address", "localhost:7233", "--temporal-namespace", "affiliate-bounty-board"]
+  bin = "./tmp/worker"
+  cmd = "go build -o ./tmp/worker ./cmd/abb"
   delay = 1000
   exclude_dir = ["assets", "tmp", "vendor", "testdata", ".git", "bin", "docs"]
   exclude_file = []

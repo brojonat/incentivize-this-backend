@@ -556,10 +556,19 @@ html, body {
         walletAddress: ''
     },
 
+    init() {
+        // Load saved wallet address from localStorage on page load
+        const savedWallet = localStorage.getItem('solana_wallet_address');
+        if (savedWallet) {
+            this.submission.walletAddress = savedWallet;
+        }
+    },
+
     clearSubmission() {
+        // Clear only the content URL, keep the wallet address persisted
         this.submission = {
             contentUrl: '',
-            walletAddress: ''
+            walletAddress: this.submission.walletAddress
         };
     },
 
@@ -581,6 +590,9 @@ html, body {
                 const error = await response.json();
                 throw new Error(error.error || 'Failed to submit claim');
             }
+
+            // Save wallet address to localStorage on successful submission
+            localStorage.setItem('solana_wallet_address', this.submission.walletAddress);
 
             const data = await response.json();
             alert('Claim submitted successfully! Your content is being evaluated.');
