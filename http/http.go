@@ -477,7 +477,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	// Since it's unauthenticated, content moderation is ALWAYS performed for all submissions
 	// Authenticated users who want to skip moderation should use the JSON API endpoint with Bearer token authentication
 	mux.HandleFunc("POST /forms/create-bounty", stools.AdaptHandler(
-		handleCreateBountyForm(logger, tc, llmProvider, llmEmbedProvider, cfg.UserRevenueSharePct, cfg.MaxPayoutsPerUser, cfg.Environment, cfg.Prompts),
+		handleCreateBountyForm(logger, tc, llmProvider, llmEmbedProvider, cfg.UserRevenueSharePct, cfg.MaxPayoutsPerUser, cfg.Environment, cfg.Prompts, cfg.Solana.EscrowWallet, cfg.Solana.USDCMintAddress),
 		htmlMode(logger, llmRateLimiter),
 		withLogging(logger),
 	))
@@ -534,6 +534,23 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	mux.HandleFunc("GET /api/v1/bounties/{bounty_id}/paid", stools.AdaptHandler(
 		handleListPaidBountiesForWorkflow(logger, tc),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
+		withLogging(logger),
+	))
+
+	mux.HandleFunc("GET /api/v1/bounties/{bounty_id}/funding-qr", stools.AdaptHandler(
+		handleGetBountyFundingQR(logger, tc, cfg.Solana.EscrowWallet, cfg.Solana.USDCMintAddress),
+		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
+		withLogging(logger),
+	))
+
+	mux.HandleFunc("GET /partials/bounty-funding-qr/{bounty_id}", stools.AdaptHandler(
+		handleGetBountyFundingQRHTML(logger, tc, cfg.Solana.EscrowWallet, cfg.Solana.USDCMintAddress),
+		htmlMode(logger, defaultRateLimiter),
+		withLogging(logger),
+	))
+	mux.HandleFunc("GET /partials/create-bounty-form", stools.AdaptHandler(
+		handleGetCreateBountyFormHTML(logger),
+		htmlMode(logger, defaultRateLimiter),
 		withLogging(logger),
 	))
 

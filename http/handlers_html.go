@@ -1,8 +1,10 @@
 package http
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -16,7 +18,9 @@ import (
 	"github.com/Rhymond/go-money"
 	"github.com/brojonat/affiliate-bounty-board/abb"
 	"github.com/brojonat/affiliate-bounty-board/solana"
+	solanago "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
+	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
@@ -220,6 +224,8 @@ func handleCreateBountyForm(
 		ContentModeration  string
 		HardenBounty       string
 	},
+	escrowWallet solanago.PublicKey,
+	usdcMint solanago.PublicKey,
 ) http.HandlerFunc {
 	// Define a local struct for parsing the LLM's JSON response for content parameters
 	type inferredContentParamsRequest struct {
@@ -769,9 +775,43 @@ func handleCreateBountyForm(
 			return
 		}
 
-		// Return success response that will close modal and show message
+		// Generate payment invoice with QR code
+		paymentInvoice, err := generatePaymentInvoice(
+			escrowWallet,
+			usdcMint,
+			input.TotalCharged.ToUSDC(),
+			workflowID,
+			input.PaymentTimeout,
+		)
+		if err != nil {
+			logger.Error("Failed to generate payment invoice", "error", err, "bounty_id", workflowID)
+			// Still return success, but without QR code
+			w.Header().Set("HX-Trigger", "bountyCreated")
+			fmt.Fprintf(w, `<div class="text-green-500">Bounty created successfully! ID: %s (QR code generation failed)</div>`, workflowID)
+			return
+		}
+
+		// Parse and render QR code template
+		tmpl, err := template.ParseFS(getTemplateFS(), "templates/partials/funding_qr.html")
+		if err != nil {
+			logger.Error("Failed to parse QR code template", "error", err)
+			// Fallback to simple success message
+			w.Header().Set("HX-Trigger", "bountyCreated")
+			fmt.Fprintf(w, `<div class="text-green-500">Bounty created successfully! ID: %s</div>`, workflowID)
+			return
+		}
+
+		// Render QR code template with payment invoice data
+		data := map[string]interface{}{
+			"PaymentInvoice": paymentInvoice,
+		}
 		w.Header().Set("HX-Trigger", "bountyCreated")
-		fmt.Fprintf(w, `<div class="text-green-500">Bounty created successfully! ID: %s</div>`, workflowID)
+		if err := tmpl.ExecuteTemplate(w, "funding-qr", data); err != nil {
+			logger.Error("Failed to execute QR code template", "error", err)
+			// Fallback to simple success message
+			fmt.Fprintf(w, `<div class="text-green-500">Bounty created successfully! ID: %s</div>`, workflowID)
+			return
+		}
 	}
 }
 
@@ -812,13 +852,15 @@ func handleBountyListPartial(logger *slog.Logger, tc client.Client, env string) 
 			}
 
 			bounty := map[string]interface{}{
-				"BountyID":      details.BountyID,
-				"Title":         details.Title,
-				"Status":        string(details.Status),
-				"BountyPerPost": details.BountyPerPost,
-				"PlatformKind":  string(details.PlatformKind),
-				"ContentKind":   string(details.ContentKind),
-				"Remaining":     calculateRemaining(details),
+				"BountyID":                details.BountyID,
+				"Title":                   details.Title,
+				"Status":                  string(details.Status),
+				"BountyPerPost":           details.BountyPerPost,
+				"PlatformKind":            string(details.PlatformKind),
+				"ContentKind":             string(details.ContentKind),
+				"Remaining":               calculateRemaining(details),
+				"TotalCharged":            details.TotalCharged,
+				"PaymentTimeoutExpiresAt": details.PaymentTimeoutExpiresAt,
 			}
 
 			bounties = append(bounties, bounty)
@@ -839,6 +881,106 @@ func handleBountyListPartial(logger *slog.Logger, tc client.Client, env string) 
 		if err := tmpl.ExecuteTemplate(w, "bounty-list", data); err != nil {
 			logger.Error("failed to execute partial template", "error", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+// handleGetBountyFundingQRHTML handles fetching the payment QR code HTML for a bounty awaiting funding
+func handleGetBountyFundingQRHTML(
+	logger *slog.Logger,
+	tc client.Client,
+	escrowWallet solanago.PublicKey,
+	usdcMint solanago.PublicKey,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		bountyID := r.PathValue("bounty_id")
+		if bountyID == "" {
+			writeHTMLBadRequestError(w, fmt.Errorf("missing bounty ID in path"))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+
+		// Query workflow for bounty details
+		resp, err := tc.QueryWorkflow(ctx, bountyID, "", abb.GetBountyDetailsQueryType)
+		if err != nil {
+			var notFoundErr *serviceerror.NotFound
+			if errors.As(err, &notFoundErr) {
+				writeHTMLBadRequestError(w, fmt.Errorf("bounty not found"))
+			} else {
+				writeHTMLInternalError(logger, w, fmt.Errorf("failed to query workflow %s for details: %w", bountyID, err))
+			}
+			return
+		}
+
+		var bountyDetails abb.BountyDetails
+		if err := resp.Get(&bountyDetails); err != nil {
+			writeHTMLInternalError(logger, w, fmt.Errorf("failed to decode bounty details: %w", err))
+			return
+		}
+
+		// Only allow QR code generation for bounties awaiting funding
+		if bountyDetails.Status != abb.BountyStatusAwaitingFunding {
+			writeHTMLBadRequestError(w, fmt.Errorf("bounty is not awaiting funding (status: %s)", bountyDetails.Status))
+			return
+		}
+
+		// Calculate payment timeout (default to 10 minutes if not set)
+		paymentTimeout := 10 * time.Minute
+		if bountyDetails.PaymentTimeoutExpiresAt != nil {
+			now := time.Now().UTC()
+			if bountyDetails.PaymentTimeoutExpiresAt.After(now) {
+				paymentTimeout = bountyDetails.PaymentTimeoutExpiresAt.Sub(now)
+			} else {
+				writeHTMLBadRequestError(w, fmt.Errorf("payment timeout has expired"))
+				return
+			}
+		}
+
+		// Generate payment invoice with QR code
+		paymentInvoice, err := generatePaymentInvoice(
+			escrowWallet,
+			usdcMint,
+			bountyDetails.TotalCharged,
+			bountyDetails.BountyID,
+			paymentTimeout,
+		)
+		if err != nil {
+			writeHTMLInternalError(logger, w, fmt.Errorf("failed to generate payment invoice: %w", err))
+			return
+		}
+
+		// Parse and render QR code template
+		tmpl, err := template.ParseFS(getTemplateFS(), "templates/partials/funding_qr.html")
+		if err != nil {
+			writeHTMLInternalError(logger, w, fmt.Errorf("failed to parse QR code template: %w", err))
+			return
+		}
+
+		// Render QR code template with payment invoice data
+		data := map[string]interface{}{
+			"PaymentInvoice": paymentInvoice,
+		}
+		if err := tmpl.ExecuteTemplate(w, "funding-qr", data); err != nil {
+			writeHTMLInternalError(logger, w, fmt.Errorf("failed to execute QR code template: %w", err))
+			return
+		}
+	}
+}
+
+// handleGetCreateBountyFormHTML returns the create bounty form HTML
+func handleGetCreateBountyFormHTML(logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tmpl, err := parseTemplates()
+		if err != nil {
+			writeHTMLInternalError(logger, w, fmt.Errorf("failed to parse templates: %w", err))
+			return
+		}
+
+		if err := tmpl.ExecuteTemplate(w, "create-bounty-form", nil); err != nil {
+			writeHTMLInternalError(logger, w, fmt.Errorf("failed to execute create bounty form template: %w", err))
 			return
 		}
 	}

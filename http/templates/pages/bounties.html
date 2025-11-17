@@ -71,10 +71,10 @@ var(--text-primary); font-size: 16px; } .filter-input:focus { outline: none;
 border-color: rgb(160, 202, 252); background-color: rgba(255, 255, 255, 0.08); }
 .filter-actions { display: flex; gap: 1rem; margin-top: 2rem; padding-top:
 1.5rem; border-top: 1px solid var(--border-default); } .filter-button { flex: 1;
-padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 600; cursor: pointer;
-transition: all 0.2s ease; border: none; font-size: 0.875rem; }
-.filter-button-primary { background-color: rgb(160, 202, 252); color: rgb(0, 50,
-88); } .filter-button-primary:hover { background-color: rgb(140, 182, 232); }
+padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 600; transition: all
+0.2s ease; border: none; font-size: 0.875rem; } .filter-button-primary {
+background-color: rgb(160, 202, 252); color: rgb(0, 50, 88); }
+.filter-button-primary:hover { background-color: rgb(140, 182, 232); }
 .filter-button-secondary { background-color: transparent; border: 1px solid
 var(--border-default); color: var(--text-secondary); }
 .filter-button-secondary:hover { background-color: rgba(255, 255, 255, 0.05);
@@ -119,6 +119,7 @@ scale(1.02); box-shadow: 0 6px 20px rgba(139, 92, 246, 0.6); } {{end}} {{define
     filterModalOpen: false,
     searchModalOpen: false,
     createBountyModalOpen: false,
+    fundBountyModalOpen: false,
     searchQuery: '',
     filters: {
         platforms: [],
@@ -133,6 +134,7 @@ scale(1.02); box-shadow: 0 6px 20px rgba(139, 92, 246, 0.6); } {{end}} {{define
         duration: '30'
     },
     hardeningInProgress: false,
+    submittingBounty: false,
     clearNewBounty() {
         this.newBounty = {
             requirements: '',
@@ -170,6 +172,12 @@ scale(1.02); box-shadow: 0 6px 20px rgba(139, 92, 246, 0.6); } {{end}} {{define
         } finally {
             this.hardeningInProgress = false;
         }
+    },
+    handleBountyFormSuccess() {
+        const refreshEl = document.getElementById('bounty-list-container');
+        if (refreshEl) htmx.trigger(refreshEl, 'refresh');
+        const modalTitle = document.querySelector('.modal-title');
+        if (modalTitle) modalTitle.textContent = 'Fund Bounty';
     }
 }"
   class="min-h-screen"
@@ -184,7 +192,7 @@ scale(1.02); box-shadow: 0 6px 20px rgba(139, 92, 246, 0.6); } {{end}} {{define
       <button
         class="icon-button primary"
         title="Create Bounty"
-        @click="createBountyModalOpen = true; searchModalOpen = false; filterModalOpen = false"
+        @click="createBountyModalOpen = true; searchModalOpen = false; filterModalOpen = false; clearNewBounty(); $nextTick(() => { htmx.ajax('GET', '/partials/create-bounty-form', {target: '#create-bounty-form-container', swap: 'innerHTML'}); })"
       >
         <span class="material-icons-outlined">add</span>
       </button>
@@ -520,8 +528,37 @@ scale(1.02); box-shadow: 0 6px 20px rgba(139, 92, 246, 0.6); } {{end}} {{define
   </div>
 
   {{template "create-bounty-modal" .}}
+
+  <!-- Fund Bounty Modal -->
+  <div
+    x-show="fundBountyModalOpen"
+    class="modal-overlay"
+    @click.self="fundBountyModalOpen = false"
+    @keydown.escape.window="fundBountyModalOpen = false"
+    style="background-color: rgba(0, 0, 0, 0.7) !important"
+  >
+    <div class="modal-content" style="max-width: 600px">
+      <div class="modal-header">
+        <h2 class="modal-title">Fund Bounty</h2>
+        <button class="modal-close" @click="fundBountyModalOpen = false">
+          <span class="material-icons-outlined">close</span>
+        </button>
+      </div>
+
+      <div id="funding-qr-container">
+        <div style="text-align: center; padding: 2rem">
+          <div
+            class="w-12 h-12 border-4 border-primary-700 border-t-transparent rounded-full animate-spin"
+            style="margin: 0 auto"
+          ></div>
+          <p style="margin-top: 1rem; color: var(--text-secondary)">
+            Loading payment QR code...
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
-{{end}} {{define "scripts"}} // x-cloak utility to hide elements until Alpine is
-ready document.addEventListener('alpine:init', () => { const style =
-document.createElement('style'); style.innerHTML = '[x-cloak] { display: none
-!important; }'; document.head.appendChild(style); }); {{end}}
+{{end}} {{define "scripts"}} const style = document.createElement("style");
+style.innerHTML = "[x-cloak] { display: none !important; }";
+document.head.appendChild(style); {{end}}

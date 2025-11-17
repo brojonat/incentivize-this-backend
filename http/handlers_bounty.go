@@ -1139,6 +1139,76 @@ func handleGetBountyByID(l *slog.Logger, tc client.Client) http.HandlerFunc {
 	}
 }
 
+// handleGetBountyFundingQR handles fetching the payment QR code for a bounty awaiting funding
+func handleGetBountyFundingQR(
+	logger *slog.Logger,
+	tc client.Client,
+	escrowWallet solanago.PublicKey,
+	usdcMint solanago.PublicKey,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		bountyID := r.PathValue("bounty_id")
+		if bountyID == "" {
+			writeBadRequestError(w, fmt.Errorf("missing bounty ID in path"))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+
+		// Query workflow for bounty details
+		resp, err := tc.QueryWorkflow(ctx, bountyID, "", abb.GetBountyDetailsQueryType)
+		if err != nil {
+			var notFoundErr *serviceerror.NotFound
+			if errors.As(err, &notFoundErr) {
+				writeEmptyResultError(w)
+			} else {
+				writeInternalError(logger, w, fmt.Errorf("failed to query workflow %s for details: %w", bountyID, err))
+			}
+			return
+		}
+
+		var bountyDetails abb.BountyDetails
+		if err := resp.Get(&bountyDetails); err != nil {
+			writeInternalError(logger, w, fmt.Errorf("failed to decode bounty details: %w", err))
+			return
+		}
+
+		// Only allow QR code generation for bounties awaiting funding
+		if bountyDetails.Status != abb.BountyStatusAwaitingFunding {
+			writeBadRequestError(w, fmt.Errorf("bounty is not awaiting funding (status: %s)", bountyDetails.Status))
+			return
+		}
+
+		// Calculate payment timeout (default to 10 minutes if not set)
+		paymentTimeout := 10 * time.Minute
+		if bountyDetails.PaymentTimeoutExpiresAt != nil {
+			now := time.Now().UTC()
+			if bountyDetails.PaymentTimeoutExpiresAt.After(now) {
+				paymentTimeout = bountyDetails.PaymentTimeoutExpiresAt.Sub(now)
+			} else {
+				writeBadRequestError(w, fmt.Errorf("payment timeout has expired"))
+				return
+			}
+		}
+
+		// Generate payment invoice with QR code
+		paymentInvoice, err := generatePaymentInvoice(
+			escrowWallet,
+			usdcMint,
+			bountyDetails.TotalCharged,
+			bountyDetails.BountyID,
+			paymentTimeout,
+		)
+		if err != nil {
+			writeInternalError(logger, w, fmt.Errorf("failed to generate payment invoice: %w", err))
+			return
+		}
+
+		writeJSONResponse(w, paymentInvoice, http.StatusOK)
+	}
+}
+
 // handleStoreBountySummary handles storing the final summary of a bounty.
 // This is intended to be called by a Temporal activity at the end of a bounty workflow.
 func handleStoreBountySummary(logger *slog.Logger, querier dbgen.Querier) http.HandlerFunc {

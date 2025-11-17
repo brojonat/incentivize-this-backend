@@ -551,6 +551,7 @@ html, body {
 <!-- App Container with Alpine.js for modal state only -->
 <div x-data="{
     claimModalOpen: false,
+    fundBountyModalOpen: false,
     submission: {
         contentUrl: '',
         walletAddress: ''
@@ -627,18 +628,6 @@ html, body {
         <div class="bounty-header">
             <div class="title-with-status">
                 <h1 class="bounty-title">{{.Bounty.title}}</h1>
-                <!-- Status (superscript) -->
-                {{if eq .Bounty.status "Listening"}}
-                <div class="chip chip-status-listening status-superscript">
-                    <span class="material-icons-outlined status-pulse">sensors</span>
-                    <span>{{.Bounty.status}}</span>
-                </div>
-                {{else}}
-                <div class="chip chip-status-inactive status-superscript">
-                    <span class="material-icons-outlined">info</span>
-                    <span>{{.Bounty.status}}</span>
-                </div>
-                {{end}}
             </div>
 
             <!-- Info Chips -->
@@ -675,11 +664,30 @@ html, body {
             </div>
         </div>
 
-        <!-- Claim Button -->
+        <!-- Claim/Fund Button -->
+        {{if eq .Bounty.status "AwaitingFunding"}}
+        <button
+            class="claim-button"
+            hx-get="/partials/bounty-funding-qr/{{.Bounty.id}}"
+            hx-target="#funding-qr-container-detail"
+            hx-swap="innerHTML"
+            hx-trigger="click"
+            @click="fundBountyModalOpen = true"
+        >
+            <span class="material-icons-outlined">qr_code_scanner</span>
+            Fund Bounty
+        </button>
+        {{else if eq .Bounty.status "Listening"}}
         <button class="claim-button" @click="claimModalOpen = true">
             <span class="material-icons-outlined">auto_awesome</span>
             Claim This Bounty
         </button>
+        {{else}}
+        <button class="claim-button" disabled style="opacity: 0.5; cursor: not-allowed;">
+            <span class="material-icons-outlined">info</span>
+            {{.Bounty.status}}
+        </button>
+        {{end}}
 
         <!-- Requirements Section -->
         <div class="requirements-section">
@@ -760,6 +768,34 @@ html, body {
                         :disabled="!submission.contentUrl || !submission.walletAddress">
                     Submit Claim
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fund Bounty Modal -->
+    <div
+        x-show="fundBountyModalOpen"
+        class="modal-overlay"
+        @click.self="fundBountyModalOpen = false"
+        @keydown.escape.window="fundBountyModalOpen = false"
+        style="background-color: rgba(0, 0, 0, 0.7) !important"
+    >
+        <div class="modal-content" style="max-width: 600px">
+            <div class="modal-header">
+                <h2 class="modal-title">Fund Bounty</h2>
+                <button class="modal-close" @click="fundBountyModalOpen = false">
+                    <span class="material-icons-outlined">close</span>
+                </button>
+            </div>
+
+            <div id="funding-qr-container-detail" style="min-height: 200px;">
+                <div style="text-align: center; padding: 2rem">
+                    <div
+                        class="w-12 h-12 border-4 border-primary-700 border-t-transparent rounded-full animate-spin"
+                        style="margin: 0 auto"
+                    ></div>
+                    <p style="margin-top: 1rem; color: var(--text-secondary)">Loading payment QR code...</p>
+                </div>
             </div>
         </div>
     </div>

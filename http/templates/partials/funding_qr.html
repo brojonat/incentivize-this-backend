@@ -1,0 +1,136 @@
+{{define "funding-qr"}}
+<div style="padding: 1rem 0">
+  <!-- Success Message - Above QR Code -->
+  <div style="
+    margin-bottom: 1.5rem;
+    padding: 0.75rem;
+    background-color: rgba(76, 175, 80, 0.1);
+    border: 1px solid rgba(76, 175, 80, 0.3);
+    border-radius: 8px;
+    text-align: center;
+  ">
+    <p style="
+      font-size: 0.875rem;
+      color: rgb(129, 199, 132);
+      margin: 0;
+    ">
+      ✓ Complete payment to activate this bounty.
+    </p>
+  </div>
+
+  <!-- QR Code with Favicon Overlay -->
+  <div style="display: flex; justify-content: center; margin-bottom: 1.5rem">
+    <div style="
+      background-color: white;
+      padding: 1rem;
+      border-radius: 12px;
+      display: inline-block;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      position: relative;
+    ">
+      <img
+        src="data:image/png;base64,{{.PaymentInvoice.QRCodeData}}"
+        alt="Payment QR Code"
+        style="width: 256px; height: 256px; display: block"
+      />
+      <!-- Favicon Overlay -->
+      <div style="
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: white;
+        padding: 0.5rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      ">
+        <img
+          src="/static/images/favicon.png"
+          alt="IncentivizeThis"
+          style="width: 48px; height: 48px; display: block"
+        />
+      </div>
+    </div>
+  </div>
+
+  <!-- Countdown Timer -->
+  <div style="text-align: center; margin-bottom: 1rem">
+    <div style="
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      margin-bottom: 0.5rem;
+    ">
+      Payment expires in:
+    </div>
+    <div style="
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: rgb(255, 183, 77);
+      font-family: monospace;
+    " id="countdown-timer">
+      Calculating...
+    </div>
+  </div>
+
+  <!-- Open in Wallet Button -->
+  <button
+    onclick="window.open('{{.PaymentInvoice.PaymentURL}}', '_blank')"
+    style="
+      width: 100%;
+      padding: 0.75rem 1.5rem;
+      background-color: rgb(160, 202, 252);
+      color: rgb(0, 50, 88);
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      transition: background-color 0.2s ease;
+      font-size: 0.875rem;
+    "
+    onmouseover="this.style.backgroundColor='rgb(140, 182, 232)'"
+    onmouseout="this.style.backgroundColor='rgb(160, 202, 252)'"
+  >
+    Open in Wallet
+  </button>
+</div>
+
+<script>
+(function() {
+  const expiresAt = new Date('{{.PaymentInvoice.ExpiresAt.Format "2006-01-02T15:04:05Z07:00"}}');
+  let intervalId = null;
+
+  function updateCountdown() {
+    const timerEl = document.getElementById('countdown-timer');
+    if (!timerEl) {
+      // Element was removed, clear the interval
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+      return;
+    }
+
+    const now = new Date();
+    const diff = expiresAt - now;
+
+    if (diff <= 0) {
+      timerEl.textContent = 'Expired';
+      timerEl.style.color = 'rgb(244, 67, 54)';
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+      return;
+    }
+
+    const minutes = Math.floor(diff / 60000);
+    const seconds = Math.floor((diff % 60000) / 1000);
+    timerEl.textContent =
+      `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+
+  updateCountdown();
+  intervalId = setInterval(updateCountdown, 1000);
+})();
+</script>
+{{end}}
+
