@@ -90,6 +90,7 @@ func handleCreateBounty(
 	llmProvider abb.LLMProvider,
 	llmEmbedProvider abb.LLMEmbeddingProvider,
 	defaultFeePercentage float64,
+	defaultMaxPayoutsPerUser int,
 	env string,
 	prompts struct {
 		InferBountyTitle   string
@@ -492,7 +493,7 @@ func handleCreateBounty(
 		}
 
 		// Max Payouts Per User
-		maxPayoutsPerUser := 1
+		maxPayoutsPerUser := defaultMaxPayoutsPerUser
 		if claims != nil && claims.Status >= UserStatusSudo && req.MaxPayoutsPerUser != nil && *req.MaxPayoutsPerUser > 0 && *req.MaxPayoutsPerUser <= 100 {
 			maxPayoutsPerUser = *req.MaxPayoutsPerUser
 		}

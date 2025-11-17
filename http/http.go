@@ -32,6 +32,7 @@ const (
 	EnvServerEnv                         = "ENV"
 	EnvTaskQueue                         = "TASK_QUEUE"
 	EnvUserRevenueSharePct               = "USER_REVENUE_SHARE_PCT"
+	EnvMaxPayoutsPerUser                 = "MAX_PAYOUTS_PER_USER"
 	EnvPublishTargetSubreddit            = "PUBLISH_TARGET_SUBREDDIT"
 	EnvPeriodicPublisherScheduleID       = "PERIODIC_PUBLISHER_SCHEDULE_ID"
 	EnvPeriodicPublisherScheduleInterval = "PERIODIC_PUBLISHER_SCHEDULE_INTERVAL"
@@ -63,6 +64,7 @@ type Config struct {
 	Environment         string
 	TaskQueue           string
 	UserRevenueSharePct float64
+	MaxPayoutsPerUser   int
 	DatabaseURL         string
 	Solana              struct {
 		RPCEndpoint     string
@@ -125,6 +127,19 @@ func NewConfigFromEnv(logger *slog.Logger) (*Config, error) {
 		return nil, fmt.Errorf("server startup error: invalid value for %s: '%s'", EnvUserRevenueSharePct, pctStr)
 	}
 	cfg.UserRevenueSharePct = pct
+
+	// Max Payouts Per User Config
+	maxPayoutsStr := os.Getenv(EnvMaxPayoutsPerUser)
+	if maxPayoutsStr == "" {
+		// Default to 1 if not set
+		cfg.MaxPayoutsPerUser = 1
+	} else {
+		maxPayouts, err := strconv.Atoi(maxPayoutsStr)
+		if err != nil || maxPayouts < 1 || maxPayouts > 100 {
+			return nil, fmt.Errorf("server startup error: invalid value for %s: '%s' (must be between 1 and 100)", EnvMaxPayoutsPerUser, maxPayoutsStr)
+		}
+		cfg.MaxPayoutsPerUser = maxPayouts
+	}
 
 	// Solana Config
 	cfg.Solana.RPCEndpoint = os.Getenv(EnvSolanaRPCEndpoint)
@@ -458,9 +473,12 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	))
 
 	// Form submission endpoints
+	// Note: Form endpoint has no authentication - it's public/unauthenticated
+	// Since it's unauthenticated, content moderation is ALWAYS performed for all submissions
+	// Authenticated users who want to skip moderation should use the JSON API endpoint with Bearer token authentication
 	mux.HandleFunc("POST /forms/create-bounty", stools.AdaptHandler(
-		handleCreateBountyForm(logger),
-		htmlMode(logger, defaultRateLimiter),
+		handleCreateBountyForm(logger, tc, llmProvider, llmEmbedProvider, cfg.UserRevenueSharePct, cfg.MaxPayoutsPerUser, cfg.Environment, cfg.Prompts),
+		htmlMode(logger, llmRateLimiter),
 		withLogging(logger),
 	))
 
@@ -520,7 +538,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	))
 
 	mux.HandleFunc("POST /api/v1/bounties", stools.AdaptHandler(
-		handleCreateBounty(logger, tc, llmProvider, llmEmbedProvider, cfg.UserRevenueSharePct, cfg.Environment, cfg.Prompts),
+		handleCreateBounty(logger, tc, llmProvider, llmEmbedProvider, cfg.UserRevenueSharePct, cfg.MaxPayoutsPerUser, cfg.Environment, cfg.Prompts),
 		apiMode(logger, llmRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))

@@ -1,669 +1,416 @@
-{{define "title"}}Welcome{{end}}
-
-{{define "description"}}IncentivizeThis - Pay creators to promote your product or service across Reddit, YouTube, and more{{end}}
-
-{{define "head-scripts"}}
+{{define "title"}}Welcome{{end}} {{define "description"}}IncentivizeThis - Pay
+creators to promote your product or service across Reddit, YouTube, and
+more{{end}} {{define "head-scripts"}}
 <script>
-document.addEventListener('alpine:init', () => {
-    Alpine.data('landingPage', () => ({
-        scrollY: 0,
-        currentPlatformIndex: 0,
-        _shuffledPlatforms: [],
-        createBountyModalOpen: false,
-        platforms: [
-            { text: 'post with at least 1k upvotes mentioning Home Depot', platform: 'Reddit', bg: 'rgb(234, 78, 0)', textColor: 'white' },
-            { text: 'comment in r/OrangeCounty about SuzieCakes bakery', platform: 'Reddit', bg: 'rgb(234, 78, 0)', textColor: 'white' },
-            { text: 'video about Mark Weins visiting Lisbon, Portugal', platform: 'YouTube', bg: 'rgb(255, 33, 33)', textColor: 'white' },
-            { text: 'comment with at least 100 likes on a video about oysters', platform: 'YouTube', bg: 'rgb(255, 33, 33)', textColor: 'white' },
-            { text: "post about how A.I. doesn't live up to the hype", platform: 'Bluesky', bg: 'rgb(45, 165, 245)', textColor: 'white' },
-            { text: 'post with at least 2M likes about Positano, Italy', platform: 'Instagram', bg: 'linear-gradient(45deg, #833AB4, #F77737)', textColor: 'white' },
-            { text: 'video about Dota 2 with at least 100k views', platform: 'Twitch', bg: 'rgb(127, 21, 157)', textColor: 'white' },
-            { text: "clip from Purge's channel with at least 25k views", platform: 'Twitch', bg: 'rgb(127, 21, 157)', textColor: 'white' },
-            { text: 'post about Temporal with at least 100 upvotes', platform: 'HackerNews', bg: '#FF6600', textColor: 'rgb(250, 239, 227)' },
-            { text: 'comment with tips on using Goose', platform: 'HackerNews', bg: '#FF6600', textColor: 'rgb(250, 239, 227)' },
-            { text: 'review for a hotel in Honolulu with a 5 star rating', platform: 'TripAdvisor', bg: 'rgb(44, 175, 122)', textColor: 'white' },
-            { text: 'review for a restaurant in New York', platform: 'TripAdvisor', bg: 'rgb(44, 175, 122)', textColor: 'white' }
-        ],
-        newBounty: {
-            requirements: '',
-            platform: '',
-            contentType: '',
-            rewardPerPost: '',
-            numberOfBounties: '',
-            duration: '30'
+  document.addEventListener("alpine:init", () => {
+    Alpine.data("landingPage", () => ({
+      scrollY: 0,
+      currentPlatformIndex: 0,
+      _shuffledPlatforms: [],
+      createBountyModalOpen: false,
+      platforms: [
+        {
+          text: "post with at least 1k upvotes mentioning Home Depot",
+          platform: "Reddit",
+          bg: "rgb(234, 78, 0)",
+          textColor: "white",
         },
-        hardeningInProgress: false,
+        {
+          text: "comment in r/OrangeCounty about SuzieCakes bakery",
+          platform: "Reddit",
+          bg: "rgb(234, 78, 0)",
+          textColor: "white",
+        },
+        {
+          text: "video about Mark Weins visiting Lisbon, Portugal",
+          platform: "YouTube",
+          bg: "rgb(255, 33, 33)",
+          textColor: "white",
+        },
+        {
+          text: "comment with at least 100 likes on a video about oysters",
+          platform: "YouTube",
+          bg: "rgb(255, 33, 33)",
+          textColor: "white",
+        },
+        {
+          text: "post about how A.I. doesn't live up to the hype",
+          platform: "Bluesky",
+          bg: "rgb(45, 165, 245)",
+          textColor: "white",
+        },
+        {
+          text: "post with at least 2M likes about Positano, Italy",
+          platform: "Instagram",
+          bg: "linear-gradient(45deg, #833AB4, #F77737)",
+          textColor: "white",
+        },
+        {
+          text: "video about Dota 2 with at least 100k views",
+          platform: "Twitch",
+          bg: "rgb(127, 21, 157)",
+          textColor: "white",
+        },
+        {
+          text: "clip from Purge's channel with at least 25k views",
+          platform: "Twitch",
+          bg: "rgb(127, 21, 157)",
+          textColor: "white",
+        },
+        {
+          text: "post about Temporal with at least 100 upvotes",
+          platform: "HackerNews",
+          bg: "#FF6600",
+          textColor: "rgb(250, 239, 227)",
+        },
+        {
+          text: "comment with tips on using Goose",
+          platform: "HackerNews",
+          bg: "#FF6600",
+          textColor: "rgb(250, 239, 227)",
+        },
+        {
+          text: "review for a hotel in Honolulu with a 5 star rating",
+          platform: "TripAdvisor",
+          bg: "rgb(44, 175, 122)",
+          textColor: "white",
+        },
+        {
+          text: "review for a restaurant in New York",
+          platform: "TripAdvisor",
+          bg: "rgb(44, 175, 122)",
+          textColor: "white",
+        },
+      ],
+      newBounty: {
+        requirements: "",
+        platform: "",
+        contentType: "",
+        rewardPerPost: "",
+        numberOfBounties: "",
+        duration: "30",
+      },
+      hardeningInProgress: false,
 
-        init() {
-            // Shuffle platforms on load
-            this._shuffledPlatforms = this.platforms.sort(() => Math.random() - 0.5);
+      init() {
+        // Shuffle platforms on load
+        this._shuffledPlatforms = this.platforms.sort(
+          () => Math.random() - 0.5
+        );
 
-            // Rotate platforms every 3 seconds
-            setInterval(() => {
-                this.currentPlatformIndex = (this.currentPlatformIndex + 1) % this._shuffledPlatforms.length;
-            }, 3000);
+        // Rotate platforms every 3 seconds
+        setInterval(() => {
+          this.currentPlatformIndex =
+            (this.currentPlatformIndex + 1) % this._shuffledPlatforms.length;
+        }, 3000);
 
-            // Track scroll
-            window.addEventListener('scroll', () => {
-                this.scrollY = window.scrollY;
+        // Track scroll
+        window.addEventListener("scroll", () => {
+          this.scrollY = window.scrollY;
+        });
+
+        // Intersection observer for fade-in animations
+        const observer = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              if (entry.isIntersecting) {
+                entry.target.classList.add("visible");
+              }
             });
+          },
+          { threshold: 0.1 }
+        );
 
-            // Intersection observer for fade-in animations
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        entry.target.classList.add('visible');
-                    }
-                });
-            }, { threshold: 0.1 });
+        document
+          .querySelectorAll(".fade-in")
+          .forEach((el) => observer.observe(el));
+      },
 
-            document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
-        },
+      clearNewBounty() {
+        this.newBounty = {
+          requirements: "",
+          platform: "",
+          contentType: "",
+          rewardPerPost: "",
+          numberOfBounties: "",
+          duration: "30",
+        };
+      },
 
-        clearNewBounty() {
-            this.newBounty = {
-                requirements: '',
-                platform: '',
-                contentType: '',
-                rewardPerPost: '',
-                numberOfBounties: '',
-                duration: '30'
-            };
-        },
+      get totalCost() {
+        const reward = parseFloat(this.newBounty.rewardPerPost) || 0;
+        const count = parseInt(this.newBounty.numberOfBounties) || 0;
+        const subtotal = reward * count;
+        const fee = subtotal * 1.0; // 100% platform fee
+        return {
+          subtotal: subtotal,
+          fee: fee,
+          total: subtotal + fee,
+        };
+      },
 
-        get totalCost() {
-            const reward = parseFloat(this.newBounty.rewardPerPost) || 0;
-            const count = parseInt(this.newBounty.numberOfBounties) || 0;
-            const subtotal = reward * count;
-            const fee = subtotal * 1.00; // 100% platform fee
-            return {
-                subtotal: subtotal,
-                fee: fee,
-                total: subtotal + fee
-            };
-        },
-
-        async hardenRequirements() {
-            if (!this.newBounty.requirements || this.hardeningInProgress) return;
-            this.hardeningInProgress = true;
-            try {
-                const response = await fetch('/api/v1/bounties/harden', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ requirements: this.newBounty.requirements })
-                });
-                if (!response.ok) throw new Error('Failed to harden requirements');
-                const data = await response.json();
-                this.newBounty.requirements = data.hardened_requirements || data.requirements;
-            } catch (err) {
-                console.error('Failed to harden requirements:', err);
-                alert('Failed to enhance requirements. Please try again.');
-            } finally {
-                this.hardeningInProgress = false;
-            }
-        },
-
-        get shuffledPlatforms() {
-            return this._shuffledPlatforms.length > 0 ? this._shuffledPlatforms : this.platforms;
-        },
-
-        get currentPlatform() {
-            return this.shuffledPlatforms[this.currentPlatformIndex] || this.platforms[0];
-        },
-
-        get arrowOpacity() {
-            return Math.max(0, 1 - (this.scrollY / 100));
+      async hardenRequirements() {
+        if (!this.newBounty.requirements || this.hardeningInProgress) return;
+        this.hardeningInProgress = true;
+        try {
+          const response = await fetch("/api/v1/bounties/harden", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ requirements: this.newBounty.requirements }),
+          });
+          if (!response.ok) throw new Error("Failed to harden requirements");
+          const data = await response.json();
+          this.newBounty.requirements =
+            data.hardened_requirements || data.requirements;
+        } catch (err) {
+          console.error("Failed to harden requirements:", err);
+          alert("Failed to enhance requirements. Please try again.");
+        } finally {
+          this.hardeningInProgress = false;
         }
+      },
+
+      get shuffledPlatforms() {
+        return this._shuffledPlatforms.length > 0
+          ? this._shuffledPlatforms
+          : this.platforms;
+      },
+
+      get currentPlatform() {
+        return (
+          this.shuffledPlatforms[this.currentPlatformIndex] || this.platforms[0]
+        );
+      },
+
+      get arrowOpacity() {
+        return Math.max(0, 1 - this.scrollY / 100);
+      },
     }));
-});
+  });
 </script>
-{{end}}
-
-{{define "styles"}}
-body {
-    margin: 0;
-    padding: 0;
-}
-
-.hero {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 2rem;
-    position: relative;
-    background-image: url('/static/images/marketing-carrot.jpg');
-    background-size: cover;
-    background-position: center;
-    background-attachment: fixed;
-    background-repeat: no-repeat;
-}
-
-.hero-content {
-    max-width: 800px;
-    width: 100%;
-}
-
-.hero h1 {
-    color: white;
-    text-align: center;
-    font-size: 2.5rem;
-    margin-bottom: 2rem;
-    background-color: rgba(0, 0, 0, 0.5);
-    padding: 2rem;
-    border-radius: 1rem;
-    backdrop-filter: blur(10px);
-}
-
-.video-container {
-    position: relative;
-    padding-bottom: 56.25%;
-    height: 0;
-    overflow: hidden;
-    border-radius: 1rem;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-}
-
-.video-container iframe {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-}
-
-/* Scroll arrow */
-.scroll-arrow {
-    position: absolute;
-    top: 2rem;
-    left: 50%;
-    transform: translateX(-50%);
-    color: white;
-    font-size: 3rem;
-    animation: bounce 1s ease-in-out infinite;
-}
-
-@keyframes bounce {
-    0%, 100% { transform: translateX(-50%) translateY(0); }
-    50% { transform: translateX(-50%) translateY(15px); }
-}
-
-.section {
-    padding: 4rem 2rem;
-    max-width: 1200px;
-    margin: 0 auto;
-    position: relative;
-}
-
-.section-dark {
-    background-color: rgb(49, 53, 57);
-}
-
-.section-darker {
-    background-color: rgb(16, 20, 24);
-}
-
-.section h2 {
-    font-size: 2rem;
-    margin-bottom: 1rem;
-    color: var(--text-primary);
-}
-
-.section p {
-    font-size: 1.125rem;
-    line-height: 1.6;
-    color: var(--text-secondary);
-}
-
-.two-col {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 2rem;
-    align-items: center;
-}
-
-.two-col img {
-    width: 100%;
-    max-width: 50%;
-    border-radius: 1rem;
-    margin: 0 auto;
-    display: block;
-}
-
-/* Platform badge */
-.platform-badge {
-    display: inline-block;
-    padding: 0.5rem 1rem;
-    border-radius: 0.5rem;
-    font-weight: bold;
-    margin-right: 0.5rem;
-}
-
-/* Fade animations - start visible, only animate if JS adds the class */
-.fade-in {
-    opacity: 1;
-    transform: translateY(0);
-    transition: opacity 0.6s ease, transform 0.6s ease;
-}
-
-/* Only fade out if explicitly marked as not-visible */
-.fade-in.not-visible {
-    opacity: 0;
-    transform: translateY(30px);
-}
-
-.fade-in.visible {
-    opacity: 1;
-    transform: translateY(0);
-}
-
-.cta-section {
-    text-align: center;
-    padding: 6rem 2rem;
-}
-
-.cta-section h2 {
-    font-size: 2.5rem;
-    margin-bottom: 2rem;
-    color: var(--text-primary);
-}
-
-.button-group {
-    display: flex;
-    gap: 1rem;
-    justify-content: center;
-    flex-wrap: wrap;
-}
-
-.button {
-    padding: 1rem 2rem;
-    border-radius: 0.5rem;
-    text-decoration: none;
-    font-weight: bold;
-    display: inline-block;
-    transition: all 0.3s ease;
-}
-
-.button-primary {
-    background-color: rgb(160, 202, 252);
-    color: rgb(0, 50, 88);
-}
-
-.button-primary:hover {
-    background-color: rgb(140, 182, 232);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(160, 202, 252, 0.4);
-}
-
-.button-secondary {
-    border: 2px solid var(--accent-blue);
-    color: var(--accent-blue);
-    background-color: transparent;
-}
-
-.button-secondary:hover {
-    background-color: rgba(159, 201, 253, 0.1);
-    transform: translateY(-2px);
-}
-
-.button-tertiary {
-    border: 1px solid var(--border-default);
-    color: var(--text-secondary);
-    background-color: transparent;
-}
-
-.button-tertiary:hover {
-    background-color: rgba(255, 255, 255, 0.05);
-    border-color: var(--border-hover);
-    transform: translateY(-2px);
-}
-
-@media (max-width: 768px) {
-    .two-col {
-        grid-template-columns: 1fr;
-    }
-
-    .hero {
-        background-attachment: scroll;
-        background-size: cover;
-        background-position: center center;
-        padding: 1rem;
-    }
-
-    .hero h1 {
-        font-size: 1.75rem;
-        padding: 1.5rem;
-    }
-}
-
-/* Modal styles */
-.modal-overlay {
-    position: fixed;
-    inset: 0;
-    background-color: rgba(0, 0, 0, 0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    padding: 2rem 1rem;
-    overflow-y: auto;
-}
-
-.modal-content {
-    background-color: rgb(24, 28, 32);
-    border-radius: 12px;
-    padding: 2rem;
-    width: 100%;
-    max-height: 90vh;
-    overflow-y: auto;
-    overflow-x: hidden;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-}
-
-/* Spinner animation */
-@keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-}
-
-/* AI Harden Button */
-.ai-harden-button {
-    padding: 0.5rem 1rem;
-    background: linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%);
-    border: none;
-    border-radius: 8px;
-    color: white;
-    font-size: 0.75rem;
-    font-weight: 700;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.4rem;
-    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
-    white-space: nowrap;
-    flex-wrap: nowrap;
-    min-width: 180px;
-}
-
-.ai-harden-button:disabled {
-    background: linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%);
-    opacity: 0.5;
-    cursor: not-allowed;
-    color: white;
-}
-
-.ai-harden-button:not(:disabled):hover {
-    transform: translateY(-2px) scale(1.02);
-    box-shadow: 0 6px 20px rgba(139, 92, 246, 0.6);
-}
-{{end}}
-
-{{define "content"}}
+{{end}} {{define "styles"}} body { margin: 0; padding: 0; } .hero { min-height:
+100vh; display: flex; align-items: center; justify-content: center; padding:
+2rem; position: relative; background-image:
+url('/static/images/marketing-carrot.jpg'); background-size: cover;
+background-position: center; background-attachment: fixed; background-repeat:
+no-repeat; } .hero-content { max-width: 800px; width: 100%; } .hero h1 { color:
+white; text-align: center; font-size: 2.5rem; margin-bottom: 2rem;
+background-color: rgba(0, 0, 0, 0.5); padding: 2rem; border-radius: 1rem;
+backdrop-filter: blur(10px); } .video-container { position: relative;
+padding-bottom: 56.25%; height: 0; overflow: hidden; border-radius: 1rem;
+box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); } .video-container iframe {
+position: absolute; top: 0; left: 0; width: 100%; height: 100%; } /* Scroll
+arrow */ .scroll-arrow { position: absolute; top: 2rem; left: 50%; transform:
+translateX(-50%); color: white; font-size: 3rem; animation: bounce 1s
+ease-in-out infinite; } @keyframes bounce { 0%, 100% { transform:
+translateX(-50%) translateY(0); } 50% { transform: translateX(-50%)
+translateY(15px); } } .section { padding: 4rem 2rem; max-width: 1200px; margin:
+0 auto; position: relative; } .section-dark { background-color: rgb(49, 53, 57);
+} .section-darker { background-color: rgb(16, 20, 24); } .section h2 {
+font-size: 2rem; margin-bottom: 1rem; color: var(--text-primary); } .section p {
+font-size: 1.125rem; line-height: 1.6; color: var(--text-secondary); } .two-col
+{ display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; align-items: center;
+} .two-col img { width: 100%; max-width: 50%; border-radius: 1rem; margin: 0
+auto; display: block; } /* Platform badge */ .platform-badge { display:
+inline-block; padding: 0.5rem 1rem; border-radius: 0.5rem; font-weight: bold;
+margin-right: 0.5rem; } /* Fade animations - start visible, only animate if JS
+adds the class */ .fade-in { opacity: 1; transform: translateY(0); transition:
+opacity 0.6s ease, transform 0.6s ease; } /* Only fade out if explicitly marked
+as not-visible */ .fade-in.not-visible { opacity: 0; transform:
+translateY(30px); } .fade-in.visible { opacity: 1; transform: translateY(0); }
+.cta-section { text-align: center; padding: 6rem 2rem; } .cta-section h2 {
+font-size: 2.5rem; margin-bottom: 2rem; color: var(--text-primary); }
+.button-group { display: flex; gap: 1rem; justify-content: center; flex-wrap:
+wrap; } .button { padding: 1rem 2rem; border-radius: 0.5rem; text-decoration:
+none; font-weight: bold; display: inline-block; transition: all 0.3s ease; }
+.button-primary { background-color: rgb(160, 202, 252); color: rgb(0, 50, 88); }
+.button-primary:hover { background-color: rgb(140, 182, 232); transform:
+translateY(-2px); box-shadow: 0 4px 12px rgba(160, 202, 252, 0.4); }
+.button-secondary { border: 2px solid var(--accent-blue); color:
+var(--accent-blue); background-color: transparent; } .button-secondary:hover {
+background-color: rgba(159, 201, 253, 0.1); transform: translateY(-2px); }
+.button-tertiary { border: 1px solid var(--border-default); color:
+var(--text-secondary); background-color: transparent; } .button-tertiary:hover {
+background-color: rgba(255, 255, 255, 0.05); border-color: var(--border-hover);
+transform: translateY(-2px); } @media (max-width: 768px) { .two-col {
+grid-template-columns: 1fr; } .hero { background-attachment: scroll;
+background-size: cover; background-position: center center; padding: 1rem; }
+.hero h1 { font-size: 1.75rem; padding: 1.5rem; } } /* Modal styles */
+.modal-overlay { position: fixed; inset: 0; background-color: rgba(0, 0, 0,
+0.7); display: flex; align-items: center; justify-content: center; z-index:
+1000; padding: 2rem 1rem; overflow-y: auto; } .modal-content { background-color:
+rgb(24, 28, 32); border-radius: 12px; padding: 2rem; width: 100%; max-height:
+90vh; overflow-y: auto; overflow-x: hidden; box-shadow: 0 20px 60px rgba(0, 0,
+0, 0.5); } .modal-header { display: flex; align-items: center; justify-content:
+space-between; margin-bottom: 1.5rem; } .modal-title { font-size: 1.5rem;
+font-weight: 600; color: var(--text-primary); margin: 0; } .modal-close { width:
+32px; height: 32px; border-radius: 50%; background-color: transparent; border:
+none; color: var(--text-secondary); display: flex; align-items: center;
+justify-content: center; cursor: pointer; transition: background-color 0.2s
+ease, color 0.2s ease; } .modal-close:hover { background-color: rgba(255, 255,
+255, 0.1); color: var(--text-primary); } .filter-section { margin-bottom: 2rem;
+} .filter-section:last-child { margin-bottom: 0; } .filter-label { display:
+block; font-size: 0.875rem; font-weight: 600; color: var(--text-primary);
+margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; }
+.filter-input { flex: 1; min-width: 0; background-color: rgba(255, 255, 255,
+0.05); border: 1px solid var(--border-default); border-radius: 6px; padding:
+0.5rem 0.75rem; color: var(--text-primary); font-size: 16px; width: 100%; }
+.filter-input:focus { outline: none; border-color: rgb(160, 202, 252);
+background-color: rgba(255, 255, 255, 0.08); } .filter-actions { display: flex;
+gap: 1rem; margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid
+var(--border-default); } .filter-button { flex: 1; padding: 0.75rem 1.5rem;
+border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s
+ease; border: none; font-size: 0.875rem; } .filter-button-primary {
+background-color: rgb(160, 202, 252); color: rgb(0, 50, 88); }
+.filter-button-primary:hover { background-color: rgb(140, 182, 232); }
+.filter-button-secondary { background-color: transparent; border: 1px solid
+var(--border-default); color: var(--text-secondary); }
+.filter-button-secondary:hover { background-color: rgba(255, 255, 255, 0.05);
+border-color: var(--border-hover); } .filter-button:disabled { opacity: 0.5;
+cursor: not-allowed; } .filter-button:disabled:hover { background-color:
+rgb(160, 202, 252); } /* Spinner animation */ @keyframes spin { from {
+transform: rotate(0deg); } to { transform: rotate(360deg); } } /* AI Harden
+Button */ .ai-harden-button { padding: 0.5rem 1rem; background:
+linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%); border: none; border-radius:
+8px; color: white; font-size: 0.75rem; font-weight: 700; cursor: pointer;
+transition: all 0.2s ease; display: inline-flex; align-items: center;
+justify-content: center; gap: 0.4rem; box-shadow: 0 4px 12px rgba(139, 92, 246,
+0.4); white-space: nowrap; } .ai-harden-button:disabled { background:
+linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%); opacity: 0.5; cursor:
+not-allowed; color: white; } .ai-harden-button:not(:disabled):hover { transform:
+translateY(-2px) scale(1.02); box-shadow: 0 6px 20px rgba(139, 92, 246, 0.6); }
+{{end}} {{define "content"}}
 <div x-data="landingPage">
-    <!-- Hero Section -->
-    <div class="hero">
-        <div class="scroll-arrow" :style="`opacity: ${arrowOpacity}`">↓</div>
-        <div class="hero-content">
-            <h1>Welcome to IncentivizeThis</h1>
-            <div class="video-container">
-                <iframe
-                    src="https://finicky-elephant.clueso.site/embed/ab980b4e-8c41-4562-b04b-5181e798307d"
-                    frameborder="0"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowfullscreen>
-                </iframe>
-            </div>
-        </div>
+  <!-- Hero Section -->
+  <div class="hero">
+    <div class="scroll-arrow" :style="`opacity: ${arrowOpacity}`">↓</div>
+    <div class="hero-content">
+      <h1>Welcome to IncentivizeThis</h1>
+      <div class="video-container">
+        <iframe
+          src="https://finicky-elephant.clueso.site/embed/ab980b4e-8c41-4562-b04b-5181e798307d"
+          frameborder="0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowfullscreen
+        >
+        </iframe>
+      </div>
     </div>
+  </div>
 
-    <!-- Section 2: Ads Suck -->
-    <div class="section section-dark fade-in">
-        <div class="two-col">
-            <div>
-                <h2>Ads Suck.</h2>
-                <p>Yuck. Nobody's clicking on this. At least not on purpose.</p>
-            </div>
-            <div>
-                <img src="/static/images/marketing-yuck-full.png" alt="Annoying ads">
-            </div>
-        </div>
+  <!-- Section 2: Ads Suck -->
+  <div class="section section-dark fade-in">
+    <div class="two-col">
+      <div>
+        <h2>Ads Suck.</h2>
+        <p>Yuck. Nobody's clicking on this. At least not on purpose.</p>
+      </div>
+      <div>
+        <img src="/static/images/marketing-yuck-full.png" alt="Annoying ads" />
+      </div>
     </div>
+  </div>
 
-    <!-- Section 3: Just Incentivize Creators! -->
-    <div class="section section-darker fade-in">
-        <div class="two-col">
-            <div>
-                <img src="/static/images/marketing-browse.png" alt="Browse bounties">
+  <!-- Section 3: Just Incentivize Creators! -->
+  <div class="section section-darker fade-in">
+    <div class="two-col">
+      <div>
+        <img src="/static/images/marketing-browse.png" alt="Browse bounties" />
+      </div>
+      <div style="text-align: center">
+        <h2>Just Incentivize Creators!</h2>
+        <p style="margin-bottom: 1rem">Tell us you want:</p>
+
+        <!-- Rotating Platform Examples -->
+        <div
+          style="
+            min-height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.125rem;
+            line-height: 1.6;
+            position: relative;
+          "
+        >
+          <template x-for="(platform, index) in shuffledPlatforms" :key="index">
+            <div
+              x-show="currentPlatformIndex === index"
+              x-transition:enter="transition-opacity duration-700 ease-in-out"
+              x-transition:enter-start="opacity-0"
+              x-transition:enter-end="opacity-100"
+              x-transition:leave="transition-opacity duration-700 ease-in-out"
+              x-transition:leave-start="opacity-100"
+              x-transition:leave-end="opacity-0"
+              style="position: absolute; color: var(--text-secondary)"
+            >
+              <span>a </span>
+              <span
+                class="platform-badge"
+                :style="`background: ${platform.bg}; color: ${platform.textColor}`"
+                x-text="platform.platform"
+              ></span>
+              <span x-text="platform.text"></span>
             </div>
-            <div style="text-align: center;">
-                <h2>Just Incentivize Creators!</h2>
-                <p style="margin-bottom: 1rem;">Tell us you want:</p>
-
-                <!-- Rotating Platform Examples -->
-                <div style="min-height: 80px; display: flex; align-items: center; justify-content: center; font-size: 1.125rem; line-height: 1.6; position: relative;">
-                    <template x-for="(platform, index) in shuffledPlatforms" :key="index">
-                        <div x-show="currentPlatformIndex === index"
-                             x-transition:enter="transition-opacity duration-700 ease-in-out"
-                             x-transition:enter-start="opacity-0"
-                             x-transition:enter-end="opacity-100"
-                             x-transition:leave="transition-opacity duration-700 ease-in-out"
-                             x-transition:leave-start="opacity-100"
-                             x-transition:leave-end="opacity-0"
-                             style="position: absolute; color: var(--text-secondary);">
-                            <span>a </span>
-                            <span class="platform-badge"
-                                  :style="`background: ${platform.bg}; color: ${platform.textColor}`"
-                                  x-text="platform.platform"></span>
-                            <span x-text="platform.text"></span>
-                        </div>
-                    </template>
-                </div>
-
-                <p style="margin-top: 1rem;">and we'll fund bounties that match your niche and audience.</p>
-            </div>
+          </template>
         </div>
+
+        <p style="margin-top: 1rem">
+          and we'll fund bounties that match your niche and audience.
+        </p>
+      </div>
     </div>
+  </div>
 
-    <!-- Section 4: Regular Users Post... -->
-    <div class="section section-dark fade-in">
-        <div class="two-col">
-            <div>
-                <h2>Regular Users Post...</h2>
-                <p>Just 3 upvotes. That's all it took to steer thousands of dollars away from a big-box retailer and into the hands of a local business owner.</p>
-            </div>
-            <div>
-                <img src="/static/images/marketing-content.png" alt="User content">
-            </div>
-        </div>
+  <!-- Section 4: Regular Users Post... -->
+  <div class="section section-dark fade-in">
+    <div class="two-col">
+      <div>
+        <h2>Regular Users Post...</h2>
+        <p>
+          Just 3 upvotes. That's all it took to steer thousands of dollars away
+          from a big-box retailer and into the hands of a local business owner.
+        </p>
+      </div>
+      <div>
+        <img src="/static/images/marketing-content.png" alt="User content" />
+      </div>
     </div>
+  </div>
 
-    <!-- Section 5: ...And Get Paid! -->
-    <div class="section section-darker fade-in">
-        <div class="two-col">
-            <div>
-                <img src="/static/images/marketing-paid.png" alt="Get paid">
-            </div>
-            <div>
-                <h2>...And Get Paid!</h2>
-                <p>Anyone can submit their content for review. If it meets the bounty criteria, they get paid instantly with USDC!</p>
-            </div>
-        </div>
+  <!-- Section 5: ...And Get Paid! -->
+  <div class="section section-darker fade-in">
+    <div class="two-col">
+      <div>
+        <img src="/static/images/marketing-paid.png" alt="Get paid" />
+      </div>
+      <div>
+        <h2>...And Get Paid!</h2>
+        <p>
+          Anyone can submit their content for review. If it meets the bounty
+          criteria, they get paid instantly with USDC!
+        </p>
+      </div>
     </div>
+  </div>
 
-    <!-- Section 6: CTA -->
-    <div class="section section-dark cta-section fade-in">
-        <h2>Ready to Get Started?</h2>
-        <div class="button-group">
-            <button @click="createBountyModalOpen = true" class="button button-primary">Create a Bounty</button>
-            <a href="/browse" class="button button-secondary">Browse Bounties</a>
-            <button @click="contactModalOpen = true" class="button button-tertiary">Contact Us</button>
-        </div>
+  <!-- Section 6: CTA -->
+  <div class="section section-dark cta-section fade-in">
+    <h2>Ready to Get Started?</h2>
+    <div class="button-group">
+      <button
+        @click="createBountyModalOpen = true"
+        class="button button-primary"
+      >
+        Create a Bounty
+      </button>
+      <a href="/browse" class="button button-secondary">Browse Bounties</a>
+      <button @click="contactModalOpen = true" class="button button-tertiary">
+        Contact Us
+      </button>
     </div>
+  </div>
 
-    <!-- Create Bounty Modal -->
-    <div x-show="createBountyModalOpen"
-         class="modal-overlay"
-         @click.self="createBountyModalOpen = false"
-         @keydown.escape.window="createBountyModalOpen = false"
-         style="background-color: rgba(0, 0, 0, 0.7) !important;">
-        <div class="modal-content" style="max-width: 600px;">
-            <div class="modal-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
-                <h2 class="modal-title" style="font-size: 1.5rem; font-weight: 600; color: var(--text-primary); margin: 0;">Create Bounty</h2>
-                <button class="modal-close" @click="createBountyModalOpen = false" style="width: 32px; height: 32px; border-radius: 50%; background-color: transparent; border: none; color: var(--text-secondary); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background-color 0.2s ease, color 0.2s ease;">
-                    <span class="material-icons-outlined">close</span>
-                </button>
-            </div>
-
-            <!-- Form -->
-            <form hx-post="/forms/create-bounty"
-                  hx-target="#form-response"
-                  hx-swap="innerHTML"
-                  @htmx:after-request="if($event.detail.successful) {
-                      setTimeout(() => { createBountyModalOpen = false; clearNewBounty(); }, 2000);
-                  }">
-
-                <!-- Requirements -->
-                <div class="filter-section" style="margin-bottom: 2rem;">
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
-                        <label class="filter-label" style="font-size: 0.875rem; font-weight: 600; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.5px; margin: 0;">Requirements</label>
-                        <button type="button"
-                                @click="hardenRequirements()"
-                                class="ai-harden-button"
-                                :disabled="hardeningInProgress"
-                                :style="hardeningInProgress ? 'opacity: 0.7 !important; cursor: wait !important;' : ''"
-                                @mouseenter="if (!hardeningInProgress) { $el.style.transform = 'translateY(-2px) scale(1.02)'; $el.style.boxShadow = '0 6px 20px rgba(139, 92, 246, 0.6)'; }"
-                                @mouseleave="$el.style.transform = 'translateY(0) scale(1)'; $el.style.boxShadow = '0 4px 12px rgba(139, 92, 246, 0.4)'">
-                            <span x-show="!hardeningInProgress" style="display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap;">✨ Harden with AI</span>
-                            <span x-show="hardeningInProgress" style="display: flex; flex-direction: row; align-items: center; gap: 0.5rem; white-space: nowrap; flex-wrap: nowrap;">
-                                <svg style="animation: spin 1s linear infinite; width: 14px; height: 14px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" stroke-opacity="0.25"/>
-                                    <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
-                                </svg>
-                                <span style="white-space: nowrap;">Processing...</span>
-                            </span>
-                        </button>
-                    </div>
-                    <textarea class="filter-input"
-                              name="requirements"
-                              placeholder="Describe what content you want created..."
-                              x-model="newBounty.requirements"
-                              rows="4"
-                              required
-                              style="width: 100%; resize: vertical; font-family: inherit; background-color: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-default); border-radius: 6px; padding: 0.5rem 0.75rem; color: var(--text-primary); font-size: 16px;"></textarea>
-                </div>
-
-                <!-- Platform and Content Type (Single Row) -->
-                <div class="filter-section" style="margin-bottom: 2rem;">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                        <div>
-                            <label class="filter-label" style="display: block; font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Platform</label>
-                            <select class="filter-input" name="platform" x-model="newBounty.platform" required style="width: 100%; background-color: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-default); border-radius: 6px; padding: 0.5rem 0.75rem; color: var(--text-primary); font-size: 16px;">
-                                <option value="">Select...</option>
-                                <option value="reddit">Reddit</option>
-                                <option value="youtube">YouTube</option>
-                                <option value="twitter">Twitter</option>
-                                <option value="hackernews">HackerNews</option>
-                                <option value="instagram">Instagram</option>
-                                <option value="twitch">Twitch</option>
-                                <option value="tripadvisor">TripAdvisor</option>
-                                <option value="bluesky">Bluesky</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="filter-label" style="display: block; font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Content Type</label>
-                            <select class="filter-input" name="content_type" x-model="newBounty.contentType" required style="width: 100%; background-color: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-default); border-radius: 6px; padding: 0.5rem 0.75rem; color: var(--text-primary); font-size: 16px;">
-                                <option value="">Select...</option>
-                                <option value="post">Post</option>
-                                <option value="comment">Comment</option>
-                                <option value="video">Video</option>
-                                <option value="review">Review</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Reward and Count (Single Row) -->
-                <div class="filter-section" style="margin-bottom: 2rem;">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                        <div>
-                            <label class="filter-label" style="display: block; font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Reward (USD)</label>
-                            <input type="number"
-                                   name="reward_per_post"
-                                   inputmode="decimal"
-                                   class="filter-input"
-                                   placeholder="0.00"
-                                   step="0.01"
-                                   min="0"
-                                   required
-                                   x-model="newBounty.rewardPerPost"
-                                   style="width: 100%; background-color: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-default); border-radius: 6px; padding: 0.5rem 0.75rem; color: var(--text-primary); font-size: 16px;">
-                        </div>
-                        <div>
-                            <label class="filter-label" style="display: block; font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Quantity</label>
-                            <input type="number"
-                                   name="number_of_bounties"
-                                   inputmode="numeric"
-                                   class="filter-input"
-                                   placeholder="1"
-                                   step="1"
-                                   min="1"
-                                   required
-                                   x-model="newBounty.numberOfBounties"
-                                   style="width: 100%; background-color: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-default); border-radius: 6px; padding: 0.5rem 0.75rem; color: var(--text-primary); font-size: 16px;">
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Duration -->
-                <div class="filter-section" style="margin-bottom: 2rem;">
-                    <label class="filter-label" style="display: block; font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Duration (Days)</label>
-                    <select class="filter-input" name="duration" x-model="newBounty.duration" style="width: 100%; background-color: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-default); border-radius: 6px; padding: 0.5rem 0.75rem; color: var(--text-primary); font-size: 16px;">
-                        <option value="1">1 day</option>
-                        <option value="7">7 days</option>
-                        <option value="14">14 days</option>
-                        <option value="30" selected>30 days</option>
-                        <option value="60">60 days</option>
-                        <option value="90">90 days</option>
-                        <option value="180">180 days</option>
-                    </select>
-                </div>
-
-                <!-- Cost Breakdown -->
-                <div style="background-color: rgba(160, 202, 252, 0.1); border: 1px solid rgba(160, 202, 252, 0.3); border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem;">
-                    <p style="font-size: 0.875rem; color: var(--text-primary); margin: 0 0 0.75rem 0; font-weight: 600;">Cost Breakdown</p>
-                    <div style="display: flex; justify-content: space-between; font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
-                        <span>Subtotal:</span>
-                        <span x-text="'$' + totalCost.subtotal.toFixed(2)"></span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
-                        <span>Platform Fee:</span>
-                        <span x-text="'$' + totalCost.fee.toFixed(2)"></span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 1rem; color: var(--text-primary); font-weight: 600; padding-top: 0.5rem; border-top: 1px solid rgba(160, 202, 252, 0.3);">
-                        <span>Total:</span>
-                        <span x-text="'$' + totalCost.total.toFixed(2)"></span>
-                    </div>
-                </div>
-
-                <!-- Form Response Area -->
-                <div id="form-response" style="margin-bottom: 1rem;"></div>
-
-                <!-- Actions -->
-                <div class="filter-actions" style="display: flex; gap: 1rem; margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-default);">
-                    <button type="button" class="filter-button filter-button-secondary" @click="createBountyModalOpen = false" style="flex: 1; padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; border: 1px solid var(--border-default); background-color: transparent; color: var(--text-secondary); font-size: 0.875rem;">
-                        Cancel
-                    </button>
-                    <button type="submit" class="filter-button filter-button-primary" style="flex: 1; padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; border: none; font-size: 0.875rem; background-color: rgb(160, 202, 252); color: rgb(0, 50, 88);">
-                        Create Bounty
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
+  {{template "create-bounty-modal" .}}
 </div>
-{{end}}
-
-{{define "scripts"}}
-{{end}}
+{{end}} {{define "scripts"}} {{end}}

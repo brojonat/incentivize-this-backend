@@ -8,13 +8,18 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Rhymond/go-money"
+	"github.com/brojonat/affiliate-bounty-board/abb"
+	"github.com/brojonat/affiliate-bounty-board/solana"
+	"github.com/google/uuid"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
-
-	"github.com/brojonat/affiliate-bounty-board/abb"
+	"go.temporal.io/sdk/temporal"
 )
 
 // Embed static assets into the binary
@@ -95,7 +100,8 @@ func handleBounties(logger *slog.Logger) http.HandlerFunc {
 		// Parse base and bounties templates together
 		tmpl, err := template.ParseFS(getTemplateFS(),
 			"templates/layouts/base.html",
-			"templates/pages/bounties.html")
+			"templates/pages/bounties.html",
+			"templates/partials/create_bounty_modal.html")
 		if err != nil {
 			logger.Error("failed to parse templates", "error", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -153,43 +159,619 @@ func toJSON(v interface{}) string {
 	return string(b)
 }
 
+// writeHTMLBadRequestError writes an HTML error response for form submissions using a template
+func writeHTMLBadRequestError(w http.ResponseWriter, err error) {
+	w.Header().Set("Content-Type", "text/html")
+	w.WriteHeader(http.StatusBadRequest)
+
+	// Parse error template
+	tmpl, parseErr := template.ParseFS(getTemplateFS(), "templates/partials/error_bad_request.html")
+	if parseErr != nil {
+		// Fallback to simple HTML if template parsing fails
+		fmt.Fprintf(w, `<div class="text-red-500">%s</div>`, err.Error())
+		return
+	}
+
+	// Execute template with error message
+	data := map[string]interface{}{
+		"Message": err.Error(),
+	}
+	if execErr := tmpl.ExecuteTemplate(w, "error-bad-request", data); execErr != nil {
+		// Fallback to simple HTML if template execution fails
+		fmt.Fprintf(w, `<div class="text-red-500">%s</div>`, err.Error())
+	}
+}
+
+// writeHTMLInternalError writes an HTML error response for internal errors using a template
+func writeHTMLInternalError(logger *slog.Logger, w http.ResponseWriter, err error) {
+	logger.Error("internal error", "error", err.Error())
+	w.Header().Set("Content-Type", "text/html")
+	w.WriteHeader(http.StatusInternalServerError)
+
+	// Parse error template
+	tmpl, parseErr := template.ParseFS(getTemplateFS(), "templates/partials/error_internal.html")
+	if parseErr != nil {
+		// Fallback to simple HTML if template parsing fails
+		fmt.Fprintf(w, `<div class="text-red-500">An internal error occurred. Please try again later.</div>`)
+		return
+	}
+
+	// Execute template
+	data := map[string]interface{}{}
+	if execErr := tmpl.ExecuteTemplate(w, "error-internal", data); execErr != nil {
+		// Fallback to simple HTML if template execution fails
+		fmt.Fprintf(w, `<div class="text-red-500">An internal error occurred. Please try again later.</div>`)
+	}
+}
+
 // handleCreateBountyForm handles form submission for creating a bounty
-func handleCreateBountyForm(logger *slog.Logger) http.HandlerFunc {
+// It does the same thing as handleCreateBounty but returns HTML responses instead of JSON
+func handleCreateBountyForm(
+	logger *slog.Logger,
+	tc client.Client,
+	llmProvider abb.LLMProvider,
+	llmEmbedProvider abb.LLMEmbeddingProvider,
+	defaultFeePercentage float64,
+	defaultMaxPayoutsPerUser int,
+	env string,
+	prompts struct {
+		InferBountyTitle   string
+		InferContentParams string
+		ContentModeration  string
+		HardenBounty       string
+	},
+) http.HandlerFunc {
+	// Define a local struct for parsing the LLM's JSON response for content parameters
+	type inferredContentParamsRequest struct {
+		PlatformKind string `json:"PlatformKind"`
+		ContentKind  string `json:"ContentKind"`
+		Error        string `json:"Error,omitempty"`
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Parse form data
 		if err := r.ParseForm(); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprintf(w, `<div class="text-red-500">Invalid form data</div>`)
+			writeHTMLBadRequestError(w, fmt.Errorf("invalid form data: %w", err))
 			return
 		}
 
 		requirements := r.FormValue("requirements")
-		platform := r.FormValue("platform")
-		contentType := r.FormValue("content_type")
-		rewardPerPost := r.FormValue("reward_per_post")
-		numberOfBounties := r.FormValue("number_of_bounties")
-		duration := r.FormValue("duration")
+		rewardPerPostStr := r.FormValue("reward_per_post")
+		numberOfBountiesStr := r.FormValue("number_of_bounties")
+		durationStr := r.FormValue("duration")
 
 		// Basic validation
-		if requirements == "" || platform == "" || contentType == "" || rewardPerPost == "" || numberOfBounties == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprintf(w, `<div class="text-red-500">All fields are required</div>`)
+		if requirements == "" || rewardPerPostStr == "" || numberOfBountiesStr == "" {
+			writeHTMLBadRequestError(w, fmt.Errorf("all fields are required"))
 			return
 		}
 
-		// TODO: Make actual API call to create bounty
-		// For now, return success message
-		logger.Info("bounty form submitted",
-			"requirements", requirements,
-			"platform", platform,
-			"content_type", contentType,
-			"reward", rewardPerPost,
-			"count", numberOfBounties,
-			"duration", duration)
+		// Parse reward per post
+		rewardPerPost, err := strconv.ParseFloat(rewardPerPostStr, 64)
+		if err != nil {
+			writeHTMLBadRequestError(w, fmt.Errorf("invalid reward_per_post: %w", err))
+			return
+		}
+
+		// Parse number of bounties
+		numberOfBounties, err := strconv.Atoi(numberOfBountiesStr)
+		if err != nil {
+			writeHTMLBadRequestError(w, fmt.Errorf("invalid number_of_bounties: %w", err))
+			return
+		}
+
+		// Calculate total bounty
+		totalBounty := rewardPerPost * float64(numberOfBounties)
+
+		// Parse duration (form sends days, convert to duration string)
+		timeoutDuration := ""
+		if durationStr != "" {
+			days, err := strconv.Atoi(durationStr)
+			if err != nil {
+				writeHTMLBadRequestError(w, fmt.Errorf("invalid duration: %w", err))
+				return
+			}
+			if days <= 0 {
+				writeHTMLBadRequestError(w, fmt.Errorf("duration must be positive"))
+				return
+			}
+			timeoutDuration = fmt.Sprintf("%dd", days)
+		}
+
+		// Convert requirements to array (split by newlines)
+		requirementsLines := strings.Split(strings.TrimSpace(requirements), "\n")
+		requirementsArray := make([]string, 0, len(requirementsLines))
+		for _, line := range requirementsLines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed != "" {
+				requirementsArray = append(requirementsArray, trimmed)
+			}
+		}
+		if len(requirementsArray) == 0 {
+			writeHTMLBadRequestError(w, fmt.Errorf("requirements cannot be empty"))
+			return
+		}
+
+		// Create CreateBountyRequest from form data
+		req := CreateBountyRequest{
+			Requirements:    requirementsArray,
+			BountyPerPost:   rewardPerPost,
+			TotalBounty:     totalBounty,
+			TimeoutDuration: timeoutDuration,
+		}
+
+		// Now use the same validation and processing logic as handleCreateBounty
+		// Validate request
+		if len(req.Requirements) == 0 {
+			writeHTMLBadRequestError(w, fmt.Errorf("requirements is required"))
+			return
+		}
+		requirementsStr := strings.Join(req.Requirements, "\n")
+		if requirementsStr == "" {
+			writeHTMLBadRequestError(w, fmt.Errorf("requirements cannot be empty"))
+			return
+		}
+		if req.BountyPerPost <= 0 {
+			writeHTMLBadRequestError(w, fmt.Errorf("bounty_per_post must be greater than 0"))
+			return
+		}
+		if req.TotalBounty <= 0 {
+			writeHTMLBadRequestError(w, fmt.Errorf("total_bounty must be greater than 0"))
+			return
+		}
+
+		// --- Content Moderation ---
+		// Note: Form endpoint has no authentication, so we ALWAYS perform content moderation
+		// Unauthenticated users cannot be trusted, so all content must be moderated
+		{
+			type contentModerationResponse struct {
+				IsAcceptable bool   `json:"is_acceptable"`
+				Reason       string `json:"reason,omitempty"`
+				Error        string `json:"error,omitempty"`
+			}
+			schema := map[string]interface{}{
+				"name":   "content_moderation",
+				"strict": true,
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"is_acceptable": map[string]interface{}{
+							"type":        "boolean",
+							"description": "Whether the content is acceptable or not.",
+						},
+						"reason": map[string]interface{}{
+							"type":        "string",
+							"description": "The reason why the content is not acceptable. Leave blank if it is acceptable.",
+						},
+						"error": map[string]interface{}{
+							"type":        "string",
+							"description": "An optional error message if moderation cannot be determined. Leave blank if content is acceptable.",
+						},
+					},
+					"required":             []string{"is_acceptable", "reason", "error"},
+					"additionalProperties": false,
+				},
+			}
+			prompt := fmt.Sprintf(prompts.ContentModeration, requirementsStr)
+			schemaJSON, err := json.Marshal(schema)
+			if err != nil {
+				writeHTMLInternalError(logger, w, fmt.Errorf("failed to marshal content moderation schema: %w", err))
+				return
+			}
+			resp, err := llmProvider.GenerateResponse(r.Context(), "content_moderation", prompt, schemaJSON)
+			if err != nil {
+				writeHTMLInternalError(logger, w, fmt.Errorf("failed to moderate content: %w", err))
+				return
+			}
+			var moderationResp contentModerationResponse
+			if err := json.Unmarshal([]byte(resp), &moderationResp); err != nil {
+				writeHTMLInternalError(logger, w, fmt.Errorf("failed to parse moderation response: %w", err))
+				return
+			}
+			if moderationResp.Error != "" {
+				logger.Warn("Could not moderate content", "error", moderationResp.Error)
+				writeHTMLBadRequestError(w, fmt.Errorf("could not moderate content: %s", moderationResp.Error))
+				return
+			}
+			if !moderationResp.IsAcceptable {
+				writeHTMLBadRequestError(w, fmt.Errorf("content is not acceptable: %s", moderationResp.Reason))
+				return
+			}
+		}
+		// --- End Content Moderation ---
+
+		// --- Tier Processing ---
+		var bountyTier abb.BountyTier
+		if req.Tier != "" {
+			tier, valid := abb.FromString(req.Tier)
+			if !valid {
+				writeHTMLBadRequestError(w, fmt.Errorf("invalid tier specified: '%s'", req.Tier))
+				return
+			}
+			bountyTier = tier
+		} else {
+			bountyTier = abb.DefaultBountyTier
+		}
+		// --- End Tier Processing ---
+
+		// --- Title Processing ---
+		bountyTitle := req.Title
+		if bountyTitle == "" {
+			type inferredTitleRequest struct {
+				Title string `json:"title"`
+				Error string `json:"error,omitempty"`
+			}
+			schema := map[string]interface{}{
+				"name":   "infer_bounty_title",
+				"strict": true,
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"title": map[string]interface{}{
+							"type":        "string",
+							"description": "A concise, descriptive title for the bounty based on its requirements.",
+						},
+						"error": map[string]interface{}{
+							"type":        "string",
+							"description": "An optional error message if a title cannot be inferred. Leave blank if a title can be inferred.",
+						},
+					},
+					"required":             []string{"title", "error"},
+					"additionalProperties": false,
+				},
+			}
+			schemaJSON, err := json.Marshal(schema)
+			if err != nil {
+				writeHTMLInternalError(logger, w, fmt.Errorf("failed to marshal infer bounty title schema: %w", err))
+				return
+			}
+			resp, err := llmProvider.GenerateResponse(r.Context(), prompts.InferBountyTitle, requirementsStr, schemaJSON)
+			if err != nil {
+				writeHTMLInternalError(logger, w, fmt.Errorf("failed to infer bounty title: %w", err))
+				return
+			}
+			var inferredTitle inferredTitleRequest
+			if err := json.Unmarshal([]byte(resp), &inferredTitle); err != nil {
+				writeHTMLInternalError(logger, w, fmt.Errorf("failed to parse inferred title response: %w", err))
+				return
+			}
+			if inferredTitle.Error != "" {
+				logger.Warn("Could not infer title", "error", inferredTitle.Error, "title", inferredTitle.Title)
+				writeHTMLBadRequestError(w, fmt.Errorf("could not infer title: %s", inferredTitle.Error))
+				return
+			}
+			bountyTitle = inferredTitle.Title
+		}
+		// --- End Title Processing ---
+
+		// --- Requirements Length Check ---
+		if len(requirementsStr) > abb.MaxRequirementsCharsForLLMCheck {
+			warnMsg := fmt.Sprintf("Total length of requirements exceeds maximum limit (%d > %d)", len(requirementsStr), abb.MaxRequirementsCharsForLLMCheck)
+			logger.Warn(warnMsg)
+			writeHTMLBadRequestError(w, fmt.Errorf("%s", warnMsg))
+			return
+		}
+		// --- End Requirements Length Check ---
+
+		// --- Infer PlatformKind and ContentKind using LLM ---
+		validPlatformKinds := []abb.PlatformKind{
+			abb.PlatformReddit,
+			abb.PlatformYouTube,
+			abb.PlatformTwitch,
+			abb.PlatformHackerNews,
+			abb.PlatformBluesky,
+			abb.PlatformInstagram,
+			abb.PlatformIncentivizeThis,
+			abb.PlatformTripAdvisor,
+			abb.PlatformSteam,
+			abb.PlatformGitHub,
+		}
+		validContentKinds := []abb.ContentKind{
+			abb.ContentKindPost,
+			abb.ContentKindComment,
+			abb.ContentKindVideo,
+			abb.ContentKindClip,
+			abb.ContentKindBounty,
+			abb.ContentKindReview,
+			abb.ContentKindDota2Chat,
+			abb.ContentKindIssue,
+		}
+
+		// Convert valid kinds to string slices for the prompt
+		validPlatformKindsStr := make([]string, len(validPlatformKinds))
+		for i, pk := range validPlatformKinds {
+			validPlatformKindsStr[i] = string(pk)
+		}
+		validContentKindsStr := make([]string, len(validContentKinds))
+		for i, ck := range validContentKinds {
+			validContentKindsStr[i] = string(ck)
+		}
+
+		// Define the JSON schema for the expected output
+		schema := map[string]interface{}{
+			"name":   "infer_content_parameters",
+			"strict": true,
+			"schema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"PlatformKind": map[string]interface{}{
+						"type":        "string",
+						"description": "The platform for the content (e.g., 'reddit', 'youtube').",
+						"enum":        validPlatformKindsStr,
+					},
+					"ContentKind": map[string]interface{}{
+						"type": "string",
+						"description": `The kind of content that the bounty is for. This is platform dependent. The valid options are:
+- Reddit: post, comment
+- YouTube: video
+- Twitch: video, clip
+- Hacker News: post, comment
+- Bluesky: post
+- Instagram: post
+- IncentivizeThis: bounty
+- TripAdvisor: review
+- Steam: dota2chat
+- GitHub: issue`,
+						"enum": validContentKindsStr,
+					},
+					"Error": map[string]interface{}{
+						"type":        "string",
+						"description": "Set only if determination is not possible.",
+					},
+				},
+				"required":             []string{"PlatformKind", "ContentKind", "Error"},
+				"additionalProperties": false,
+			},
+		}
+		schemaJSON, err := json.Marshal(schema)
+		if err != nil {
+			writeHTMLInternalError(logger, w, fmt.Errorf("failed to marshal content parameters schema: %w", err))
+			return
+		}
+		resp, err := llmProvider.GenerateResponse(r.Context(), prompts.InferContentParams, requirementsStr, schemaJSON)
+		if err != nil {
+			writeHTMLInternalError(logger, w, fmt.Errorf("failed to infer content parameters: %w", err))
+			return
+		}
+		var inferredParams inferredContentParamsRequest
+		if err := json.Unmarshal([]byte(resp), &inferredParams); err != nil {
+			writeHTMLInternalError(logger, w, fmt.Errorf("failed to parse inferred content parameters: %w", err))
+			return
+		}
+
+		if inferredParams.Error != "" {
+			writeHTMLBadRequestError(w, fmt.Errorf("failed to infer content parameters: %s", inferredParams.Error))
+			return
+		}
+
+		// Validate inferred PlatformKind
+		normalizedPlatform := abb.PlatformKind(strings.ToLower(inferredParams.PlatformKind))
+		validPlatformFound := false
+		for _, vp := range validPlatformKinds {
+			if normalizedPlatform == vp {
+				validPlatformFound = true
+				break
+			}
+		}
+		if !validPlatformFound {
+			errMsg := fmt.Sprintf("LLM inferred an unsupported PlatformKind: '%s'. Supported kinds are: %s", inferredParams.PlatformKind, strings.Join(validPlatformKindsStr, ", "))
+			logger.Warn(errMsg)
+			writeHTMLBadRequestError(w, fmt.Errorf("%s", errMsg))
+			return
+		}
+
+		// Validate inferred ContentKind
+		normalizedContentKind := abb.ContentKind(strings.ToLower(inferredParams.ContentKind))
+		validContentFound := false
+		for _, vc := range validContentKinds {
+			if normalizedContentKind == vc {
+				validContentFound = true
+				break
+			}
+		}
+		if !validContentFound {
+			errMsg := fmt.Sprintf("LLM inferred an unsupported ContentKind: '%s'. Supported kinds are: %s", inferredParams.ContentKind, strings.Join(validContentKindsStr, ", "))
+			logger.Warn(errMsg)
+			writeHTMLBadRequestError(w, fmt.Errorf("%s", errMsg))
+			return
+		}
+
+		// Validate platform type and content kind using normalized values
+		switch normalizedPlatform {
+		case abb.PlatformReddit:
+			if normalizedContentKind != abb.ContentKindPost && normalizedContentKind != abb.ContentKindComment {
+				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for Reddit: must be '%s' or '%s'", abb.ContentKindPost, abb.ContentKindComment))
+				return
+			}
+		case abb.PlatformYouTube:
+			if normalizedContentKind != abb.ContentKindVideo && normalizedContentKind != abb.ContentKindComment {
+				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for YouTube: must be '%s' or '%s'", abb.ContentKindVideo, abb.ContentKindComment))
+				return
+			}
+		case abb.PlatformTwitch:
+			if normalizedContentKind != abb.ContentKindVideo && normalizedContentKind != abb.ContentKindClip {
+				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for Twitch: must be '%s' or '%s'", abb.ContentKindVideo, abb.ContentKindClip))
+				return
+			}
+		case abb.PlatformHackerNews:
+			if normalizedContentKind != abb.ContentKindPost && normalizedContentKind != abb.ContentKindComment {
+				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for Hacker News: must be '%s' or '%s'", abb.ContentKindPost, abb.ContentKindComment))
+				return
+			}
+		case abb.PlatformBluesky:
+			if normalizedContentKind != abb.ContentKindPost {
+				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for Bluesky: must be '%s'", abb.ContentKindPost))
+				return
+			}
+		case abb.PlatformInstagram:
+			if normalizedContentKind != abb.ContentKindPost {
+				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for Instagram: must be '%s' (not '%s')", abb.ContentKindPost, normalizedContentKind))
+				return
+			}
+		case abb.PlatformIncentivizeThis:
+			if normalizedContentKind != abb.ContentKindBounty {
+				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for IncentivizeThis: must be '%s'", abb.ContentKindBounty))
+				return
+			}
+		case abb.PlatformTripAdvisor:
+			if normalizedContentKind != abb.ContentKindReview {
+				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for TripAdvisor: must be '%s'", abb.ContentKindReview))
+				return
+			}
+		case abb.PlatformSteam:
+			if normalizedContentKind != abb.ContentKindDota2Chat {
+				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for Steam: must be '%s'", abb.ContentKindDota2Chat))
+				return
+			}
+		case abb.PlatformGitHub:
+			if normalizedContentKind != abb.ContentKindIssue {
+				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for GitHub: must be '%s'", abb.ContentKindIssue))
+				return
+			}
+		default:
+			writeHTMLBadRequestError(w, fmt.Errorf("invalid platform_kind: must be one of %s, %s, %s, %s, %s, %s, %s, %s, %s, or %s", abb.PlatformReddit, abb.PlatformYouTube, abb.PlatformTwitch, abb.PlatformHackerNews, abb.PlatformBluesky, abb.PlatformInstagram, abb.PlatformIncentivizeThis, abb.PlatformTripAdvisor, abb.PlatformSteam, abb.PlatformGitHub))
+			return
+		}
+
+		// Read and validate overall bounty timeout
+		bountyTimeoutDuration := 7 * 24 * time.Hour
+		if req.TimeoutDuration != "" {
+			parsedDurationString := req.TimeoutDuration
+			if strings.HasSuffix(strings.ToLower(req.TimeoutDuration), "d") {
+				daysStr := strings.TrimSuffix(strings.ToLower(req.TimeoutDuration), "d")
+				days, err := strconv.Atoi(daysStr)
+				if err != nil {
+					writeHTMLBadRequestError(w, fmt.Errorf("invalid day value in timeout_duration '%s': %w", req.TimeoutDuration, err))
+					return
+				}
+				if days <= 0 {
+					writeHTMLBadRequestError(w, fmt.Errorf("day value in timeout_duration '%s' must be positive", req.TimeoutDuration))
+					return
+				}
+				hours := days * 24
+				parsedDurationString = fmt.Sprintf("%dh", hours)
+				logger.Info("Converted day-based duration to hours", "original_duration", req.TimeoutDuration, "converted_duration", parsedDurationString)
+			}
+
+			duration, err := time.ParseDuration(parsedDurationString)
+			if err != nil {
+				writeHTMLBadRequestError(w, fmt.Errorf("invalid timeout_duration format '%s' (parsed as '%s'): %w", req.TimeoutDuration, parsedDurationString, err))
+				return
+			}
+			bountyTimeoutDuration = duration
+		}
+
+		// Validate minimum duration
+		if bountyTimeoutDuration < 24*time.Hour {
+			writeHTMLBadRequestError(w, fmt.Errorf("timeout_duration must be at least 24 hours (e.g., \"24h\")"))
+			return
+		}
+
+		// Apply revenue sharing using the calculator function
+		userBountyPerPost := req.BountyPerPost
+		var userTotalBounty float64
+
+		// Determine fee percentage to use
+		// Note: Form endpoint has no auth, so custom fee percentage is not supported
+		// Use default fee percentage
+		feePercentage := defaultFeePercentage
+
+		// Max Payouts Per User
+		// Note: Form endpoint has no auth, so custom max payouts per user is not supported
+		// Use default value from environment variable
+		maxPayoutsPerUser := defaultMaxPayoutsPerUser
+
+		// Calculate the final bounty amount for the user after platform fees.
+		// This uses go-money for safe currency allocation.
+		totalMoney := money.NewFromFloat(req.TotalBounty, money.USD)
+		feeIntPercentage := int(feePercentage)
+		userIntPercentage := 100 - feeIntPercentage
+
+		parties, err := totalMoney.Allocate(userIntPercentage, feeIntPercentage)
+		if err != nil {
+			writeHTMLInternalError(logger, w, fmt.Errorf("failed to allocate bounty amount: %w", err))
+			return
+		}
+		userTotalBounty = parties[0].AsMajorUnits()
+
+		// --- START: Validate BountyPerPost against effective TotalBounty ---
+		if userBountyPerPost > userTotalBounty {
+			errMsg := fmt.Sprintf("bounty_per_post (%.6f) cannot be greater than the effective total_bounty after fees (%.6f)", userBountyPerPost, userTotalBounty)
+			logger.Warn(errMsg, "raw_bounty_per_post", req.BountyPerPost, "raw_total_bounty", req.TotalBounty, "effective_total_bounty", userTotalBounty)
+			writeHTMLBadRequestError(w, fmt.Errorf("%s", errMsg))
+			return
+		}
+		// --- END: Validate BountyPerPost against effective TotalBounty ---
+
+		// Convert amounts to USDCAmount
+		bountyPerPostAmount, err := solana.NewUSDCAmount(userBountyPerPost)
+		if err != nil {
+			writeHTMLBadRequestError(w, fmt.Errorf("invalid bounty_per_post amount: %w", err))
+			return
+		}
+		totalBountyAmount, err := solana.NewUSDCAmount(userTotalBounty)
+		if err != nil {
+			writeHTMLBadRequestError(w, fmt.Errorf("invalid total_bounty amount: %w", err))
+			return
+		}
+
+		// Convert ORIGINAL total bounty for verification
+		totalCharged, err := solana.NewUSDCAmount(req.TotalBounty)
+		if err != nil {
+			writeHTMLBadRequestError(w, fmt.Errorf("invalid original total_bounty amount: %w", err))
+			return
+		}
+
+		// Create workflow input
+		input := abb.BountyAssessmentWorkflowInput{
+			Title:             bountyTitle,
+			Requirements:      req.Requirements,
+			BountyPerPost:     bountyPerPostAmount,
+			TotalBounty:       totalBountyAmount,
+			TotalCharged:      totalCharged,
+			Platform:          normalizedPlatform,
+			ContentKind:       normalizedContentKind,
+			Tier:              bountyTier,
+			Timeout:           bountyTimeoutDuration,
+			PaymentTimeout:    10 * time.Minute,
+			TreasuryWallet:    os.Getenv(EnvSolanaTreasuryWallet),
+			EscrowWallet:      os.Getenv(EnvSolanaEscrowWallet),
+			MaxPayoutsPerUser: maxPayoutsPerUser,
+		}
+
+		// Execute workflow
+		workflowID := fmt.Sprintf("bounty-%s", uuid.New().String())
+		now := time.Now().UTC()
+
+		// Create typed search attributes using defined keys
+		saMap := temporal.NewSearchAttributes(
+			abb.EnvironmentKey.ValueSet(env),
+			abb.BountyPlatformKey.ValueSet(string(input.Platform)),
+			abb.BountyContentKindKey.ValueSet(string(input.ContentKind)),
+			abb.BountyTierKey.ValueSet(int64(input.Tier)),
+			abb.BountyTotalAmountKey.ValueSet(input.TotalBounty.ToUSDC()),
+			abb.BountyPerPostAmountKey.ValueSet(input.BountyPerPost.ToUSDC()),
+			abb.BountyCreationTimeKey.ValueSet(now),
+			abb.BountyTimeoutTimeKey.ValueSet(now.Add(input.Timeout)),
+			abb.BountyStatusKey.ValueSet(string(abb.BountyStatusAwaitingFunding)),
+			abb.BountyValueRemainingKey.ValueSet(input.TotalBounty.ToUSDC()),
+		)
+
+		workflowOptions := client.StartWorkflowOptions{
+			ID:                    workflowID,
+			TaskQueue:             os.Getenv(EnvTaskQueue),
+			TypedSearchAttributes: saMap,
+		}
+
+		_, err = tc.ExecuteWorkflow(r.Context(), workflowOptions, abb.BountyAssessmentWorkflow, input)
+		if err != nil {
+			writeHTMLInternalError(logger, w, fmt.Errorf("failed to start workflow: %w", err))
+			return
+		}
 
 		// Return success response that will close modal and show message
 		w.Header().Set("HX-Trigger", "bountyCreated")
-		fmt.Fprintf(w, `<div class="text-green-500">Bounty created successfully!</div>`)
+		fmt.Fprintf(w, `<div class="text-green-500">Bounty created successfully! ID: %s</div>`, workflowID)
 	}
 }
 
@@ -315,9 +897,9 @@ func handleBountyDetail(logger *slog.Logger, tc client.Client) http.HandlerFunc 
 			"content_type":    string(bountyDetails.ContentKind),
 			"remaining":       calculateRemaining(bountyDetails),
 			"created_at":      bountyDetails.CreatedAt,
-			"end_at":           bountyDetails.EndAt,
-		"days_remaining":   calculateDaysRemaining(bountyDetails.EndAt),
-		"time_remaining":   formatTimeRemaining(bountyDetails.EndAt),
+			"end_at":          bountyDetails.EndAt,
+			"days_remaining":  calculateDaysRemaining(bountyDetails.EndAt),
+			"time_remaining":  formatTimeRemaining(bountyDetails.EndAt),
 		}
 
 		// Convert paid bounties to template format

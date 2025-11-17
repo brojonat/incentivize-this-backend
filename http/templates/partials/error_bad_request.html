@@ -1,0 +1,45 @@
+{{define "error-bad-request"}}
+<div
+  class="error-message"
+  style="
+    background-color: rgba(244, 67, 54, 0.1);
+    border: 1px solid rgba(244, 67, 54, 0.3);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+  "
+>
+  <span
+    class="material-icons-outlined"
+    style="color: rgb(244, 67, 54); font-size: 24px; flex-shrink: 0"
+    >error_outline</span
+  >
+  <div style="flex: 1">
+    <p
+      style="
+        color: rgb(244, 67, 54);
+        font-weight: 600;
+        margin: 0 0 0.25rem 0;
+        font-size: 0.875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      "
+    >
+      Error
+    </p>
+    <p
+      style="
+        color: var(--text-primary);
+        margin: 0;
+        font-size: 0.875rem;
+        line-height: 1.5;
+      "
+    >
+      {{.Message}}
+    </p>
+  </div>
+</div>
+{{end}}

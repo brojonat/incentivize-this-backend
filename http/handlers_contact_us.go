@@ -2,6 +2,7 @@ package http
 
 import (
 	"fmt"
+	"html/template"
 	"log/slog"
 	"net/http"
 	"os"
@@ -9,7 +10,6 @@ import (
 
 	"github.com/brojonat/affiliate-bounty-board/abb"
 	"github.com/brojonat/affiliate-bounty-board/db/dbgen"
-	"github.com/brojonat/affiliate-bounty-board/internal/stools"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/client"
 )
@@ -22,23 +22,24 @@ type ContactUsRequest struct {
 }
 
 // handleContactUs handles the submission of the contact us form.
+// This endpoint only supports HTML form submissions via HTMX.
 func handleContactUs(logger *slog.Logger, querier dbgen.Querier, tc client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req ContactUsRequest
-		if err := stools.DecodeJSONBody(r, &req); err != nil {
-			writeBadRequestError(w, fmt.Errorf("invalid request: %w", err))
+		// Parse form data
+		if err := r.ParseForm(); err != nil {
+			writeHTMLBadRequestError(w, fmt.Errorf("invalid form data: %w", err))
 			return
+		}
+
+		req := ContactUsRequest{
+			Name:    r.FormValue("name"),
+			Email:   r.FormValue("email"),
+			Message: r.FormValue("message"),
 		}
 
 		// Basic validation
 		if req.Email == "" || req.Message == "" {
-			if r.Header.Get("HX-Request") == "true" {
-				w.Header().Set("Content-Type", "text/html")
-				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprintf(w, `<p class="text-red-600">✗ Email and message are required fields.</p>`)
-				return
-			}
-			writeBadRequestError(w, fmt.Errorf("email and message are required fields"))
+			writeHTMLBadRequestError(w, fmt.Errorf("email and message are required fields"))
 			return
 		}
 
@@ -50,7 +51,7 @@ func handleContactUs(logger *slog.Logger, querier dbgen.Querier, tc client.Clien
 
 		submission, err := querier.CreateContactUsSubmission(r.Context(), params)
 		if err != nil {
-			writeInternalError(logger, w, fmt.Errorf("failed to create contact us submission: %w", err))
+			writeHTMLInternalError(logger, w, fmt.Errorf("failed to create contact us submission: %w", err))
 			return
 		}
 
@@ -74,15 +75,24 @@ func handleContactUs(logger *slog.Logger, querier dbgen.Querier, tc client.Clien
 			}
 		}
 
-		// Check if this is an HTMX request
-		if r.Header.Get("HX-Request") == "true" {
+		// Parse success template
+		tmpl, parseErr := template.ParseFS(getTemplateFS(), "templates/partials/success_contact.html")
+		if parseErr != nil {
+			// Fallback to simple HTML if template parsing fails
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `<p class="text-green-600 font-medium">✓ Thank you! Your message has been sent successfully.</p>`)
+			fmt.Fprintf(w, `<div class="text-green-500">Thank you! Your message has been sent successfully.</div>`)
 			return
 		}
 
-		writeJSONResponse(w, submission, http.StatusCreated)
+		// Execute template
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusOK)
+		data := map[string]interface{}{}
+		if execErr := tmpl.ExecuteTemplate(w, "success-contact", data); execErr != nil {
+			// Fallback to simple HTML if template execution fails
+			fmt.Fprintf(w, `<div class="text-green-500">Thank you! Your message has been sent successfully.</div>`)
+		}
 	}
 }
 
