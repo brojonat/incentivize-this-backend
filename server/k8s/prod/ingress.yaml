@@ -10,6 +10,7 @@ spec:
   - hosts:
     - abb.brojonat.com
     - incentivizethis.com
+    - www.incentivizethis.com
     secretName: affiliate-bounty-board-backend-tls
   rules:
   - host: "abb.brojonat.com"
@@ -23,6 +24,16 @@ spec:
             port:
               number: 80
   - host: "incentivizethis.com"
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/"
+        backend:
+          service:
+            name: affiliate-bounty-board-backend
+            port:
+              number: 80
+  - host: "www.incentivizethis.com"
     http:
       paths:
       - pathType: Prefix

@@ -72,28 +72,118 @@
     </div>
   </div>
 
-  <!-- Open in Wallet Button -->
-  <button
-    onclick="window.open('{{.PaymentInvoice.PaymentURL}}', '_blank')"
-    style="
-      width: 100%;
-      padding: 0.75rem 1.5rem;
-      background-color: rgb(160, 202, 252);
-      color: rgb(0, 50, 88);
-      border: none;
-      border-radius: 8px;
-      font-weight: 600;
-      transition: background-color 0.2s ease;
-      font-size: 0.875rem;
-    "
-    onmouseover="this.style.backgroundColor='rgb(140, 182, 232)'"
-    onmouseout="this.style.backgroundColor='rgb(160, 202, 252)'"
-  >
-    Open in Wallet
-  </button>
+  <!-- Buttons Container -->
+  <div style="display: flex; gap: 0.75rem;">
+    <!-- Copy Link Button -->
+    <button
+      id="copy-link-btn"
+      onclick="copyPaymentLink()"
+      style="
+        flex: 1;
+        padding: 0.75rem 1.5rem;
+        background-color: rgb(200, 200, 200);
+        color: rgb(50, 50, 50);
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        transition: background-color 0.2s ease;
+        font-size: 0.875rem;
+        cursor: pointer;
+      "
+      onmouseover="this.style.backgroundColor='rgb(180, 180, 180)'"
+      onmouseout="this.style.backgroundColor='rgb(200, 200, 200)'"
+    >
+      Copy Link
+    </button>
+
+    <!-- Open in Wallet Button -->
+    <button
+      onclick="window.open('{{.PaymentInvoice.PaymentURL}}', '_blank')"
+      style="
+        flex: 1;
+        padding: 0.75rem 1.5rem;
+        background-color: rgb(160, 202, 252);
+        color: rgb(0, 50, 88);
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        transition: background-color 0.2s ease;
+        font-size: 0.875rem;
+        cursor: pointer;
+      "
+      onmouseover="this.style.backgroundColor='rgb(140, 182, 232)'"
+      onmouseout="this.style.backgroundColor='rgb(160, 202, 252)'"
+    >
+      Open in Wallet
+    </button>
+  </div>
+
+  <!-- Debug: Display raw URL -->
+  <div style="margin-top: 1rem; padding: 0.5rem; background-color: rgba(0, 0, 0, 0.05); border-radius: 4px;">
+    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.25rem; font-weight: 600;">
+      Payment URL (for debugging):
+    </div>
+    <div style="
+      font-size: 0.7rem;
+      color: var(--text-secondary);
+      word-break: break-all;
+      font-family: monospace;
+      padding: 0.5rem;
+      background-color: rgba(0, 0, 0, 0.05);
+      border-radius: 4px;
+      max-height: 100px;
+      overflow-y: auto;
+    ">
+      {{.PaymentInvoice.PaymentURL}}
+    </div>
+  </div>
 </div>
 
 <script>
+// Copy payment link to clipboard
+function copyPaymentLink() {
+  const paymentURL = '{{.PaymentInvoice.PaymentURL}}';
+  const btn = document.getElementById('copy-link-btn');
+
+  navigator.clipboard.writeText(paymentURL).then(function() {
+    // Success feedback
+    const originalText = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.style.backgroundColor = 'rgb(129, 199, 132)';
+    btn.style.color = 'white';
+
+    setTimeout(function() {
+      btn.textContent = originalText;
+      btn.style.backgroundColor = 'rgb(200, 200, 200)';
+      btn.style.color = 'rgb(50, 50, 50)';
+    }, 2000);
+  }).catch(function(err) {
+    // Fallback for older browsers
+    const textArea = document.createElement('textarea');
+    textArea.value = paymentURL;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-9999px';
+    document.body.appendChild(textArea);
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      btn.textContent = 'Copied!';
+      btn.style.backgroundColor = 'rgb(129, 199, 132)';
+      btn.style.color = 'white';
+      setTimeout(function() {
+        btn.textContent = 'Copy Link';
+        btn.style.backgroundColor = 'rgb(200, 200, 200)';
+        btn.style.color = 'rgb(50, 50, 50)';
+      }, 2000);
+    } catch(e) {
+      console.error('Failed to copy:', e);
+      alert('Failed to copy link');
+    }
+    document.body.removeChild(textArea);
+  });
+}
+
+// Countdown timer
 (function() {
   const expiresAt = new Date('{{.PaymentInvoice.ExpiresAt.Format "2006-01-02T15:04:05Z07:00"}}');
   let intervalId = null;

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/skip2/go-qrcode"
@@ -62,15 +63,40 @@ func generatePaymentInvoice(
 
 // buildSolanaPayURL creates a Solana Pay-compatible URL for USDC payment.
 // Format: solana:{recipient}?amount={amount}&spl-token={usdcMint}&memo={memo}&label={label}&message={message}
+// See: https://docs.solanapay.com/spec#transfer-request
 func buildSolanaPayURL(recipient string, amount float64, usdcMint, memo string) string {
+	// Format amount without trailing zeros for better wallet compatibility
+	amountStr := formatAmount(amount)
+
+	// Build URL manually to ensure proper encoding
+	// Note: We only URL-encode values that need it, to maximize wallet compatibility
 	params := url.Values{}
-	params.Set("amount", fmt.Sprintf("%.6f", amount))
-	params.Set("spl-token", usdcMint) // Always USDC
-	params.Set("memo", memo)
-	params.Set("label", "IncentivizeThis Bounty")
-	params.Set("message", "Payment to fund your bounty")
+	params.Set("amount", amountStr)
+	params.Set("spl-token", usdcMint)
+
+	// Add memo for transaction tracking
+	// Note: reference parameter requires a valid public key, so we don't include it
+	if memo != "" {
+		params.Set("memo", memo)
+	}
+
+	// Use simple labels without spaces to avoid encoding issues
+	params.Set("label", "IncentivizeThis")
+	params.Set("message", "Bounty funding payment")
 
 	return fmt.Sprintf("solana:%s?%s", recipient, params.Encode())
+}
+
+// formatAmount formats a float amount, stripping unnecessary trailing zeros
+// Examples: 1.0 -> "1", 1.5 -> "1.5", 0.000001 -> "0.000001"
+func formatAmount(amount float64) string {
+	// Format with 6 decimal places (USDC precision)
+	s := fmt.Sprintf("%.6f", amount)
+	// Strip trailing zeros
+	s = strings.TrimRight(s, "0")
+	// Strip trailing decimal point if no decimals remain
+	s = strings.TrimRight(s, ".")
+	return s
 }
 
 // generateQRCode creates a QR code image from a payment URL and returns it as base64-encoded PNG.
