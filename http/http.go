@@ -425,7 +425,8 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	}
 
 	// Add HTML routes (served with htmlMode middleware)
-	mux.HandleFunc("GET /", stools.AdaptHandler(
+	// Use /{$} to match ONLY the root path, not all paths starting with /
+	mux.HandleFunc("GET /{$}", stools.AdaptHandler(
 		handleLanding(logger),
 		htmlMode(logger, defaultRateLimiter),
 		withLogging(logger),
@@ -638,13 +639,16 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	// 	requireStatus(UserStatusSudo),
 	// ))
 
+	// Wrap mux with custom 404 handler
+	notFoundHandler := with404Handler(logger, mux)
+
 	// Apply CORS globally
 	corsHandler := handlers.CORS(
 		handlers.AllowedHeaders(cfg.CORS.AllowedHeaders),
 		handlers.AllowedMethods(cfg.CORS.AllowedMethods),
 		handlers.AllowedOrigins(cfg.CORS.AllowedOrigins),
 		handlers.AllowCredentials(),
-	)(mux)
+	)(notFoundHandler)
 
 	// Start server
 	server := &http.Server{
@@ -688,6 +692,87 @@ func withLogging(logger *slog.Logger) func(http.HandlerFunc) http.HandlerFunc {
 			)
 		}
 	}
+}
+
+// bufferedResponseWriter wraps http.ResponseWriter to buffer the response
+type bufferedResponseWriter struct {
+	http.ResponseWriter
+	statusCode int
+	written    bool
+	buffer     []byte
+	header     http.Header
+}
+
+func newBufferedResponseWriter(w http.ResponseWriter) *bufferedResponseWriter {
+	return &bufferedResponseWriter{
+		ResponseWriter: w,
+		statusCode:     http.StatusOK,
+		written:        false,
+		buffer:         make([]byte, 0),
+		header:         make(http.Header),
+	}
+}
+
+func (brw *bufferedResponseWriter) Header() http.Header {
+	return brw.header
+}
+
+func (brw *bufferedResponseWriter) WriteHeader(code int) {
+	if !brw.written {
+		brw.statusCode = code
+		brw.written = true
+	}
+}
+
+func (brw *bufferedResponseWriter) Write(b []byte) (int, error) {
+	if !brw.written {
+		brw.WriteHeader(http.StatusOK)
+	}
+	brw.buffer = append(brw.buffer, b...)
+	return len(b), nil
+}
+
+func (brw *bufferedResponseWriter) Flush() {
+	// Copy buffered headers to actual ResponseWriter
+	for k, v := range brw.header {
+		for _, val := range v {
+			brw.ResponseWriter.Header().Add(k, val)
+		}
+	}
+	brw.ResponseWriter.WriteHeader(brw.statusCode)
+	brw.ResponseWriter.Write(brw.buffer)
+}
+
+// with404Handler wraps an http.Handler to provide a custom 404 page
+func with404Handler(logger *slog.Logger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Buffer the response to check status code before writing
+		buffered := newBufferedResponseWriter(w)
+		next.ServeHTTP(buffered, r)
+
+		// If a 404 was written and it's an HTML request, serve our custom 404 page
+		if buffered.statusCode == http.StatusNotFound {
+			// Skip custom 404 for API requests - just return the buffered 404
+			if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/static/") {
+				buffered.Flush()
+				return
+			}
+
+			// Check if this is an HTML request via Accept header
+			acceptHeader := r.Header.Get("Accept")
+			wantsHTML := acceptHeader == "" || strings.Contains(acceptHeader, "text/html") || strings.Contains(acceptHeader, "*/*")
+
+			// Serve custom 404 for browser requests
+			if wantsHTML {
+				// Don't flush the buffered response, serve our custom 404 instead
+				handle404(logger)(w, r)
+				return
+			}
+		}
+
+		// Otherwise, flush the buffered response
+		buffered.Flush()
+	})
 }
 
 // handlePing returns a handler for the ping endpoint
@@ -801,39 +886,3 @@ func setupGumroadNotifySchedule(ctx context.Context, logger *slog.Logger, tc cli
 	logger.Info("Successfully created Gumroad Notify schedule", "scheduleID", scheduleID)
 	return nil
 }
-
-// func setupSolanaPollerSchedule(ctx context.Context, logger *slog.Logger, tc client.Client, cfg *Config) error {
-// 	scheduleID := fmt.Sprintf("solana-poller-schedule-%s", cfg.Environment)
-// 	taskQueue := os.Getenv(EnvTaskQueue)
-// 	if taskQueue == "" {
-// 		return fmt.Errorf("TASK_QUEUE environment variable not set, cannot set up schedule %s", scheduleID)
-// 	}
-
-// 	scheduleInput := abb.PollAndStoreTransactionsInput{
-// 		EscrowWallet: cfg.Solana.EscrowWallet.String(),
-// 	}
-
-// 	scheduleOptions := client.ScheduleOptions{
-// 		ID: scheduleID,
-// 		Spec: client.ScheduleSpec{
-// 			Intervals: []client.ScheduleIntervalSpec{{Every: 10 * time.Second}},
-// 		},
-// 		Action: &client.ScheduleWorkflowAction{
-// 			Workflow:  abb.PollSolanaTransactionsWorkflow,
-// 			Args:      []interface{}{scheduleInput},
-// 			TaskQueue: taskQueue,
-// 			ID:        fmt.Sprintf("solana-poller-workflow-%s", cfg.Environment),
-// 		},
-// 	}
-
-// 	_, err := tc.ScheduleClient().Create(ctx, scheduleOptions)
-// 	if err != nil {
-// 		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
-// 			logger.Info("Solana Poller schedule already exists, no action taken.", "scheduleID", scheduleID)
-// 			return nil
-// 		}
-// 		logger.Error("Failed to create Solana Poller schedule", "scheduleID", scheduleID, "error", err)
-// 		return fmt.Errorf("failed to create Solana Poller schedule %s: %w", scheduleID, err)
-// 	}
-// 	return nil
-// }

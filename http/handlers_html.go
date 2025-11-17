@@ -421,3 +421,31 @@ func handleStaticFiles() http.HandlerFunc {
 		fileServer.ServeHTTP(w, r)
 	}
 }
+
+// handle404 serves the 404 error page
+func handle404(logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		logger.Debug("404 not found", "path", r.URL.Path, "method", r.Method)
+
+		// Parse base and 404 templates together
+		tmpl, err := template.ParseFS(getTemplateFS(),
+			"templates/layouts/base.html",
+			"templates/pages/404.html")
+		if err != nil {
+			logger.Error("failed to parse 404 template", "error", err)
+			http.Error(w, "Page Not Found", http.StatusNotFound)
+			return
+		}
+
+		data := map[string]interface{}{
+			"Title": "Page Not Found",
+		}
+
+		w.WriteHeader(http.StatusNotFound)
+		if err := tmpl.Execute(w, data); err != nil {
+			logger.Error("failed to execute 404 template", "error", err)
+			http.Error(w, "Page Not Found", http.StatusNotFound)
+			return
+		}
+	}
+}

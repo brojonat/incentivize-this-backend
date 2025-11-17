@@ -191,11 +191,11 @@ body, .min-h-screen {
     inset: 0;
     background-color: rgba(0, 0, 0, 0.7);
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: center;
     z-index: 1000;
-    padding: 4rem 1rem 1rem 1rem;
-    overflow-y: scroll;
+    padding: 2rem 1rem;
+    overflow-y: auto;
 }
 
 .modal-content {
@@ -499,6 +499,45 @@ body, .min-h-screen {
         padding: 1rem;
     }
 }
+
+/* Spinner animation */
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* AI Harden Button */
+.ai-harden-button {
+    padding: 0.5rem 1rem;
+    background: linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+    white-space: nowrap;
+    flex-wrap: nowrap;
+    min-width: 180px;
+}
+
+.ai-harden-button:disabled {
+    background: linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%);
+    opacity: 0.5;
+    cursor: not-allowed;
+    color: white;
+}
+
+.ai-harden-button:not(:disabled):hover {
+    transform: translateY(-2px) scale(1.02);
+    box-shadow: 0 6px 20px rgba(139, 92, 246, 0.6);
+}
 {{end}}
 
 {{define "content"}}
@@ -522,6 +561,7 @@ body, .min-h-screen {
         numberOfBounties: '',
         duration: '30'
     },
+    hardeningInProgress: false,
     clearNewBounty() {
         this.newBounty = {
             requirements: '',
@@ -544,7 +584,8 @@ body, .min-h-screen {
         };
     },
     async hardenRequirements() {
-        if (!this.newBounty.requirements) return;
+        if (!this.newBounty.requirements || this.hardeningInProgress) return;
+        this.hardeningInProgress = true;
         try {
             const response = await fetch('/api/v1/bounties/harden', {
                 method: 'POST',
@@ -557,6 +598,8 @@ body, .min-h-screen {
         } catch (err) {
             console.error('Failed to harden requirements:', err);
             alert('Failed to enhance requirements. Please try again.');
+        } finally {
+            this.hardeningInProgress = false;
         }
     }
 }" class="min-h-screen">
@@ -786,7 +829,25 @@ body, .min-h-screen {
 
                 <!-- Requirements -->
                 <div class="filter-section">
-                    <label class="filter-label">Requirements</label>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                        <label class="filter-label" style="margin: 0;">Requirements</label>
+                        <button type="button"
+                                @click="hardenRequirements()"
+                                class="ai-harden-button"
+                                :disabled="hardeningInProgress"
+                                :style="hardeningInProgress ? 'opacity: 0.7 !important; cursor: wait !important;' : ''"
+                                @mouseenter="if (!hardeningInProgress) { $el.style.transform = 'translateY(-2px) scale(1.02)'; $el.style.boxShadow = '0 6px 20px rgba(139, 92, 246, 0.6)'; }"
+                                @mouseleave="$el.style.transform = 'translateY(0) scale(1)'; $el.style.boxShadow = '0 4px 12px rgba(139, 92, 246, 0.4)'">
+                            <span x-show="!hardeningInProgress" style="display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap;">✨ Harden with AI</span>
+                            <span x-show="hardeningInProgress" style="display: flex; flex-direction: row; align-items: center; gap: 0.5rem; white-space: nowrap; flex-wrap: nowrap;">
+                                <svg style="animation: spin 1s linear infinite; width: 14px; height: 14px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" stroke-opacity="0.25"/>
+                                    <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+                                </svg>
+                                <span style="white-space: nowrap;">Processing...</span>
+                            </span>
+                        </button>
+                    </div>
                     <textarea class="filter-input"
                               name="requirements"
                               placeholder="Describe what content you want created..."
@@ -794,12 +855,6 @@ body, .min-h-screen {
                               rows="4"
                               required
                               style="width: 100%; resize: vertical; font-family: inherit;"></textarea>
-                    <button type="button"
-                            @click="hardenRequirements()"
-                            style="margin-top: 0.5rem; padding: 0.5rem 1rem; background-color: rgba(160, 202, 252, 0.2); border: 1px solid rgb(160, 202, 252); border-radius: 6px; color: rgb(160, 202, 252); font-size: 0.875rem; font-weight: 600; cursor: pointer; transition: all 0.2s ease;"
-                            :disabled="!newBounty.requirements">
-                        ✨ Harden with AI
-                    </button>
                 </div>
 
                 <!-- Platform and Content Type (Single Row) -->

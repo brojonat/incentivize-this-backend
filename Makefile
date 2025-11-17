@@ -248,9 +248,18 @@ start-dev-session: build-cli ## Start a new tmux development session with port-f
 # Stop the tmux development session and associated processes
 stop-dev-session: ## Stop the tmux development session and kill related processes
 	@echo "Stopping tmux development session: $(TMUX_SESSION)"
+	@echo "Killing Air processes..."
+	@pkill -f "air -c .air.worker.toml" || true
+	@pkill -f "air -c .air.server.toml" || true
+	@pkill -f "air -c .air.toml" || true
+	@sleep 1
+	@echo "Killing tmux session..."
 	@tmux kill-session -t $(TMUX_SESSION) 2>/dev/null && echo "Tmux session stopped." || echo "No tmux session '$(TMUX_SESSION)' found."
 	@sleep 1
-	@echo "Session cleanup complete. Note: Port-forward processes in background tmux windows will terminate automatically."
+	@echo "Killing any remaining worker/server binaries..."
+	@pkill -f "./tmp/worker" || true
+	@pkill -f "./tmp/server" || true
+	@echo "Session cleanup complete."
 
 # Variables (customize as needed)
 ABB_CMD = ./bin/abb

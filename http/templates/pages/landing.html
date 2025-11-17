@@ -9,6 +9,7 @@ document.addEventListener('alpine:init', () => {
         scrollY: 0,
         currentPlatformIndex: 0,
         _shuffledPlatforms: [],
+        createBountyModalOpen: false,
         platforms: [
             { text: 'post with at least 1k upvotes mentioning Home Depot', platform: 'Reddit', bg: 'rgb(234, 78, 0)', textColor: 'white' },
             { text: 'comment in r/OrangeCounty about SuzieCakes bakery', platform: 'Reddit', bg: 'rgb(234, 78, 0)', textColor: 'white' },
@@ -23,6 +24,15 @@ document.addEventListener('alpine:init', () => {
             { text: 'review for a hotel in Honolulu with a 5 star rating', platform: 'TripAdvisor', bg: 'rgb(44, 175, 122)', textColor: 'white' },
             { text: 'review for a restaurant in New York', platform: 'TripAdvisor', bg: 'rgb(44, 175, 122)', textColor: 'white' }
         ],
+        newBounty: {
+            requirements: '',
+            platform: '',
+            contentType: '',
+            rewardPerPost: '',
+            numberOfBounties: '',
+            duration: '30'
+        },
+        hardeningInProgress: false,
 
         init() {
             // Shuffle platforms on load
@@ -48,6 +58,49 @@ document.addEventListener('alpine:init', () => {
             }, { threshold: 0.1 });
 
             document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+        },
+
+        clearNewBounty() {
+            this.newBounty = {
+                requirements: '',
+                platform: '',
+                contentType: '',
+                rewardPerPost: '',
+                numberOfBounties: '',
+                duration: '30'
+            };
+        },
+
+        get totalCost() {
+            const reward = parseFloat(this.newBounty.rewardPerPost) || 0;
+            const count = parseInt(this.newBounty.numberOfBounties) || 0;
+            const subtotal = reward * count;
+            const fee = subtotal * 1.00; // 100% platform fee
+            return {
+                subtotal: subtotal,
+                fee: fee,
+                total: subtotal + fee
+            };
+        },
+
+        async hardenRequirements() {
+            if (!this.newBounty.requirements || this.hardeningInProgress) return;
+            this.hardeningInProgress = true;
+            try {
+                const response = await fetch('/api/v1/bounties/harden', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ requirements: this.newBounty.requirements })
+                });
+                if (!response.ok) throw new Error('Failed to harden requirements');
+                const data = await response.json();
+                this.newBounty.requirements = data.hardened_requirements || data.requirements;
+            } catch (err) {
+                console.error('Failed to harden requirements:', err);
+                alert('Failed to enhance requirements. Please try again.');
+            } finally {
+                this.hardeningInProgress = false;
+            }
         },
 
         get shuffledPlatforms() {
@@ -282,6 +335,69 @@ body {
         padding: 1.5rem;
     }
 }
+
+/* Modal styles */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 2rem 1rem;
+    overflow-y: auto;
+}
+
+.modal-content {
+    background-color: rgb(24, 28, 32);
+    border-radius: 12px;
+    padding: 2rem;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+/* Spinner animation */
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* AI Harden Button */
+.ai-harden-button {
+    padding: 0.5rem 1rem;
+    background: linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+    white-space: nowrap;
+    flex-wrap: nowrap;
+    min-width: 180px;
+}
+
+.ai-harden-button:disabled {
+    background: linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%);
+    opacity: 0.5;
+    cursor: not-allowed;
+    color: white;
+}
+
+.ai-harden-button:not(:disabled):hover {
+    transform: translateY(-2px) scale(1.02);
+    box-shadow: 0 6px 20px rgba(139, 92, 246, 0.6);
+}
 {{end}}
 
 {{define "content"}}
@@ -380,9 +496,170 @@ body {
     <div class="section section-dark cta-section fade-in">
         <h2>Ready to Get Started?</h2>
         <div class="button-group">
-            <a href="/bounties/create" class="button button-primary">Create a Bounty</a>
+            <button @click="createBountyModalOpen = true" class="button button-primary">Create a Bounty</button>
             <a href="/browse" class="button button-secondary">Browse Bounties</a>
             <button @click="contactModalOpen = true" class="button button-tertiary">Contact Us</button>
+        </div>
+    </div>
+
+    <!-- Create Bounty Modal -->
+    <div x-show="createBountyModalOpen"
+         class="modal-overlay"
+         @click.self="createBountyModalOpen = false"
+         @keydown.escape.window="createBountyModalOpen = false"
+         style="background-color: rgba(0, 0, 0, 0.7) !important;">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
+                <h2 class="modal-title" style="font-size: 1.5rem; font-weight: 600; color: var(--text-primary); margin: 0;">Create Bounty</h2>
+                <button class="modal-close" @click="createBountyModalOpen = false" style="width: 32px; height: 32px; border-radius: 50%; background-color: transparent; border: none; color: var(--text-secondary); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background-color 0.2s ease, color 0.2s ease;">
+                    <span class="material-icons-outlined">close</span>
+                </button>
+            </div>
+
+            <!-- Form -->
+            <form hx-post="/forms/create-bounty"
+                  hx-target="#form-response"
+                  hx-swap="innerHTML"
+                  @htmx:after-request="if($event.detail.successful) {
+                      setTimeout(() => { createBountyModalOpen = false; clearNewBounty(); }, 2000);
+                  }">
+
+                <!-- Requirements -->
+                <div class="filter-section" style="margin-bottom: 2rem;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                        <label class="filter-label" style="font-size: 0.875rem; font-weight: 600; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.5px; margin: 0;">Requirements</label>
+                        <button type="button"
+                                @click="hardenRequirements()"
+                                class="ai-harden-button"
+                                :disabled="hardeningInProgress"
+                                :style="hardeningInProgress ? 'opacity: 0.7 !important; cursor: wait !important;' : ''"
+                                @mouseenter="if (!hardeningInProgress) { $el.style.transform = 'translateY(-2px) scale(1.02)'; $el.style.boxShadow = '0 6px 20px rgba(139, 92, 246, 0.6)'; }"
+                                @mouseleave="$el.style.transform = 'translateY(0) scale(1)'; $el.style.boxShadow = '0 4px 12px rgba(139, 92, 246, 0.4)'">
+                            <span x-show="!hardeningInProgress" style="display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap;">✨ Harden with AI</span>
+                            <span x-show="hardeningInProgress" style="display: flex; flex-direction: row; align-items: center; gap: 0.5rem; white-space: nowrap; flex-wrap: nowrap;">
+                                <svg style="animation: spin 1s linear infinite; width: 14px; height: 14px; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" stroke-opacity="0.25"/>
+                                    <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+                                </svg>
+                                <span style="white-space: nowrap;">Processing...</span>
+                            </span>
+                        </button>
+                    </div>
+                    <textarea class="filter-input"
+                              name="requirements"
+                              placeholder="Describe what content you want created..."
+                              x-model="newBounty.requirements"
+                              rows="4"
+                              required
+                              style="width: 100%; resize: vertical; font-family: inherit; background-color: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-default); border-radius: 6px; padding: 0.5rem 0.75rem; color: var(--text-primary); font-size: 16px;"></textarea>
+                </div>
+
+                <!-- Platform and Content Type (Single Row) -->
+                <div class="filter-section" style="margin-bottom: 2rem;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div>
+                            <label class="filter-label" style="display: block; font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Platform</label>
+                            <select class="filter-input" name="platform" x-model="newBounty.platform" required style="width: 100%; background-color: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-default); border-radius: 6px; padding: 0.5rem 0.75rem; color: var(--text-primary); font-size: 16px;">
+                                <option value="">Select...</option>
+                                <option value="reddit">Reddit</option>
+                                <option value="youtube">YouTube</option>
+                                <option value="twitter">Twitter</option>
+                                <option value="hackernews">HackerNews</option>
+                                <option value="instagram">Instagram</option>
+                                <option value="twitch">Twitch</option>
+                                <option value="tripadvisor">TripAdvisor</option>
+                                <option value="bluesky">Bluesky</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="filter-label" style="display: block; font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Content Type</label>
+                            <select class="filter-input" name="content_type" x-model="newBounty.contentType" required style="width: 100%; background-color: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-default); border-radius: 6px; padding: 0.5rem 0.75rem; color: var(--text-primary); font-size: 16px;">
+                                <option value="">Select...</option>
+                                <option value="post">Post</option>
+                                <option value="comment">Comment</option>
+                                <option value="video">Video</option>
+                                <option value="review">Review</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reward and Count (Single Row) -->
+                <div class="filter-section" style="margin-bottom: 2rem;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div>
+                            <label class="filter-label" style="display: block; font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Reward (USD)</label>
+                            <input type="number"
+                                   name="reward_per_post"
+                                   inputmode="decimal"
+                                   class="filter-input"
+                                   placeholder="0.00"
+                                   step="0.01"
+                                   min="0"
+                                   required
+                                   x-model="newBounty.rewardPerPost"
+                                   style="width: 100%; background-color: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-default); border-radius: 6px; padding: 0.5rem 0.75rem; color: var(--text-primary); font-size: 16px;">
+                        </div>
+                        <div>
+                            <label class="filter-label" style="display: block; font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Quantity</label>
+                            <input type="number"
+                                   name="number_of_bounties"
+                                   inputmode="numeric"
+                                   class="filter-input"
+                                   placeholder="1"
+                                   step="1"
+                                   min="1"
+                                   required
+                                   x-model="newBounty.numberOfBounties"
+                                   style="width: 100%; background-color: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-default); border-radius: 6px; padding: 0.5rem 0.75rem; color: var(--text-primary); font-size: 16px;">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Duration -->
+                <div class="filter-section" style="margin-bottom: 2rem;">
+                    <label class="filter-label" style="display: block; font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">Duration (Days)</label>
+                    <select class="filter-input" name="duration" x-model="newBounty.duration" style="width: 100%; background-color: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-default); border-radius: 6px; padding: 0.5rem 0.75rem; color: var(--text-primary); font-size: 16px;">
+                        <option value="1">1 day</option>
+                        <option value="7">7 days</option>
+                        <option value="14">14 days</option>
+                        <option value="30" selected>30 days</option>
+                        <option value="60">60 days</option>
+                        <option value="90">90 days</option>
+                        <option value="180">180 days</option>
+                    </select>
+                </div>
+
+                <!-- Cost Breakdown -->
+                <div style="background-color: rgba(160, 202, 252, 0.1); border: 1px solid rgba(160, 202, 252, 0.3); border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem;">
+                    <p style="font-size: 0.875rem; color: var(--text-primary); margin: 0 0 0.75rem 0; font-weight: 600;">Cost Breakdown</p>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                        <span>Subtotal:</span>
+                        <span x-text="'$' + totalCost.subtotal.toFixed(2)"></span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                        <span>Platform Fee:</span>
+                        <span x-text="'$' + totalCost.fee.toFixed(2)"></span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 1rem; color: var(--text-primary); font-weight: 600; padding-top: 0.5rem; border-top: 1px solid rgba(160, 202, 252, 0.3);">
+                        <span>Total:</span>
+                        <span x-text="'$' + totalCost.total.toFixed(2)"></span>
+                    </div>
+                </div>
+
+                <!-- Form Response Area -->
+                <div id="form-response" style="margin-bottom: 1rem;"></div>
+
+                <!-- Actions -->
+                <div class="filter-actions" style="display: flex; gap: 1rem; margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-default);">
+                    <button type="button" class="filter-button filter-button-secondary" @click="createBountyModalOpen = false" style="flex: 1; padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; border: 1px solid var(--border-default); background-color: transparent; color: var(--text-secondary); font-size: 0.875rem;">
+                        Cancel
+                    </button>
+                    <button type="submit" class="filter-button filter-button-primary" style="flex: 1; padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; border: none; font-size: 0.875rem; background-color: rgb(160, 202, 252); color: rgb(0, 50, 88);">
+                        Create Bounty
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
