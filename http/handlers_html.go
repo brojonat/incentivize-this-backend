@@ -970,6 +970,73 @@ func handleGetBountyFundingQRHTML(
 	}
 }
 
+// handleGetBountyDetailHeaderHTML returns the bounty detail header HTML for polling updates
+func handleGetBountyDetailHeaderHTML(
+	logger *slog.Logger,
+	tc client.Client,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		bountyID := r.PathValue("bounty_id")
+		if bountyID == "" {
+			writeHTMLBadRequestError(w, fmt.Errorf("missing bounty ID in path"))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+
+		// Query workflow for bounty details
+		resp, err := tc.QueryWorkflow(ctx, bountyID, "", abb.GetBountyDetailsQueryType)
+		if err != nil {
+			var notFoundErr *serviceerror.NotFound
+			if errors.As(err, &notFoundErr) {
+				writeHTMLBadRequestError(w, fmt.Errorf("bounty not found"))
+			} else {
+				writeHTMLInternalError(logger, w, fmt.Errorf("failed to query workflow %s for details: %w", bountyID, err))
+			}
+			return
+		}
+
+		var bountyDetails abb.BountyDetails
+		if err := resp.Get(&bountyDetails); err != nil {
+			writeHTMLInternalError(logger, w, fmt.Errorf("failed to decode bounty details: %w", err))
+			return
+		}
+
+		// Convert to template-friendly format
+		bounty := map[string]interface{}{
+			"id":              bountyDetails.BountyID,
+			"title":           bountyDetails.Title,
+			"status":          string(bountyDetails.Status),
+			"requirements":    strings.Join(bountyDetails.Requirements, "\n"),
+			"reward_per_post": bountyDetails.BountyPerPost,
+			"platform":        string(bountyDetails.PlatformKind),
+			"content_type":    string(bountyDetails.ContentKind),
+			"remaining":       calculateRemaining(bountyDetails),
+			"created_at":      bountyDetails.CreatedAt,
+			"end_at":          bountyDetails.EndAt,
+			"days_remaining":  calculateDaysRemaining(bountyDetails.EndAt),
+			"time_remaining":  formatTimeRemaining(bountyDetails.EndAt),
+		}
+
+		// Parse and render partial template
+		tmpl, err := template.ParseFS(getTemplateFS(), "templates/partials/bounty_detail_header.html")
+		if err != nil {
+			writeHTMLInternalError(logger, w, fmt.Errorf("failed to parse bounty detail header template: %w", err))
+			return
+		}
+
+		// Render template
+		data := map[string]interface{}{
+			"Bounty": bounty,
+		}
+		if err := tmpl.ExecuteTemplate(w, "bounty-detail-header", data); err != nil {
+			writeHTMLInternalError(logger, w, fmt.Errorf("failed to execute bounty detail header template: %w", err))
+			return
+		}
+	}
+}
+
 // handleGetCreateBountyFormHTML returns the create bounty form HTML
 func handleGetCreateBountyFormHTML(logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

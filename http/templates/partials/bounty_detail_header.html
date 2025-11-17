@@ -1,0 +1,43 @@
+{{define "bounty-detail-header"}}
+<div class="bounty-header"
+     hx-get="/partials/bounty-detail-header/{{.Bounty.id}}"
+     hx-trigger="every 10s"
+     hx-swap="outerHTML">
+    <div class="title-with-status">
+        <h1 class="bounty-title">{{.Bounty.title}}</h1>
+    </div>
+
+    <!-- Info Chips -->
+    <div class="info-chips">
+        <!-- Reward Amount -->
+        <div class="chip chip-reward">
+            <span class="material-icons-outlined">attach_money</span>
+            <span>${{.Bounty.reward_per_post}}</span>
+        </div>
+
+        <!-- Platform -->
+        <div class="chip chip-platform">
+            <span class="material-icons-outlined">code</span>
+            <span>{{.Bounty.platform}}</span>
+        </div>
+
+        <!-- Content Type -->
+        <div class="chip chip-content-type">
+            <span class="material-icons-outlined">forum</span>
+            <span>{{.Bounty.content_type}}</span>
+        </div>
+
+        <!-- Remaining Posts -->
+        <div class="chip chip-remaining">
+            <span class="material-icons-outlined">description</span>
+            <span>{{.Bounty.remaining}} remaining</span>
+        </div>
+
+        <!-- Time Remaining -->
+        <div class="chip chip-time">
+            <span class="material-icons-outlined">hourglass_empty</span>
+            <span>{{.Bounty.time_remaining}}</span>
+        </div>
+    </div>
+</div>
+{{end}}

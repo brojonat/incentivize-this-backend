@@ -548,6 +548,11 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		htmlMode(logger, defaultRateLimiter),
 		withLogging(logger),
 	))
+	mux.HandleFunc("GET /partials/bounty-detail-header/{bounty_id}", stools.AdaptHandler(
+		handleGetBountyDetailHeaderHTML(logger, tc),
+		htmlMode(logger, defaultRateLimiter),
+		withLogging(logger),
+	))
 	mux.HandleFunc("GET /partials/create-bounty-form", stools.AdaptHandler(
 		handleGetCreateBountyFormHTML(logger),
 		htmlMode(logger, defaultRateLimiter),

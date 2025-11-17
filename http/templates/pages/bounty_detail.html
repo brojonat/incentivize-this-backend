@@ -625,7 +625,10 @@ html, body {
     <!-- Main Content -->
     <main class="detail-container">
         <!-- Bounty Header -->
-        <div class="bounty-header">
+        <div class="bounty-header"
+             hx-get="/partials/bounty-detail-header/{{.Bounty.id}}"
+             hx-trigger="every 10s"
+             hx-swap="outerHTML">
             <div class="title-with-status">
                 <h1 class="bounty-title">{{.Bounty.title}}</h1>
             </div>
