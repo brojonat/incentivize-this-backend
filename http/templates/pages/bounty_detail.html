@@ -680,6 +680,11 @@ html, body {
             <span class="material-icons-outlined">qr_code_scanner</span>
             Fund Bounty
         </button>
+        {{else if eq .Bounty.status "FundingExpired"}}
+        <button class="claim-button" disabled style="opacity: 0.5; cursor: not-allowed; background: linear-gradient(135deg, #757575 0%, #9e9e9e 100%);">
+            <span class="material-icons-outlined">timer_off</span>
+            Funding Expired
+        </button>
         {{else if eq .Bounty.status "Listening"}}
         <button class="claim-button" @click="claimModalOpen = true">
             <span class="material-icons-outlined">auto_awesome</span>

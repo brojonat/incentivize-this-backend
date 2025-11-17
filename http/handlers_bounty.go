@@ -857,9 +857,16 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 				EndAt:                endTime,
 			}
 
+			// Handle AwaitingFunding bounties - check if payment timeout has expired
 			if status == string(abb.BountyStatusAwaitingFunding) {
 				expiresAt := execution.StartTime.AsTime().Add(input.PaymentTimeout)
 				bounty.PaymentTimeoutExpiresAt = &expiresAt
+
+				// Skip expired AwaitingFunding bounties (HATEOAS principle - server controls state)
+				if time.Now().After(expiresAt) {
+					l.Debug("skipping expired AwaitingFunding bounty", "bounty_id", execution.Execution.WorkflowId, "expires_at", expiresAt)
+					continue
+				}
 			}
 
 			bounties = append(bounties, bounty)

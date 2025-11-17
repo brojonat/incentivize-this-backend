@@ -1004,10 +1004,21 @@ func handleGetBountyDetailHeaderHTML(
 		}
 
 		// Convert to template-friendly format
+		status := string(bountyDetails.Status)
+
+		// Check if AwaitingFunding bounty has expired payment timeout (HATEOAS)
+		if bountyDetails.Status == abb.BountyStatusAwaitingFunding && bountyDetails.PaymentTimeoutExpiresAt != nil {
+			if time.Now().After(*bountyDetails.PaymentTimeoutExpiresAt) {
+				// Override status to indicate funding expired
+				status = "FundingExpired"
+				logger.Debug("bounty funding has expired", "bounty_id", bountyDetails.BountyID, "expires_at", *bountyDetails.PaymentTimeoutExpiresAt)
+			}
+		}
+
 		bounty := map[string]interface{}{
 			"id":              bountyDetails.BountyID,
 			"title":           bountyDetails.Title,
-			"status":          string(bountyDetails.Status),
+			"status":          status,
 			"requirements":    strings.Join(bountyDetails.Requirements, "\n"),
 			"reward_per_post": bountyDetails.BountyPerPost,
 			"platform":        string(bountyDetails.PlatformKind),
@@ -1096,10 +1107,21 @@ func handleBountyDetail(logger *slog.Logger, tc client.Client) http.HandlerFunc 
 		}
 
 		// Convert to template-friendly format
+		status := string(bountyDetails.Status)
+
+		// Check if AwaitingFunding bounty has expired payment timeout (HATEOAS)
+		if bountyDetails.Status == abb.BountyStatusAwaitingFunding && bountyDetails.PaymentTimeoutExpiresAt != nil {
+			if time.Now().After(*bountyDetails.PaymentTimeoutExpiresAt) {
+				// Override status to indicate funding expired
+				status = "FundingExpired"
+				logger.Debug("bounty funding has expired", "bounty_id", bountyDetails.BountyID, "expires_at", *bountyDetails.PaymentTimeoutExpiresAt)
+			}
+		}
+
 		bounty := map[string]interface{}{
 			"id":              bountyDetails.BountyID,
 			"title":           bountyDetails.Title,
-			"status":          string(bountyDetails.Status),
+			"status":          status,
 			"requirements":    strings.Join(bountyDetails.Requirements, "\n"),
 			"reward_per_post": bountyDetails.BountyPerPost,
 			"platform":        string(bountyDetails.PlatformKind),

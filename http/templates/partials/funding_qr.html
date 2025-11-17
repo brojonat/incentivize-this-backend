@@ -198,8 +198,11 @@ function copyPaymentLink() {
       `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   }
 
-  updateCountdown();
-  intervalId = setInterval(updateCountdown, 1000);
+  // Use setTimeout to ensure DOM is ready when loaded via HTMX
+  setTimeout(function() {
+    updateCountdown();
+    intervalId = setInterval(updateCountdown, 1000);
+  }, 0);
 })();
 </script>
 {{end}}
