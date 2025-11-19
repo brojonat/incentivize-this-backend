@@ -74,10 +74,9 @@
 
   <!-- Buttons Container -->
   <div style="display: flex; gap: 0.75rem;">
-    <!-- Copy Link Button -->
+    <!-- View Bounty Button -->
     <button
-      id="copy-link-btn"
-      onclick="copyPaymentLink()"
+      onclick="window.location.href='/browse/{{.BountyID}}'"
       style="
         flex: 1;
         padding: 0.75rem 1.5rem;
@@ -93,7 +92,7 @@
       onmouseover="this.style.backgroundColor='rgb(180, 180, 180)'"
       onmouseout="this.style.backgroundColor='rgb(200, 200, 200)'"
     >
-      Copy Link
+      View Bounty
     </button>
 
     <!-- Open in Wallet Button -->
@@ -120,49 +119,6 @@
 </div>
 
 <script>
-// Copy payment link to clipboard
-function copyPaymentLink() {
-  const paymentURL = '{{.PaymentInvoice.PaymentURL}}';
-  const btn = document.getElementById('copy-link-btn');
-
-  navigator.clipboard.writeText(paymentURL).then(function() {
-    // Success feedback
-    const originalText = btn.textContent;
-    btn.textContent = 'Copied!';
-    btn.style.backgroundColor = 'rgb(129, 199, 132)';
-    btn.style.color = 'white';
-
-    setTimeout(function() {
-      btn.textContent = originalText;
-      btn.style.backgroundColor = 'rgb(200, 200, 200)';
-      btn.style.color = 'rgb(50, 50, 50)';
-    }, 2000);
-  }).catch(function(err) {
-    // Fallback for older browsers
-    const textArea = document.createElement('textarea');
-    textArea.value = paymentURL;
-    textArea.style.position = 'fixed';
-    textArea.style.left = '-9999px';
-    document.body.appendChild(textArea);
-    textArea.select();
-    try {
-      document.execCommand('copy');
-      btn.textContent = 'Copied!';
-      btn.style.backgroundColor = 'rgb(129, 199, 132)';
-      btn.style.color = 'white';
-      setTimeout(function() {
-        btn.textContent = 'Copy Link';
-        btn.style.backgroundColor = 'rgb(200, 200, 200)';
-        btn.style.color = 'rgb(50, 50, 50)';
-      }, 2000);
-    } catch(e) {
-      console.error('Failed to copy:', e);
-      alert('Failed to copy link');
-    }
-    document.body.removeChild(textArea);
-  });
-}
-
 // Countdown timer
 (function() {
   const expiresAt = new Date('{{.PaymentInvoice.ExpiresAt.Format "2006-01-02T15:04:05Z07:00"}}');

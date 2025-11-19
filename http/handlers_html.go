@@ -804,6 +804,7 @@ func handleCreateBountyForm(
 		// Render QR code template with payment invoice data
 		data := map[string]interface{}{
 			"PaymentInvoice": paymentInvoice,
+			"BountyID":       workflowID,
 		}
 		w.Header().Set("HX-Trigger", "bountyCreated")
 		if err := tmpl.ExecuteTemplate(w, "funding-qr", data); err != nil {
@@ -962,6 +963,7 @@ func handleGetBountyFundingQRHTML(
 		// Render QR code template with payment invoice data
 		data := map[string]interface{}{
 			"PaymentInvoice": paymentInvoice,
+			"BountyID":       bountyID,
 		}
 		if err := tmpl.ExecuteTemplate(w, "funding-qr", data); err != nil {
 			writeHTMLInternalError(logger, w, fmt.Errorf("failed to execute QR code template: %w", err))
