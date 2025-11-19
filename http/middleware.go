@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"log/slog"
 	"net/http"
 	"os"
@@ -149,6 +150,18 @@ func apiMode(l *slog.Logger, rl *RateLimiter, maxBytes int64, headers, methods, 
 	}
 }
 
+// htmlMode is similar to apiMode but for HTML responses.
+// It applies graceful panic recovery, rate limiting, and sets content type to text/html.
+// Unlike apiMode, it doesn't apply CORS since HTML pages are served from the same origin.
+func htmlMode(l *slog.Logger, rl *RateLimiter) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		next = makeGraceful(l)(next)
+		next = setContentType("text/html; charset=utf-8")(next)
+		next = rateLimitMiddleware(rl, l)(next)
+		return next
+	}
+}
+
 func setContentType(content string) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -278,9 +291,21 @@ func atLeastOneAuth(authorizers ...func(http.ResponseWriter, *http.Request) bool
 				return
 			}
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(DefaultJSONResponse{Error: "unauthorized"})
+			// Check if this is an HTML/HTMX request
+			if r.Header.Get("HX-Request") == "true" || strings.Contains(r.Header.Get("Accept"), "text/html") {
+				writeHTMLUnauthorizedError(w)
+			} else {
+				json.NewEncoder(w).Encode(DefaultJSONResponse{Error: "unauthorized"})
+			}
 		}
 	}
+}
+
+// writeHTMLUnauthorizedError writes an HTML error response for unauthorized access
+func writeHTMLUnauthorizedError(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/html")
+	w.WriteHeader(http.StatusUnauthorized)
+	fmt.Fprintf(w, `<div class="text-red-500">Unauthorized: Authentication required</div>`)
 }
 
 // authJWTClaims represents the JWT claims for authentication
@@ -364,12 +389,40 @@ func requireStatus(requiredStatus UserStatus) func(http.HandlerFunc) http.Handle
 			if claims.Status < int(requiredStatus) {
 				slog.Info("User status insufficient for endpoint", "email", claims.Email, "user_status", claims.Status, "required_status", requiredStatus)
 				w.WriteHeader(http.StatusForbidden)
-				json.NewEncoder(w).Encode(DefaultJSONResponse{Error: "forbidden: insufficient permissions"})
+				// Check if this is an HTML/HTMX request
+				if r.Header.Get("HX-Request") == "true" || strings.Contains(r.Header.Get("Accept"), "text/html") {
+					writeHTMLForbiddenError(w, "insufficient permissions")
+				} else {
+					json.NewEncoder(w).Encode(DefaultJSONResponse{Error: "forbidden: insufficient permissions"})
+				}
 				return
 			}
 
 			// User has required status, proceed to the next handler
 			next(w, r)
 		}
+	}
+}
+
+// writeHTMLForbiddenError writes an HTML error response for forbidden access using a template
+func writeHTMLForbiddenError(w http.ResponseWriter, message string) {
+	w.Header().Set("Content-Type", "text/html")
+	w.WriteHeader(http.StatusForbidden)
+
+	// Parse error template
+	tmpl, parseErr := template.ParseFS(getTemplateFS(), "templates/partials/error_forbidden.html")
+	if parseErr != nil {
+		// Fallback to simple HTML if template parsing fails
+		fmt.Fprintf(w, `<div class="text-red-500">Forbidden: %s</div>`, message)
+		return
+	}
+
+	// Execute template with error message
+	data := map[string]interface{}{
+		"Message": message,
+	}
+	if execErr := tmpl.ExecuteTemplate(w, "error-forbidden", data); execErr != nil {
+		// Fallback to simple HTML if template execution fails
+		fmt.Fprintf(w, `<div class="text-red-500">Forbidden: %s</div>`, message)
 	}
 }

@@ -1,0 +1,821 @@
+{{define "title"}}{{.Bounty.Title}} - IncentivizeThis{{end}}
+
+{{define "description"}}View bounty details and claim rewards for creating content{{end}}
+
+{{define "head-scripts"}}{{end}}
+
+{{define "styles"}}
+/* Prevent horizontal overflow */
+* {
+    max-width: 100%;
+}
+
+html, body {
+    overflow-x: hidden !important;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+/* Header styling */
+.app-header {
+    background-color: rgb(24, 28, 32);
+    padding: 0.75rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    width: 100%;
+    max-width: 100vw;
+    box-sizing: border-box;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.app-logo {
+    font-size: 2rem;
+}
+
+.app-title {
+    color: var(--text-primary);
+    font-size: 1.25rem;
+    font-weight: 500;
+    margin: 0;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.icon-button {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: transparent;
+    border: none;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.icon-button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+.icon-button.primary {
+    background-color: rgb(160, 202, 252);
+    color: rgb(0, 50, 88);
+}
+
+.icon-button.primary:hover {
+    background-color: rgb(140, 182, 232);
+}
+
+.icon-button .material-icons-outlined {
+    font-size: 24px;
+}
+
+/* Detail page layout */
+.detail-container {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 2rem 1rem;
+}
+
+.bounty-header {
+    margin-bottom: 2rem;
+}
+
+.title-with-status {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.bounty-title {
+    color: var(--text-primary);
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 0;
+    line-height: 1.4;
+}
+
+.status-superscript {
+    transform: scale(0.75);
+    transform-origin: left top;
+    margin-top: -0.25rem;
+}
+
+.info-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.375rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    gap: 0.375rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.chip .material-icons-outlined {
+    font-size: 16px;
+}
+
+.chip-reward {
+    background-color: rgba(76, 175, 80, 0.2);
+    color: rgb(129, 199, 132);
+}
+
+.chip-platform {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.chip-content-type {
+    background-color: rgba(255, 152, 0, 0.2);
+    color: rgb(255, 183, 77);
+}
+
+.chip-remaining {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.chip-time {
+    background-color: rgba(159, 201, 253, 0.2);
+    color: rgb(159, 201, 253);
+}
+
+.chip-status-listening {
+    background-color: rgba(76, 175, 80, 0.2);
+    color: rgb(129, 199, 132);
+}
+
+.chip-status-inactive {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.4);
+}
+
+@keyframes pulse-status {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.6;
+        transform: scale(1.1);
+    }
+}
+
+.status-pulse {
+    animation: pulse-status 2s ease-in-out infinite;
+}
+
+/* Requirements section */
+.requirements-section {
+    background-color: rgb(24, 28, 32);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.section-title {
+    color: var(--text-primary);
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0 0 1rem 0;
+}
+
+.requirements-text {
+    color: var(--text-secondary);
+    line-height: 1.7;
+    white-space: pre-wrap;
+}
+
+/* Claim button */
+.claim-button {
+    width: 100%;
+    padding: 0.875rem 1.5rem;
+    background: linear-gradient(135deg, #00c853 0%, #00b0ff 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    box-shadow: 0 0 20px rgba(0, 200, 83, 0.4), 0 0 40px rgba(0, 176, 255, 0.3);
+    margin-bottom: 1.5rem;
+}
+
+.claim-button:hover {
+    background: linear-gradient(135deg, #00e676 0%, #40c4ff 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 0 25px rgba(0, 230, 118, 0.6), 0 0 50px rgba(64, 196, 255, 0.5);
+}
+
+.claim-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Activity timeline */
+.activity-section {
+    background-color: rgb(24, 28, 32);
+    border-radius: 12px;
+    padding: 1.5rem;
+}
+
+.activity-item {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--border-default);
+}
+
+.activity-item:last-child {
+    border-bottom: none;
+}
+
+.activity-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: rgba(76, 175, 80, 0.2);
+    color: rgb(129, 199, 132);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.activity-content {
+    flex: 1;
+}
+
+.activity-title {
+    color: var(--text-primary);
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.activity-meta {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+/* Claim modal */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    z-index: 1000;
+    padding: 4rem 1rem 1rem 1rem;
+    overflow-y: scroll;
+}
+
+.modal-content {
+    background-color: rgb(24, 28, 32);
+    border-radius: 12px;
+    padding: 2rem;
+    max-width: 500px;
+    width: calc(100% - 2rem);
+    max-height: 90vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+}
+
+.modal-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.modal-close {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background-color: transparent;
+    border: none;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.modal-close:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+.form-section {
+    margin-bottom: 1.5rem;
+}
+
+.form-label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.form-input {
+    width: 100%;
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    color: var(--text-primary);
+    font-size: 16px;
+    box-sizing: border-box;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: rgb(160, 202, 252);
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.form-help {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 0.5rem;
+}
+
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-default);
+}
+
+.form-button {
+    flex: 1;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+    font-size: 0.875rem;
+}
+
+.form-button-primary {
+    background-color: rgb(160, 202, 252);
+    color: rgb(0, 50, 88);
+}
+
+.form-button-primary:hover {
+    background-color: rgb(140, 182, 232);
+}
+
+.form-button-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.form-button-secondary {
+    background-color: transparent;
+    border: 1px solid var(--border-default);
+    color: var(--text-secondary);
+}
+
+.form-button-secondary:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-color: var(--border-hover);
+}
+
+.info-box {
+    background-color: rgba(160, 202, 252, 0.1);
+    border: 1px solid rgba(160, 202, 252, 0.3);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.info-box-content {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.info-box-icon {
+    color: rgb(160, 202, 252);
+    font-size: 20px;
+}
+
+.info-box-text {
+    flex: 1;
+}
+
+.info-box-title {
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    margin: 0 0 0.5rem 0;
+    font-weight: 600;
+}
+
+.info-box-list {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    margin: 0;
+    padding-left: 1.25rem;
+    line-height: 1.6;
+}
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+    .app-header {
+        padding: 0.5rem 0.75rem;
+    }
+
+    .app-logo {
+        font-size: 1.5rem;
+    }
+
+    .app-title {
+        font-size: 0.9rem;
+    }
+
+    .header-left {
+        gap: 0.5rem;
+    }
+
+    .header-actions {
+        gap: 0.25rem;
+    }
+
+    .icon-button {
+        width: 36px;
+        height: 36px;
+    }
+
+    .icon-button .material-icons-outlined {
+        font-size: 20px;
+    }
+
+    .detail-container {
+        padding: 1rem 0.75rem;
+    }
+
+    .bounty-title {
+        font-size: 1.5rem;
+    }
+
+    .chip {
+        font-size: 0.75rem;
+        padding: 0.375rem 0.75rem;
+    }
+
+    .chip .material-icons-outlined {
+        font-size: 16px;
+    }
+
+    .requirements-section,
+    .activity-section {
+        padding: 1rem;
+    }
+
+    .modal-content {
+        padding: 1.5rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .app-header {
+        padding: 0.5rem;
+    }
+
+    .app-title {
+        font-size: 0.75rem;
+    }
+
+    .detail-container {
+        padding: 0.75rem 0.5rem;
+    }
+
+    .bounty-title {
+        font-size: 1.25rem;
+    }
+
+    .modal-content {
+        padding: 1rem;
+    }
+}
+{{end}}
+
+{{define "content"}}
+<!-- App Container with Alpine.js for modal state only -->
+<div x-data="{
+    claimModalOpen: false,
+    fundBountyModalOpen: false,
+    submission: {
+        contentUrl: '',
+        walletAddress: ''
+    },
+
+    init() {
+        // Load saved wallet address from localStorage on page load
+        const savedWallet = localStorage.getItem('solana_wallet_address');
+        if (savedWallet) {
+            this.submission.walletAddress = savedWallet;
+        }
+    },
+
+    clearSubmission() {
+        // Clear only the content URL, keep the wallet address persisted
+        this.submission = {
+            contentUrl: '',
+            walletAddress: this.submission.walletAddress
+        };
+    },
+
+    async submitClaim() {
+        try {
+            const response = await fetch('/api/v1/bounties/assess', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    bounty_id: '{{.Bounty.id}}',
+                    content_id: this.submission.contentUrl,
+                    payout_wallet: this.submission.walletAddress,
+                    platform: '{{.Bounty.platform}}',
+                    content_kind: '{{.Bounty.content_type}}'
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to submit claim');
+            }
+
+            // Save wallet address to localStorage on successful submission
+            localStorage.setItem('solana_wallet_address', this.submission.walletAddress);
+
+            const data = await response.json();
+            alert('Claim submitted successfully! Your content is being evaluated.');
+            this.claimModalOpen = false;
+            this.clearSubmission();
+        } catch (err) {
+            console.error('Failed to submit claim:', err);
+            alert('Failed to submit claim: ' + err.message);
+        }
+    }
+}" class="min-h-screen">
+
+    <!-- App Header -->
+    <header class="app-header">
+        <div class="header-left">
+            <button class="icon-button" title="Back" onclick="history.back()">
+                <span class="material-icons-outlined">arrow_back</span>
+            </button>
+            <span class="app-logo">🥕</span>
+            <h1 class="app-title">IncentivizeThis</h1>
+        </div>
+        <div class="header-actions">
+            <button class="icon-button" title="About" onclick="window.location.href='/about'">
+                <span class="material-icons-outlined">info</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="detail-container">
+        <!-- Bounty Header -->
+        <div hx-get="/partials/bounty-detail-header/{{.Bounty.id}}"
+             hx-trigger="load, every 10s"
+             hx-swap="innerHTML">
+            <div class="bounty-header">
+                <div class="title-with-status">
+                    <h1 class="bounty-title">{{.Bounty.title}}</h1>
+                </div>
+
+                <!-- Info Chips -->
+                <div class="info-chips">
+                    <!-- Reward Amount -->
+                    <div class="chip chip-reward">
+                        <span class="material-icons-outlined">attach_money</span>
+                        <span>${{printf "%.2f" .Bounty.reward_per_post}}</span>
+                    </div>
+
+                    <!-- Platform -->
+                    <div class="chip chip-platform">
+                        <span class="material-icons-outlined">code</span>
+                        <span>{{.Bounty.platform}}</span>
+                    </div>
+
+                    <!-- Content Type -->
+                    <div class="chip chip-content-type">
+                        <span class="material-icons-outlined">forum</span>
+                        <span>{{.Bounty.content_type}}</span>
+                    </div>
+
+                    <!-- Remaining Posts -->
+                    <div class="chip chip-remaining">
+                        <span class="material-icons-outlined">description</span>
+                        <span>{{.Bounty.remaining}} remaining</span>
+                    </div>
+
+                    <!-- Time Remaining -->
+                    <div class="chip chip-time">
+                        <span class="material-icons-outlined">hourglass_empty</span>
+                        <span>{{.Bounty.time_remaining}}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Claim/Fund Button -->
+        {{if eq .Bounty.status "AwaitingFunding"}}
+        <button
+            class="claim-button"
+            hx-get="/partials/bounty-funding-qr/{{.Bounty.id}}"
+            hx-target="#funding-qr-container-detail"
+            hx-swap="innerHTML"
+            hx-trigger="click"
+            @click="fundBountyModalOpen = true"
+        >
+            <span class="material-icons-outlined">qr_code_scanner</span>
+            Fund Bounty
+        </button>
+        {{else if eq .Bounty.status "FundingExpired"}}
+        <button class="claim-button" disabled style="opacity: 0.5; cursor: not-allowed; background: linear-gradient(135deg, #757575 0%, #9e9e9e 100%);">
+            <span class="material-icons-outlined">timer_off</span>
+            Funding Expired
+        </button>
+        {{else if eq .Bounty.status "Listening"}}
+        <button class="claim-button" @click="claimModalOpen = true">
+            <span class="material-icons-outlined">auto_awesome</span>
+            Claim This Bounty
+        </button>
+        {{else}}
+        <button class="claim-button" disabled style="opacity: 0.5; cursor: not-allowed;">
+            <span class="material-icons-outlined">info</span>
+            {{.Bounty.status}}
+        </button>
+        {{end}}
+
+        <!-- Requirements Section -->
+        <div class="requirements-section">
+            <h2 class="section-title">Requirements</h2>
+            <div class="requirements-text">{{.Bounty.requirements}}</div>
+        </div>
+
+        <!-- Activity Timeline -->
+        <div class="activity-section">
+            <h2 class="section-title">Recent Claims</h2>
+            {{if .PaidBounties}}
+                {{range .PaidBounties}}
+                <div class="activity-item">
+                    <div class="activity-icon">
+                        <span class="material-icons-outlined">check_circle</span>
+                    </div>
+                    <div class="activity-content">
+                        <div class="activity-title">${{printf "%.2f" .amount}}</div>
+                        <div class="activity-meta">Paid {{.timestamp}}</div>
+                    </div>
+                </div>
+                {{end}}
+            {{else}}
+                <div style="text-align: center; padding: 2rem 0; color: var(--text-secondary);">
+                    <span class="material-icons-outlined" style="font-size: 48px; opacity: 0.3;">layers_clear</span>
+                    <p style="margin-top: 1rem;">No claims yet. Be the first!</p>
+                </div>
+            {{end}}
+        </div>
+    </main>
+
+    <!-- Claim Modal -->
+    <div x-show="claimModalOpen"
+         class="modal-overlay"
+         @click.self="claimModalOpen = false"
+         @keydown.escape.window="claimModalOpen = false"
+         style="background-color: rgba(0, 0, 0, 0.7) !important;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Claim Bounty</h2>
+                <button class="modal-close" @click="claimModalOpen = false">
+                    <span class="material-icons-outlined">close</span>
+                </button>
+            </div>
+
+            <!-- Content URL Input -->
+            <div class="form-section">
+                <label class="form-label">Content URL</label>
+                <input type="url"
+                       class="form-input"
+                       placeholder="https://reddit.com/r/example/comments/..."
+                       x-model="submission.contentUrl">
+                <p class="form-help">
+                    Paste the link to your Reddit post, YouTube video, tweet, or other content
+                </p>
+            </div>
+
+            <!-- Wallet Address Input -->
+            <div class="form-section">
+                <label class="form-label">Solana Wallet Address</label>
+                <input type="text"
+                       class="form-input"
+                       placeholder="Your Solana wallet address"
+                       x-model="submission.walletAddress"
+                       style="font-family: monospace;">
+                <p class="form-help">
+                    USDC rewards will be sent to this address if your content is approved
+                </p>
+            </div>
+
+            <!-- Actions -->
+            <div class="form-actions">
+                <button class="form-button form-button-secondary" @click="claimModalOpen = false">
+                    Cancel
+                </button>
+                <button class="form-button form-button-primary"
+                        @click="submitClaim()"
+                        :disabled="!submission.contentUrl || !submission.walletAddress">
+                    Submit Claim
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fund Bounty Modal -->
+    <div
+        x-show="fundBountyModalOpen"
+        class="modal-overlay"
+        @click.self="fundBountyModalOpen = false"
+        @keydown.escape.window="fundBountyModalOpen = false"
+        style="background-color: rgba(0, 0, 0, 0.7) !important"
+    >
+        <div class="modal-content" style="max-width: 600px">
+            <div class="modal-header">
+                <h2 class="modal-title">Fund Bounty</h2>
+                <button class="modal-close" @click="fundBountyModalOpen = false">
+                    <span class="material-icons-outlined">close</span>
+                </button>
+            </div>
+
+            <div id="funding-qr-container-detail" style="min-height: 200px;">
+                <div style="text-align: center; padding: 2rem">
+                    <div
+                        class="w-12 h-12 border-4 border-primary-700 border-t-transparent rounded-full animate-spin"
+                        style="margin: 0 auto"
+                    ></div>
+                    <p style="margin-top: 1rem; color: var(--text-secondary)">Loading payment QR code...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{define "scripts"}}
+// x-cloak utility to hide elements until Alpine is ready
+document.addEventListener('alpine:init', () => {
+    const style = document.createElement('style');
+    style.innerHTML = '[x-cloak] { display: none !important; }';
+    document.head.appendChild(style);
+});
+{{end}}

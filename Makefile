@@ -57,10 +57,20 @@ run-http-server-local: ## Run the HTTP server locally (uses .env.server.debug)
 	@$(MAKE) build-cli
 	./bin/abb run http-server --temporal-address ${TEMPORAL_ADDRESS} --temporal-namespace ${TEMPORAL_NAMESPACE}
 
+run-http-server-local-air: ## Run the HTTP server with Air hot-reload (uses .env.server.debug)
+	$(call setup_env, .env.server.debug)
+	@mkdir -p tmp logs
+	PATH="$(PATH):$$(go env GOPATH)/bin" air -c .air.server.toml
+
 run-worker-local: ## Run the Temporal worker locally (uses .env.worker.debug)
 	$(call setup_env, .env.worker.debug)
 	@$(MAKE) build-cli
 	./bin/abb run worker --temporal-address ${TEMPORAL_ADDRESS} --temporal-namespace ${TEMPORAL_NAMESPACE}
+
+run-worker-local-air: ## Run the Temporal worker with Air hot-reload (uses .env.worker.debug)
+	$(call setup_env, .env.worker.debug)
+	@mkdir -p tmp logs
+	PATH="$(PATH):$$(go env GOPATH)/bin" air -c .air.worker.toml
 
 # Deployment targets
 .PHONY: deploy-server deploy-worker deploy-all delete-server delete-worker delete-all
@@ -181,8 +191,8 @@ describe-worker: ## Describe Kubernetes resources for the worker
 TMUX_SESSION := abb-dev
 PORT_FORWARD_CMD := "kubectl port-forward service/temporal-web 8081:8080"
 TEMPORAL_FORWARD_CMD := "kubectl port-forward services/temporal-frontend 7233:7233"
-SERVER_CMD := $(MAKE) run-http-server-local # Command to run the server
-WORKER_CMD := $(MAKE) run-worker-local   # Command to run the worker
+SERVER_CMD := $(MAKE) run-http-server-local-air # Command to run the server with Air hot-reload
+WORKER_CMD := $(MAKE) run-worker-local-air   # Command to run the worker with Air hot-reload
 
 # Stop existing session (if any) and start a new one
 dev-session: stop-dev-session start-dev-session ## Stop (if running) and start a new tmux dev session
@@ -191,22 +201,22 @@ dev-session: stop-dev-session start-dev-session ## Stop (if running) and start a
 start-dev-session: build-cli ## Start a new tmux development session with port-forward, server, worker, and CLI panes
 	@echo "Starting tmux development session: $(TMUX_SESSION)"
 	# Create the main session with an initial window named 'dev-main'
-	@/usr/local/bin/tmux new-session -d -s $(TMUX_SESSION) -n 'dev-main'
+	@tmux new-session -d -s $(TMUX_SESSION) -n 'dev-main'
 
 	# Add new, detached windows for the port forwarding commands to run in the background
-	@/usr/local/bin/tmux new-window -d -t $(TMUX_SESSION) -n 'TemporalWebForward' "$(PORT_FORWARD_CMD)"
-	@/usr/local/bin/tmux new-window -d -t $(TMUX_SESSION) -n 'TemporalFrontendForward' "$(TEMPORAL_FORWARD_CMD)"
+	@tmux new-window -d -t $(TMUX_SESSION) -n 'TemporalWebForward' "$(PORT_FORWARD_CMD)"
+	@tmux new-window -d -t $(TMUX_SESSION) -n 'TemporalFrontendForward' "$(TEMPORAL_FORWARD_CMD)"
 
 	@sleep 1 # Brief pause for session/windows to initialize
 
 	# --- Configure panes in the 'dev-main' window (index 0) ---
 	# Pane 0.0 is the initial pane.
 	# Split 0.0 vertically. 0.0 becomes top. New pane 0.1 (bottom) runs WORKER_CMD.
-	@/usr/local/bin/tmux split-window -v -t $(TMUX_SESSION):0.0 "($(WORKER_CMD)) 2>&1 | tee logs/worker.log"
+	@tmux split-window -v -t $(TMUX_SESSION):0.0 "($(WORKER_CMD)) 2>&1 | tee logs/worker.log"
 	# Split 0.0 (top) horizontally. 0.0 becomes top-left. New pane 0.2 (top-right) is created empty (will be CLI).
-	@/usr/local/bin/tmux split-window -h -t $(TMUX_SESSION):0.0
+	@tmux split-window -h -t $(TMUX_SESSION):0.0
 	# Split 0.1 (bottom, running WORKER_CMD) horizontally. 0.1 becomes bottom-left. New pane 0.3 (bottom-right) is created empty.
-	@/usr/local/bin/tmux split-window -h -t $(TMUX_SESSION):0.1
+	@tmux split-window -h -t $(TMUX_SESSION):0.1
 
 	# Pane indices before 'select-layout tiled':
 	# 0.0: Top-Left (empty, runs CLI)
@@ -214,45 +224,31 @@ start-dev-session: build-cli ## Start a new tmux development session with port-f
 	# 0.2: Top-Right (runs SERVER_CMD)
 	# 0.3: Bottom-Left (empty, runs CLI)
 
-	@/usr/local/bin/tmux select-layout -t $(TMUX_SESSION):0 tiled # Apply tiled layout
+	@tmux select-layout -t $(TMUX_SESSION):0 tiled # Apply tiled layout
 
 	# Send initial commands/messages to the panes (post-tiling)
 	# Pane 0.1 (Top-Right): SERVER_CMD
-	@/usr/local/bin/tmux send-keys -t $(TMUX_SESSION):0.1 "($(SERVER_CMD)) 2>&1 | tee logs/server.log" C-m
-	@/usr/local/bin/tmux send-keys -t $(TMUX_SESSION):0.1 'echo "Server Pane ^ (top-right)"' C-m
+	@tmux send-keys -t $(TMUX_SESSION):0.1 "($(SERVER_CMD)) 2>&1 | tee logs/server.log" C-m
+	@tmux send-keys -t $(TMUX_SESSION):0.1 'echo "Server Pane ^ (top-right)"' C-m
 
 	# Pane 0.0 (Top-Left)
-	@/usr/local/bin/tmux send-keys -t $(TMUX_SESSION):0.0 'set -o allexport; source .env.worker.debug; set +o allexport; export PATH=$$(pwd)/bin:$$PATH; echo "CLI Pane - .env sourced & ./bin added to PATH (top-left)."' C-m
+	@tmux send-keys -t $(TMUX_SESSION):0.0 'set -o allexport; source .env.worker.debug; set +o allexport; export PATH=$$(pwd)/bin:$$PATH; echo "CLI Pane - .env sourced & ./bin added to PATH (top-left)."' C-m
 
 
 	# Pane 0.2 (User's Visual Bottom-Left): CLI Setup
-	@/usr/local/bin/tmux send-keys -t $(TMUX_SESSION):0.2 'set -o allexport; source .env.server.debug; set +o allexport; export PATH=$$(pwd)/bin:$$PATH; echo "CLI Pane - .env sourced & ./bin added to PATH (bottom-left)."' C-m
+	@tmux send-keys -t $(TMUX_SESSION):0.2 'set -o allexport; source .env.server.debug; set +o allexport; export PATH=$$(pwd)/bin:$$PATH; echo "CLI Pane - .env sourced & ./bin added to PATH (bottom-left)."' C-m
 
 	# Pane 0.3 (User's Visual Bottom-Right): Free Pane
-	@/usr/local/bin/tmux send-keys -t $(TMUX_SESSION):0.3 'echo "Worker Pane ^ (bottom-right)"' C-m
+	@tmux send-keys -t $(TMUX_SESSION):0.3 'echo "Worker Pane ^ (bottom-right)"' C-m
 
 	# Attach to the session, focusing the CLI pane (0.2 - user's visual Bottom-Left)
-	@/usr/local/bin/tmux select-pane -t $(TMUX_SESSION):0.2
-	@/usr/local/bin/tmux attach-session -t $(TMUX_SESSION)
+	@tmux select-pane -t $(TMUX_SESSION):0.2
+	@tmux attach-session -t $(TMUX_SESSION)
 
-# Stop the tmux development session and associated processes
-stop-dev-session: ## Stop the tmux development session and kill related processes
-	@echo "Stopping background processes..."
-	# Attempt to kill the port-forward commands (adjust patterns if needed)
-	@pkill -f "kubectl port-forward service/temporal-web" || true
-	@pkill -f "kubectl port-forward services/temporal-frontend" || true # Added for the second port-forward
-	# Attempt to kill processes started by the make commands (adjust patterns if needed)
-	# Using the make target names might be specific enough
-	@pkill -f "$(MAKE) run-http-server-local" || true
-	@pkill -f "$(MAKE) run-worker-local" || true
-	# If the Go executables have specific names you build, you could target those too
-	# @pkill -f "./bin/abb run http-server" || true
-	# @pkill -f "./bin/abb run worker" || true
-	@sleep 1 # Give processes a moment to terminate
-	@echo "Stopping tmux development session: $(TMUX_SESSION)"
-	@/usr/local/bin/tmux kill-session -t $(TMUX_SESSION) || true # Ignore error if session doesn't exist
-	# And finally kill the tmux session if it's running
-	@tmux kill-session -t $(TMUX_SESSION) 2>/dev/null || echo "No tmux session '$(TMUX_SESSION)' to stop."
+# Stop the tmux development session
+stop-dev-session: ## Stop the tmux development session
+	@echo "Stopping tmux session: $(TMUX_SESSION)"
+	@tmux kill-session -t $(TMUX_SESSION) 2>/dev/null && echo "Session stopped." || echo "No session '$(TMUX_SESSION)' found."
 
 # Variables (customize as needed)
 ABB_CMD = ./bin/abb
@@ -338,8 +334,8 @@ create-reddit-post-bounty: build-cli ## Create a test Reddit Post bounty
 		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
-	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
 	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
 		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
 	else \
@@ -364,8 +360,8 @@ create-reddit-comment-bounty: build-cli ## Create a test Reddit Comment bounty
 		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
-	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
 	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
 		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
 	else \
@@ -390,8 +386,8 @@ create-youtube-bounty: build-cli ## Create a test YouTube bounty
 		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
-	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
 	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
 		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
 	else \
@@ -416,8 +412,8 @@ create-twitch-bounty: build-cli ## Create a test Twitch bounty
 		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
-	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
 	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
 		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
 	else \
@@ -442,8 +438,8 @@ create-bluesky-bounty: build-cli ## Create a test Bluesky bounty
 		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
-	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
 	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
 		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
 	else \
@@ -468,8 +464,8 @@ create-hackernews-comment-bounty: build-cli ## Create a test Hacker News Comment
 		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
-	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
 	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
 		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
 	else \
@@ -494,8 +490,8 @@ create-hackernews-post-bounty: build-cli ## Create a simple test Hacker News pos
 		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
-	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
 	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
 		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
 	else \
@@ -520,8 +516,8 @@ create-instagram-post-bounty: build-cli ## Create a test Instagram Post bounty f
 		echo "Output was: $$OUTPUT" >&2; \
 		exit 1; \
 	fi; \
-	@echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
-	@echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
+	echo "Attempting to fund workflow '$$WORKFLOW_ID' with amount $(FUND_AMOUNT)"; \
+	echo "Suggestion: If fund-escrow outputs a transaction signature, please verify it on a Solana explorer."; \
 	if $(ABB_CMD) admin util fund-escrow --workflow-id "$$WORKFLOW_ID" --amount $(FUND_AMOUNT); then \
 		echo "--- fund-escrow command succeeded for $$WORKFLOW_ID (Makefile check) ---"; \
 	else \

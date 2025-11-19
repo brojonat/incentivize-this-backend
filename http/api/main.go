@@ -56,3 +56,9 @@ type SolanaTransaction struct {
 	Memo               *string   `json:"memo,omitempty"`
 	CreatedAt          time.Time `json:"created_at"`
 }
+
+type ContactRequest struct {
+	Name    string `json:"name"`
+	Email   string `json:"email"`
+	Message string `json:"message"`
+}

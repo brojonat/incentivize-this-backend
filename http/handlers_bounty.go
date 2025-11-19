@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"sort"
@@ -89,6 +90,7 @@ func handleCreateBounty(
 	llmProvider abb.LLMProvider,
 	llmEmbedProvider abb.LLMEmbeddingProvider,
 	defaultFeePercentage float64,
+	defaultMaxPayoutsPerUser int,
 	env string,
 	prompts struct {
 		InferBountyTitle   string
@@ -491,7 +493,7 @@ func handleCreateBounty(
 		}
 
 		// Max Payouts Per User
-		maxPayoutsPerUser := 1
+		maxPayoutsPerUser := defaultMaxPayoutsPerUser
 		if claims != nil && claims.Status >= UserStatusSudo && req.MaxPayoutsPerUser != nil && *req.MaxPayoutsPerUser > 0 && *req.MaxPayoutsPerUser <= 100 {
 			maxPayoutsPerUser = *req.MaxPayoutsPerUser
 		}
@@ -855,9 +857,16 @@ func handleListBounties(l *slog.Logger, tc client.Client, env string) http.Handl
 				EndAt:                endTime,
 			}
 
+			// Handle AwaitingFunding bounties - check if payment timeout has expired
 			if status == string(abb.BountyStatusAwaitingFunding) {
 				expiresAt := execution.StartTime.AsTime().Add(input.PaymentTimeout)
 				bounty.PaymentTimeoutExpiresAt = &expiresAt
+
+				// Skip expired AwaitingFunding bounties (HATEOAS principle - server controls state)
+				if time.Now().After(expiresAt) {
+					l.Debug("skipping expired AwaitingFunding bounty", "bounty_id", execution.Execution.WorkflowId, "expires_at", expiresAt)
+					continue
+				}
 			}
 
 			bounties = append(bounties, bounty)
@@ -961,85 +970,74 @@ func handleAssessContent(l *slog.Logger, tc client.Client) http.HandlerFunc {
 }
 
 // handleListPaidBounties handles listing all paid bounties from the database
-func handleListPaidBounties(l *slog.Logger, fcl *fclient.Client, querier dbgen.Querier, escrowWallet string) http.HandlerFunc {
+func handleListPaidBounties(l *slog.Logger, fcl *fclient.Client, querier dbgen.Querier, escrowWallet string, network string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Get limit from query parameter, default to 100
-		// limit := int32(100)
-		// if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		// 	if parsedLimit, err := strconv.ParseInt(limitStr, 10, 32); err == nil && parsedLimit > 0 {
-		// 		limit = int32(parsedLimit)
-		// 	}
-		// }
+		limit := 100
+		if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+			if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+				limit = parsedLimit
+			}
+		}
 
-		// Get outgoing transactions from database
-		// FIXME: update forohtoo to support this query
-		writeInternalError(l, w, fmt.Errorf("FIXME: need to update forohtoo to support this query"))
-		return
-		// transactions, err := fcl.GetOutgoingTransactions(r.Context(), escrowWallet, limit)
+		// Get offset from query parameter, default to 0
+		offset := 0
+		if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+			if parsedOffset, err := strconv.Atoi(offsetStr); err == nil && parsedOffset >= 0 {
+				offset = parsedOffset
+			}
+		}
 
-		// transactions, err := querier.GetOutgoingSolanaTransactions(r.Context(), dbgen.GetOutgoingSolanaTransactionsParams{
-		// 	FunderWallet: escrowWallet,
-		// 	Limit:        limit,
-		// })
-		// if err != nil {
-		// 	writeInternalError(l, w, fmt.Errorf("failed to get outgoing transactions: %w", err))
-		// 	return
-		// }
+		// Get outgoing transactions from forohtoo
+		transactions, err := fcl.ListTransactions(r.Context(), escrowWallet, network, limit, offset)
+		if err != nil {
+			writeInternalError(l, w, fmt.Errorf("failed to get transactions: %w", err))
+			return
+		}
 
 		// Get treasury wallet for filtering
-		// treasuryWalletAddress := os.Getenv(EnvSolanaTreasuryWallet)
+		treasuryWalletAddress := os.Getenv(EnvSolanaTreasuryWallet)
 
-		// // Filter and convert transactions to PaidBountyItem format
-		// paidBounties := make([]PaidBountyItem, 0)
-		// for _, tx := range transactions {
-		// 	// Skip transactions to treasury wallet
-		// 	if treasuryWalletAddress != "" && tx.RecipientWallet == treasuryWalletAddress {
-		// 		continue
-		// 	}
+		// Filter and convert transactions to PaidBountyItem format
+		paidBounties := make([]PaidBountyItem, 0)
+		for _, tx := range transactions {
+			// Skip transactions to treasury wallet
+			if treasuryWalletAddress != "" && tx.WalletAddress == treasuryWalletAddress {
+				continue
+			}
 
-		// 	// Check if this is a bounty payout (has bounty memo)
-		// 	isBountyPayout := false
-		// 	if tx.Memo.Valid && tx.Memo.String != "" {
-		// 		var memoData map[string]interface{}
-		// 		if err := json.Unmarshal([]byte(tx.Memo.String), &memoData); err == nil {
-		// 			_, hasWorkflowID := memoData["bounty_id"]
-		// 			_, hasContentID := memoData["content_id"]
-		// 			isBountyPayout = hasWorkflowID && hasContentID
-		// 		}
-		// 	}
+			// Check if this is a bounty payout (has bounty memo)
+			isBountyPayout := false
+			if tx.Memo != nil && *tx.Memo != "" {
+				var memoData map[string]interface{}
+				if err := json.Unmarshal([]byte(*tx.Memo), &memoData); err == nil {
+					_, hasWorkflowID := memoData["bounty_id"]
+					_, hasContentID := memoData["content_id"]
+					isBountyPayout = hasWorkflowID && hasContentID
+				}
+			}
 
-		// 	if !isBountyPayout {
-		// 		continue
-		// 	}
+			if !isBountyPayout {
+				continue
+			}
 
-		// 	// Convert amount from smallest unit to USDC
-		// 	amountUSDC := float64(tx.AmountSmallestUnit) / math.Pow10(6)
+			// Convert amount from smallest unit to USDC (lamports to USDC)
+			amountUSDC := float64(tx.Amount) / math.Pow10(6)
 
-		// 	paidBounty := PaidBountyItem{
-		// 		Signature:            tx.Signature,
-		// 		Timestamp:            tx.BlockTime.Time.UTC(),
-		// 		RecipientOwnerWallet: tx.RecipientWallet,
-		// 		Amount:               amountUSDC,
-		// 	}
-		// 	if tx.Memo.Valid {
-		// 		paidBounty.Memo = tx.Memo.String
-		// 	}
-		// 	paidBounties = append(paidBounties, paidBounty)
-		// }
+			paidBounty := PaidBountyItem{
+				Signature:            tx.Signature,
+				Timestamp:            tx.BlockTime.UTC(),
+				RecipientOwnerWallet: tx.WalletAddress,
+				Amount:               amountUSDC,
+			}
+			if tx.Memo != nil {
+				paidBounty.Memo = *tx.Memo
+			}
+			paidBounties = append(paidBounties, paidBounty)
+		}
 
-		// // Apply final limit for response
-		// recentBountyCountLimit := 10
-		// if r.URL.Query().Get("limit") != "" {
-		// 	if parsedLimit, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && parsedLimit > 0 {
-		// 		recentBountyCountLimit = parsedLimit
-		// 	}
-		// }
-		// if len(paidBounties) > recentBountyCountLimit {
-		// 	paidBounties = paidBounties[:recentBountyCountLimit]
-		// }
-
-		// l.Debug("Serving paid bounties from database", "item_count", len(paidBounties))
-		// writeJSONResponse(w, paidBounties, http.StatusOK)
+		l.Debug("Serving paid bounties from forohtoo", "item_count", len(paidBounties))
+		writeJSONResponse(w, paidBounties, http.StatusOK)
 	}
 }
 
@@ -1145,6 +1143,76 @@ func handleGetBountyByID(l *slog.Logger, tc client.Client) http.HandlerFunc {
 		}
 
 		writeJSONResponse(w, bountyListItem, http.StatusOK)
+	}
+}
+
+// handleGetBountyFundingQR handles fetching the payment QR code for a bounty awaiting funding
+func handleGetBountyFundingQR(
+	logger *slog.Logger,
+	tc client.Client,
+	escrowWallet solanago.PublicKey,
+	usdcMint solanago.PublicKey,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		bountyID := r.PathValue("bounty_id")
+		if bountyID == "" {
+			writeBadRequestError(w, fmt.Errorf("missing bounty ID in path"))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+
+		// Query workflow for bounty details
+		resp, err := tc.QueryWorkflow(ctx, bountyID, "", abb.GetBountyDetailsQueryType)
+		if err != nil {
+			var notFoundErr *serviceerror.NotFound
+			if errors.As(err, &notFoundErr) {
+				writeEmptyResultError(w)
+			} else {
+				writeInternalError(logger, w, fmt.Errorf("failed to query workflow %s for details: %w", bountyID, err))
+			}
+			return
+		}
+
+		var bountyDetails abb.BountyDetails
+		if err := resp.Get(&bountyDetails); err != nil {
+			writeInternalError(logger, w, fmt.Errorf("failed to decode bounty details: %w", err))
+			return
+		}
+
+		// Only allow QR code generation for bounties awaiting funding
+		if bountyDetails.Status != abb.BountyStatusAwaitingFunding {
+			writeBadRequestError(w, fmt.Errorf("bounty is not awaiting funding (status: %s)", bountyDetails.Status))
+			return
+		}
+
+		// Calculate payment timeout (default to 10 minutes if not set)
+		paymentTimeout := 10 * time.Minute
+		if bountyDetails.PaymentTimeoutExpiresAt != nil {
+			now := time.Now().UTC()
+			if bountyDetails.PaymentTimeoutExpiresAt.After(now) {
+				paymentTimeout = bountyDetails.PaymentTimeoutExpiresAt.Sub(now)
+			} else {
+				writeBadRequestError(w, fmt.Errorf("payment timeout has expired"))
+				return
+			}
+		}
+
+		// Generate payment invoice with QR code
+		paymentInvoice, err := generatePaymentInvoice(
+			escrowWallet,
+			usdcMint,
+			bountyDetails.TotalCharged,
+			bountyDetails.BountyID,
+			paymentTimeout,
+		)
+		if err != nil {
+			writeInternalError(logger, w, fmt.Errorf("failed to generate payment invoice: %w", err))
+			return
+		}
+
+		writeJSONResponse(w, paymentInvoice, http.StatusOK)
 	}
 }
 

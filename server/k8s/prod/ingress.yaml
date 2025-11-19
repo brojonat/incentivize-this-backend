@@ -8,11 +8,12 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - api.abb.brojonat.com
-    - api.incentivizethis.com
+    - abb.brojonat.com
+    - incentivizethis.com
+    - www.incentivizethis.com
     secretName: affiliate-bounty-board-backend-tls
   rules:
-  - host: "api.abb.brojonat.com"
+  - host: "abb.brojonat.com"
     http:
       paths:
       - pathType: Prefix
@@ -22,7 +23,17 @@ spec:
             name: affiliate-bounty-board-backend
             port:
               number: 80
-  - host: "api.incentivizethis.com"
+  - host: "incentivizethis.com"
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/"
+        backend:
+          service:
+            name: affiliate-bounty-board-backend
+            port:
+              number: 80
+  - host: "www.incentivizethis.com"
     http:
       paths:
       - pathType: Prefix

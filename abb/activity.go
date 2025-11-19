@@ -149,9 +149,9 @@ type DiscordConfig struct {
 }
 
 type AbbServerConfig struct {
-	APIEndpoint       string `json:"api_endpoint"`
+	APIEndpoint       string `json:"api_endpoint"`        // Full API endpoint including /api/v1, e.g., http://localhost:8080/api/v1
 	SecretKey         string `json:"secret_key"`
-	PublicBaseURL     string `json:"public_base_url"`
+	PublicBaseURL     string `json:"public_base_url"`     // Public base URL without /api/v1, e.g., https://incentivizethis.com
 	LLMEmbeddingModel string `json:"llm_embedding_model"`
 	DatabaseURL       string `json:"database_url"`
 }
@@ -1345,7 +1345,7 @@ func (a *Activities) CallGumroadNotifyActivity(ctx context.Context, input CallGu
 			return fmt.Errorf("failed to marshal sales for insert request: %w", err)
 		}
 
-		insertURL := fmt.Sprintf("%s/gumroad", cfg.ABBServerConfig.APIEndpoint)
+		insertURL := fmt.Sprintf("%s/gumroad", strings.TrimSuffix(cfg.ABBServerConfig.APIEndpoint, "/"))
 		httpReq, err := http.NewRequestWithContext(ctx, "POST", insertURL, bytes.NewBuffer(insertReqBody))
 		if err != nil {
 			return fmt.Errorf("failed to create insert request: %w", err)
@@ -1368,7 +1368,7 @@ func (a *Activities) CallGumroadNotifyActivity(ctx context.Context, input CallGu
 
 	// 3. Now that sales are in the DB, trigger the notification workflows for unnotified sales
 	// We call the notify endpoint which is now responsible for this part.
-	notifyURL := fmt.Sprintf("%s/gumroad/notify", cfg.ABBServerConfig.APIEndpoint)
+	notifyURL := fmt.Sprintf("%s/gumroad/notify", strings.TrimSuffix(cfg.ABBServerConfig.APIEndpoint, "/"))
 	notifyReq, err := http.NewRequestWithContext(ctx, "POST", notifyURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create notify request: %w", err)

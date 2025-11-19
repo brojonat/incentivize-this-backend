@@ -1,0 +1,88 @@
+{{define "bounty-list"}}
+{{range .Bounties}}
+<div>
+    <div class="bounty-card">
+        <a href="/browse/{{.BountyID}}"
+           style="text-decoration: none; display: block;">
+            <!-- Card Title and Time Remaining -->
+            <div class="flex items-start justify-between gap-4 mb-4">
+                <h3 class="bounty-card-title flex-1">{{.Title}}</h3>
+                {{if ne .Status "AwaitingFunding"}}
+                <div class="badge badge-time">
+                    <span class="material-icons-outlined">hourglass_empty</span>
+                    <span>119 days left</span>
+                </div>
+                {{end}}
+            </div>
+
+            <!-- Card Badges -->
+            <div class="flex flex-wrap gap-3">
+                <!-- Reward Amount -->
+                <div class="badge badge-reward">
+                    <span class="material-icons-outlined">attach_money</span>
+                    <span>${{printf "%.2f" .BountyPerPost}}</span>
+                </div>
+
+                <!-- Platform -->
+                <div class="badge badge-platform">
+                    <span class="material-icons-outlined">code</span>
+                    <span>{{.PlatformKind}}</span>
+                </div>
+
+                <!-- Content Type -->
+                <div class="badge badge-content-type">
+                    <span class="material-icons-outlined">forum</span>
+                    <span>{{.ContentKind}}</span>
+                </div>
+
+                <!-- Remaining Posts -->
+                <div class="badge badge-remaining">
+                    <span class="material-icons-outlined">description</span>
+                    <span>{{.Remaining}} remain</span>
+                </div>
+            </div>
+        </a>
+
+        <!-- Fund Bounty Button (outside link, only for awaiting funding) -->
+        {{if eq .Status "AwaitingFunding"}}
+        <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-default); display: flex; justify-content: flex-end;">
+            <button
+                hx-get="/partials/bounty-funding-qr/{{.BountyID}}"
+                hx-target="#funding-qr-container"
+                hx-swap="innerHTML"
+                @click="fundBountyModalOpen = true"
+                style="
+                    padding: 0.5rem 1rem;
+                    background: linear-gradient(135deg, #00c853 0%, #00b0ff 100%);
+                    color: white;
+                    border: none;
+                    border-radius: 8px;
+                    font-size: 0.75rem;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 0.4rem;
+                    box-shadow: 0 0 15px rgba(0, 200, 83, 0.4), 0 0 30px rgba(0, 176, 255, 0.3);
+                    white-space: nowrap;
+                "
+                @mouseenter="$el.style.background='linear-gradient(135deg, #00e676 0%, #40c4ff 100%)'; $el.style.transform='translateY(-2px)'; $el.style.boxShadow='0 0 20px rgba(0, 230, 118, 0.6), 0 0 40px rgba(64, 196, 255, 0.5)'"
+                @mouseleave="$el.style.background='linear-gradient(135deg, #00c853 0%, #00b0ff 100%)'; $el.style.transform='translateY(0)'; $el.style.boxShadow='0 0 15px rgba(0, 200, 83, 0.4), 0 0 30px rgba(0, 176, 255, 0.3)'"
+            >
+                <span class="material-icons-outlined" style="font-size: 18px">qr_code_scanner</span>
+                Fund Bounty
+            </button>
+        </div>
+        {{end}}
+    </div>
+</div>
+{{else}}
+<div class="flex flex-col items-center justify-center py-12">
+    <span class="material-icons-outlined text-6xl" style="color: rgba(255, 255, 255, 0.3);">layers_clear</span>
+    <h3 class="mt-4 text-xl font-bold" style="color: var(--text-primary);">No Bounties Available</h3>
+    <p class="mt-2 text-center" style="color: var(--text-secondary);">Check back soon for new opportunities!</p>
+</div>
+{{end}}
+{{end}}

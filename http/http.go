@@ -32,6 +32,7 @@ const (
 	EnvServerEnv                         = "ENV"
 	EnvTaskQueue                         = "TASK_QUEUE"
 	EnvUserRevenueSharePct               = "USER_REVENUE_SHARE_PCT"
+	EnvMaxPayoutsPerUser                 = "MAX_PAYOUTS_PER_USER"
 	EnvPublishTargetSubreddit            = "PUBLISH_TARGET_SUBREDDIT"
 	EnvPeriodicPublisherScheduleID       = "PERIODIC_PUBLISHER_SCHEDULE_ID"
 	EnvPeriodicPublisherScheduleInterval = "PERIODIC_PUBLISHER_SCHEDULE_INTERVAL"
@@ -63,6 +64,7 @@ type Config struct {
 	Environment         string
 	TaskQueue           string
 	UserRevenueSharePct float64
+	MaxPayoutsPerUser   int
 	DatabaseURL         string
 	Solana              struct {
 		RPCEndpoint     string
@@ -125,6 +127,19 @@ func NewConfigFromEnv(logger *slog.Logger) (*Config, error) {
 		return nil, fmt.Errorf("server startup error: invalid value for %s: '%s'", EnvUserRevenueSharePct, pctStr)
 	}
 	cfg.UserRevenueSharePct = pct
+
+	// Max Payouts Per User Config
+	maxPayoutsStr := os.Getenv(EnvMaxPayoutsPerUser)
+	if maxPayoutsStr == "" {
+		// Default to 1 if not set
+		cfg.MaxPayoutsPerUser = 1
+	} else {
+		maxPayouts, err := strconv.Atoi(maxPayoutsStr)
+		if err != nil || maxPayouts < 1 || maxPayouts > 100 {
+			return nil, fmt.Errorf("server startup error: invalid value for %s: '%s' (must be between 1 and 100)", EnvMaxPayoutsPerUser, maxPayoutsStr)
+		}
+		cfg.MaxPayoutsPerUser = maxPayouts
+	}
 
 	// Solana Config
 	cfg.Solana.RPCEndpoint = os.Getenv(EnvSolanaRPCEndpoint)
@@ -396,7 +411,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	// --- Create Forohtoo client ---
 	fcl := fclient.NewClient(os.Getenv(abb.EnvForohtooServerURL), nil, logger)
 	forohtooNetwork := abb.DetermineForohtooNetwork(cfg.Solana.RPCEndpoint)
-	err = fcl.RegisterAsset(ctx, cfg.Solana.EscrowWallet.String(), forohtooNetwork, "token", cfg.Solana.USDCMintAddress.String(), 10*time.Second)
+	err = fcl.RegisterAsset(ctx, cfg.Solana.EscrowWallet.String(), forohtooNetwork, "spl-token", cfg.Solana.USDCMintAddress.String())
 	if err != nil {
 		logger.Error("Failed to register wallet asset", "error", err)
 		return fmt.Errorf("failed to register wallet asset: %w", err)
@@ -424,83 +439,146 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		return fmt.Errorf("failed to initialize LLM Embedding Provider: %w", err)
 	}
 
-	// Add routes
-	mux.HandleFunc("GET /ping", stools.AdaptHandler(
+	// Add HTML routes (served with htmlMode middleware)
+	// Use /{$} to match ONLY the root path, not all paths starting with /
+	mux.HandleFunc("GET /{$}", stools.AdaptHandler(
+		handleLanding(logger),
+		htmlMode(logger, defaultRateLimiter),
+		withLogging(logger),
+	))
+
+	mux.HandleFunc("GET /browse", stools.AdaptHandler(
+		handleBounties(logger),
+		htmlMode(logger, defaultRateLimiter),
+		withLogging(logger),
+	))
+
+	mux.HandleFunc("GET /about", stools.AdaptHandler(
+		handleAbout(logger),
+		htmlMode(logger, defaultRateLimiter),
+		withLogging(logger),
+	))
+
+	mux.HandleFunc("GET /browse/{id}", stools.AdaptHandler(
+		handleBountyDetail(logger, tc),
+		htmlMode(logger, defaultRateLimiter),
+		withLogging(logger),
+	))
+
+	// Partial template endpoints for HTMX
+	mux.HandleFunc("GET /partials/bounty-list", stools.AdaptHandler(
+		handleBountyListPartial(logger, tc, cfg.Environment),
+		htmlMode(logger, defaultRateLimiter),
+		withLogging(logger),
+	))
+
+	// Form submission endpoints
+	// Note: Form endpoint has no authentication - it's public/unauthenticated
+	// Since it's unauthenticated, content moderation is ALWAYS performed for all submissions
+	// Authenticated users who want to skip moderation should use the JSON API endpoint with Bearer token authentication
+	mux.HandleFunc("POST /forms/create-bounty", stools.AdaptHandler(
+		handleCreateBountyForm(logger, tc, llmProvider, llmEmbedProvider, cfg.UserRevenueSharePct, cfg.MaxPayoutsPerUser, cfg.Environment, cfg.Prompts, cfg.Solana.EscrowWallet, cfg.Solana.USDCMintAddress),
+		htmlMode(logger, llmRateLimiter),
+		withLogging(logger),
+	))
+
+	// Serve static files (images, css, js)
+	mux.Handle("GET /static/", http.StripPrefix("/static", handleStaticFiles()))
+
+	// Add JSON API routes under /api/v1/ (served with apiMode middleware)
+	mux.HandleFunc("GET /api/v1/ping", stools.AdaptHandler(
 		handlePing(),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
 
-	mux.HandleFunc("GET /config", stools.AdaptHandler(
+	mux.HandleFunc("GET /api/v1/config", stools.AdaptHandler(
 		handleGetConfig(cfg.Solana.USDCMintAddress.String(), cfg.Solana.EscrowWallet.String()),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
 
-	mux.HandleFunc("POST /token", stools.AdaptHandler(
+	mux.HandleFunc("POST /api/v1/token", stools.AdaptHandler(
 		handleIssueSudoToken(logger),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 		atLeastOneAuth(oauthAuthorizerForm(getSecretKey)),
 	))
 
-	mux.HandleFunc("POST /token/user", stools.AdaptHandler(
+	mux.HandleFunc("POST /api/v1/token/user", stools.AdaptHandler(
 		handleIssueUserToken(logger),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 		atLeastOneAuth(oauthAuthorizerForm(getSecretKey)),
 	))
 
-	// Route for getting a specific bounty by ID
-	mux.HandleFunc("GET /bounties/{id}", stools.AdaptHandler(
+	// Bounty JSON API routes
+	mux.HandleFunc("GET /api/v1/bounties/{id}", stools.AdaptHandler(
 		handleGetBountyByID(logger, tc),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
 
-	// listing bounties routes
-	mux.HandleFunc("GET /bounties", stools.AdaptHandler(
+	mux.HandleFunc("GET /api/v1/bounties", stools.AdaptHandler(
 		handleListBounties(logger, tc, cfg.Environment),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
 
-	mux.HandleFunc("GET /bounties/paid", stools.AdaptHandler(
-		handleListPaidBounties(logger, fcl, querier, cfg.Solana.EscrowWallet.String()),
+	mux.HandleFunc("GET /api/v1/bounties/paid", stools.AdaptHandler(
+		handleListPaidBounties(logger, fcl, querier, cfg.Solana.EscrowWallet.String(), forohtooNetwork),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
 
-	// Route for getting paid bounties for a specific workflow
-	mux.HandleFunc("GET /bounties/{bounty_id}/paid", stools.AdaptHandler(
+	mux.HandleFunc("GET /api/v1/bounties/{bounty_id}/paid", stools.AdaptHandler(
 		handleListPaidBountiesForWorkflow(logger, tc),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
 
-	// create bounty routes
-	mux.HandleFunc("POST /bounties", stools.AdaptHandler(
-		handleCreateBounty(logger, tc, llmProvider, llmEmbedProvider, cfg.UserRevenueSharePct, cfg.Environment, cfg.Prompts),
+	mux.HandleFunc("GET /api/v1/bounties/{bounty_id}/funding-qr", stools.AdaptHandler(
+		handleGetBountyFundingQR(logger, tc, cfg.Solana.EscrowWallet, cfg.Solana.USDCMintAddress),
+		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
+		withLogging(logger),
+	))
+
+	mux.HandleFunc("GET /partials/bounty-funding-qr/{bounty_id}", stools.AdaptHandler(
+		handleGetBountyFundingQRHTML(logger, tc, cfg.Solana.EscrowWallet, cfg.Solana.USDCMintAddress),
+		htmlMode(logger, defaultRateLimiter),
+		withLogging(logger),
+	))
+	mux.HandleFunc("GET /partials/bounty-detail-header/{bounty_id}", stools.AdaptHandler(
+		handleGetBountyDetailHeaderHTML(logger, tc),
+		htmlMode(logger, defaultRateLimiter),
+		withLogging(logger),
+	))
+	mux.HandleFunc("GET /partials/create-bounty-form", stools.AdaptHandler(
+		handleGetCreateBountyFormHTML(logger),
+		htmlMode(logger, defaultRateLimiter),
+		withLogging(logger),
+	))
+
+	mux.HandleFunc("POST /api/v1/bounties", stools.AdaptHandler(
+		handleCreateBounty(logger, tc, llmProvider, llmEmbedProvider, cfg.UserRevenueSharePct, cfg.MaxPayoutsPerUser, cfg.Environment, cfg.Prompts),
 		apiMode(logger, llmRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
 
-	// LLM endpoint to harden user-provided bounty requirements
-	mux.HandleFunc("POST /bounties/harden", stools.AdaptHandler(
+	mux.HandleFunc("POST /api/v1/bounties/harden", stools.AdaptHandler(
 		handleHardenBounty(logger, llmProvider, hardenBountyCache, struct{ HardenBounty string }{HardenBounty: cfg.Prompts.HardenBounty}),
 		apiMode(logger, llmRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
 
-	// pay/funding/transactional bounty routes
-	mux.HandleFunc("POST /bounties/assess", stools.AdaptHandler(
+	mux.HandleFunc("POST /api/v1/bounties/assess", stools.AdaptHandler(
 		handleAssessContent(logger, tc),
 		apiMode(logger, llmRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 		jwtRateLimitMiddleware(jwtAssessLimiter, "email"),
 	))
 
-	mux.HandleFunc("POST /bounties/embeddings", stools.AdaptHandler(
+	mux.HandleFunc("POST /api/v1/bounties/embeddings", stools.AdaptHandler(
 		handleStoreBountyEmbedding(logger, querier),
 		apiMode(logger, llmRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
@@ -508,7 +586,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		requireStatus(UserStatusSudo),
 	))
 
-	mux.HandleFunc("DELETE /bounties/embeddings/{bounty_id}", stools.AdaptHandler(
+	mux.HandleFunc("DELETE /api/v1/bounties/embeddings/{bounty_id}", stools.AdaptHandler(
 		handleDeleteBountyEmbedding(logger, querier),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
@@ -516,13 +594,13 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		requireStatus(UserStatusSudo),
 	))
 
-	mux.HandleFunc("GET /bounties/search", stools.AdaptHandler(
+	mux.HandleFunc("GET /api/v1/bounties/search", stools.AdaptHandler(
 		handleSearchBounties(logger, querier, tc, llmEmbedProvider, cfg.Environment),
 		apiMode(logger, llmRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
 
-	mux.HandleFunc("POST /bounties/summaries", stools.AdaptHandler(
+	mux.HandleFunc("POST /api/v1/bounties/summaries", stools.AdaptHandler(
 		handleStoreBountySummary(logger, querier),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
@@ -530,8 +608,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		requireStatus(UserStatusSudo),
 	))
 
-	// Route for pruning stale embeddings (sudo access required)
-	mux.HandleFunc("POST /embeddings/prune", stools.AdaptHandler(
+	mux.HandleFunc("POST /api/v1/embeddings/prune", stools.AdaptHandler(
 		handlePruneStaleEmbeddings(logger, tc, querier),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
@@ -539,8 +616,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		requireStatus(UserStatusSudo),
 	))
 
-	// Route for inserting gumroad sales (sudo access required)
-	mux.HandleFunc("POST /gumroad", stools.AdaptHandler(
+	mux.HandleFunc("POST /api/v1/gumroad", stools.AdaptHandler(
 		handleInsertGumroadSales(logger, querier),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
@@ -548,9 +624,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		requireStatus(UserStatusSudo),
 	))
 
-	// Route for notifying gumroad sales (sudo access required). This will fetch unnotified gumroad sales
-	// and launch a workflow to notify them.
-	mux.HandleFunc("POST /gumroad/notify", stools.AdaptHandler(
+	mux.HandleFunc("POST /api/v1/gumroad/notify", stools.AdaptHandler(
 		handleNotifyGumroadSales(logger, querier, tc),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
@@ -559,7 +633,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	))
 
 	// Route for marking a Gumroad sale as notified (sudo access required)
-	mux.HandleFunc("POST /gumroad/notified", stools.AdaptHandler(
+	mux.HandleFunc("POST /api/v1/gumroad/notified", stools.AdaptHandler(
 		handleMarkGumroadSaleNotified(logger, querier),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
@@ -567,13 +641,15 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		requireStatus(UserStatusSudo),
 	))
 
+	// Contact-us POST endpoint - supports both HTMX (HTML) and JSON responses
 	mux.HandleFunc("POST /contact-us", stools.AdaptHandler(
 		handleContactUs(logger, querier, tc),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))
 
-	mux.HandleFunc("GET /contact-us", stools.AdaptHandler(
+	// Contact-us GET endpoint - JSON only (admin endpoint)
+	mux.HandleFunc("GET /api/v1/contact-us", stools.AdaptHandler(
 		handleGetContactUs(logger, querier),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
@@ -603,13 +679,16 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	// 	requireStatus(UserStatusSudo),
 	// ))
 
+	// Wrap mux with custom 404 handler
+	notFoundHandler := with404Handler(logger, mux)
+
 	// Apply CORS globally
 	corsHandler := handlers.CORS(
 		handlers.AllowedHeaders(cfg.CORS.AllowedHeaders),
 		handlers.AllowedMethods(cfg.CORS.AllowedMethods),
 		handlers.AllowedOrigins(cfg.CORS.AllowedOrigins),
 		handlers.AllowCredentials(),
-	)(mux)
+	)(notFoundHandler)
 
 	// Start server
 	server := &http.Server{
@@ -653,6 +732,87 @@ func withLogging(logger *slog.Logger) func(http.HandlerFunc) http.HandlerFunc {
 			)
 		}
 	}
+}
+
+// bufferedResponseWriter wraps http.ResponseWriter to buffer the response
+type bufferedResponseWriter struct {
+	http.ResponseWriter
+	statusCode int
+	written    bool
+	buffer     []byte
+	header     http.Header
+}
+
+func newBufferedResponseWriter(w http.ResponseWriter) *bufferedResponseWriter {
+	return &bufferedResponseWriter{
+		ResponseWriter: w,
+		statusCode:     http.StatusOK,
+		written:        false,
+		buffer:         make([]byte, 0),
+		header:         make(http.Header),
+	}
+}
+
+func (brw *bufferedResponseWriter) Header() http.Header {
+	return brw.header
+}
+
+func (brw *bufferedResponseWriter) WriteHeader(code int) {
+	if !brw.written {
+		brw.statusCode = code
+		brw.written = true
+	}
+}
+
+func (brw *bufferedResponseWriter) Write(b []byte) (int, error) {
+	if !brw.written {
+		brw.WriteHeader(http.StatusOK)
+	}
+	brw.buffer = append(brw.buffer, b...)
+	return len(b), nil
+}
+
+func (brw *bufferedResponseWriter) Flush() {
+	// Copy buffered headers to actual ResponseWriter
+	for k, v := range brw.header {
+		for _, val := range v {
+			brw.ResponseWriter.Header().Add(k, val)
+		}
+	}
+	brw.ResponseWriter.WriteHeader(brw.statusCode)
+	brw.ResponseWriter.Write(brw.buffer)
+}
+
+// with404Handler wraps an http.Handler to provide a custom 404 page
+func with404Handler(logger *slog.Logger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Buffer the response to check status code before writing
+		buffered := newBufferedResponseWriter(w)
+		next.ServeHTTP(buffered, r)
+
+		// If a 404 was written and it's an HTML request, serve our custom 404 page
+		if buffered.statusCode == http.StatusNotFound {
+			// Skip custom 404 for API requests - just return the buffered 404
+			if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/static/") {
+				buffered.Flush()
+				return
+			}
+
+			// Check if this is an HTML request via Accept header
+			acceptHeader := r.Header.Get("Accept")
+			wantsHTML := acceptHeader == "" || strings.Contains(acceptHeader, "text/html") || strings.Contains(acceptHeader, "*/*")
+
+			// Serve custom 404 for browser requests
+			if wantsHTML {
+				// Don't flush the buffered response, serve our custom 404 instead
+				handle404(logger)(w, r)
+				return
+			}
+		}
+
+		// Otherwise, flush the buffered response
+		buffered.Flush()
+	})
 }
 
 // handlePing returns a handler for the ping endpoint
@@ -704,7 +864,6 @@ func setupPruneStaleEmbeddingsSchedule(ctx context.Context, logger *slog.Logger,
 			),
 		},
 	})
-
 	if err != nil {
 		// Check if the error is specifically that the schedule already exists
 		if strings.Contains(err.Error(), "schedule already exists") {
@@ -753,7 +912,6 @@ func setupGumroadNotifySchedule(ctx context.Context, logger *slog.Logger, tc cli
 
 	// Use the same pattern as setupPeriodicPublisherSchedule and setupPruneStaleEmbeddingsSchedule
 	_, err := tc.ScheduleClient().Create(ctx, scheduleOptions)
-
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
 			logger.Info("Gumroad Notify schedule already exists, no action taken.", "scheduleID", scheduleID)
@@ -768,39 +926,3 @@ func setupGumroadNotifySchedule(ctx context.Context, logger *slog.Logger, tc cli
 	logger.Info("Successfully created Gumroad Notify schedule", "scheduleID", scheduleID)
 	return nil
 }
-
-// func setupSolanaPollerSchedule(ctx context.Context, logger *slog.Logger, tc client.Client, cfg *Config) error {
-// 	scheduleID := fmt.Sprintf("solana-poller-schedule-%s", cfg.Environment)
-// 	taskQueue := os.Getenv(EnvTaskQueue)
-// 	if taskQueue == "" {
-// 		return fmt.Errorf("TASK_QUEUE environment variable not set, cannot set up schedule %s", scheduleID)
-// 	}
-
-// 	scheduleInput := abb.PollAndStoreTransactionsInput{
-// 		EscrowWallet: cfg.Solana.EscrowWallet.String(),
-// 	}
-
-// 	scheduleOptions := client.ScheduleOptions{
-// 		ID: scheduleID,
-// 		Spec: client.ScheduleSpec{
-// 			Intervals: []client.ScheduleIntervalSpec{{Every: 10 * time.Second}},
-// 		},
-// 		Action: &client.ScheduleWorkflowAction{
-// 			Workflow:  abb.PollSolanaTransactionsWorkflow,
-// 			Args:      []interface{}{scheduleInput},
-// 			TaskQueue: taskQueue,
-// 			ID:        fmt.Sprintf("solana-poller-workflow-%s", cfg.Environment),
-// 		},
-// 	}
-
-// 	_, err := tc.ScheduleClient().Create(ctx, scheduleOptions)
-// 	if err != nil {
-// 		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
-// 			logger.Info("Solana Poller schedule already exists, no action taken.", "scheduleID", scheduleID)
-// 			return nil
-// 		}
-// 		logger.Error("Failed to create Solana Poller schedule", "scheduleID", scheduleID, "error", err)
-// 		return fmt.Errorf("failed to create Solana Poller schedule %s: %w", scheduleID, err)
-// 	}
-// 	return nil
-// }

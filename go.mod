@@ -1,10 +1,9 @@
 module github.com/brojonat/affiliate-bounty-board
 
-go 1.25.1
+go 1.25.4
 
 require (
 	github.com/Rhymond/go-money v1.0.15
-	github.com/gagliardetto/binary v0.8.0
 	github.com/gagliardetto/solana-go v1.14.0
 	github.com/google/go-github/v63 v63.0.0
 	github.com/google/uuid v1.6.0
@@ -24,6 +23,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a // indirect
 	github.com/fatih/color v1.16.0 // indirect
+	github.com/gagliardetto/binary v0.8.0 // indirect
 	github.com/gagliardetto/treeout v0.1.4 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/mock v1.6.0 // indirect
@@ -47,6 +47,7 @@ require (
 	github.com/onsi/gomega v1.25.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/robfig/cron v1.2.0 // indirect
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e // indirect
 	github.com/streamingfast/logging v0.0.0-20230608130331-f22c91403091 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	go.mongodb.org/mongo-driver v1.12.2 // indirect
@@ -76,7 +77,7 @@ require (
 )
 
 require (
-	github.com/brojonat/forohtoo v0.0.0-20251026235647-7ff2c095a0ab
+	github.com/brojonat/forohtoo v0.0.0-20251115224914-a5a588b88dfb
 	github.com/felixge/httpsnoop v1.0.3 // indirect
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/jmespath/go-jmespath v0.4.0

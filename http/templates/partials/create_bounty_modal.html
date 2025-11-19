@@ -1,0 +1,22 @@
+{{define "create-bounty-modal"}}
+<!-- Create Bounty Modal -->
+<div
+  x-show="createBountyModalOpen"
+  class="modal-overlay"
+  @click.self="createBountyModalOpen = false"
+  @keydown.escape.window="createBountyModalOpen = false"
+  style="background-color: rgba(0, 0, 0, 0.7) !important"
+>
+  <div class="modal-content" style="max-width: 600px">
+    <div class="modal-header">
+      <h2 class="modal-title">Create Bounty</h2>
+      <button class="modal-close" @click="createBountyModalOpen = false">
+        <span class="material-icons-outlined">close</span>
+      </button>
+    </div>
+
+    <!-- Form Container - will be replaced with QR code on success -->
+    <div id="create-bounty-form-container"></div>
+  </div>
+</div>
+{{end}}

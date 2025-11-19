@@ -1,0 +1,146 @@
+{{define "title"}}Page Not Found{{end}}
+
+{{define "description"}}The page you're looking for could not be found{{end}}
+
+{{define "head-scripts"}}{{end}}
+
+{{define "styles"}}
+.error-container {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    text-align: center;
+}
+
+.error-content {
+    max-width: 600px;
+}
+
+.error-code {
+    font-size: 8rem;
+    font-weight: 700;
+    color: rgb(160, 202, 252);
+    margin: 0;
+    line-height: 1;
+}
+
+.error-title {
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 1rem 0;
+}
+
+.error-description {
+    font-size: 1.125rem;
+    color: var(--text-secondary);
+    margin: 1rem 0 2rem 0;
+    line-height: 1.6;
+}
+
+.error-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.error-button {
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+    border: none;
+    cursor: pointer;
+    font-size: 1rem;
+}
+
+.error-button-primary {
+    background-color: rgb(160, 202, 252);
+    color: rgb(0, 50, 88);
+}
+
+.error-button-primary:hover {
+    background-color: rgb(140, 182, 232);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(160, 202, 252, 0.4);
+}
+
+.error-button-secondary {
+    border: 1px solid var(--border-default);
+    color: var(--text-secondary);
+    background-color: transparent;
+}
+
+.error-button-secondary:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-color: var(--border-hover);
+    transform: translateY(-2px);
+}
+
+.error-emoji {
+    font-size: 6rem;
+    margin-bottom: 1rem;
+    display: block;
+}
+
+@media (max-width: 768px) {
+    .error-code {
+        font-size: 5rem;
+    }
+
+    .error-title {
+        font-size: 1.5rem;
+    }
+
+    .error-description {
+        font-size: 1rem;
+    }
+
+    .error-emoji {
+        font-size: 4rem;
+    }
+
+    .error-actions {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .error-button {
+        width: 100%;
+        justify-content: center;
+    }
+}
+{{end}}
+
+{{define "content"}}
+<div class="error-container">
+    <div class="error-content">
+        <span class="error-emoji">🥕</span>
+        <h1 class="error-code">404</h1>
+        <h2 class="error-title">Page Not Found</h2>
+        <p class="error-description">
+            The page you're looking for doesn't exist or has been moved.
+            Let's get you back on track!
+        </p>
+        <div class="error-actions">
+            <a href="/" class="error-button error-button-primary">
+                <span class="material-icons-outlined">home</span>
+                Go Home
+            </a>
+            <a href="/browse" class="error-button error-button-secondary">
+                <span class="material-icons-outlined">search</span>
+                Browse Bounties
+            </a>
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{define "scripts"}}{{end}}
