@@ -37,4 +37,34 @@
         </div>
     </div>
 </div>
+
+<!-- Claim/Fund Button -->
+{{if eq .Bounty.status "AwaitingFunding"}}
+<button
+    class="claim-button"
+    hx-get="/partials/bounty-funding-qr/{{.Bounty.id}}"
+    hx-target="#funding-qr-container-detail"
+    hx-swap="innerHTML"
+    hx-trigger="click"
+    @click="fundBountyModalOpen = true"
+>
+    <span class="material-icons-outlined">qr_code_scanner</span>
+    Fund Bounty
+</button>
+{{else if eq .Bounty.status "FundingExpired"}}
+<button class="claim-button" disabled style="opacity: 0.5; cursor: not-allowed; background: linear-gradient(135deg, #757575 0%, #9e9e9e 100%);">
+    <span class="material-icons-outlined">timer_off</span>
+    Funding Expired
+</button>
+{{else if eq .Bounty.status "Listening"}}
+<button class="claim-button" @click="claimModalOpen = true">
+    <span class="material-icons-outlined">auto_awesome</span>
+    Claim This Bounty
+</button>
+{{else}}
+<button class="claim-button" disabled style="opacity: 0.5; cursor: not-allowed;">
+    <span class="material-icons-outlined">info</span>
+    {{.Bounty.status}}
+</button>
+{{end}}
 {{end}}
