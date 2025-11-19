@@ -1,8 +1,5 @@
 {{define "bounty-detail-header"}}
-<div class="bounty-header"
-     hx-get="/partials/bounty-detail-header/{{.Bounty.id}}"
-     hx-trigger="every 10s"
-     hx-swap="outerHTML">
+<div class="bounty-header">
     <div class="title-with-status">
         <h1 class="bounty-title">{{.Bounty.title}}</h1>
     </div>
@@ -12,7 +9,7 @@
         <!-- Reward Amount -->
         <div class="chip chip-reward">
             <span class="material-icons-outlined">attach_money</span>
-            <span>${{.Bounty.reward_per_post}}</span>
+            <span>${{printf "%.2f" .Bounty.reward_per_post}}</span>
         </div>
 
         <!-- Platform -->
