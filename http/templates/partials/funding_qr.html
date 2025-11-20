@@ -119,18 +119,25 @@
 </div>
 
 <script>
-// Countdown timer
+// Countdown timer - prevent multiple timers from running
 (function() {
+  const timerEl = document.getElementById('countdown-timer');
+  if (!timerEl) return;
+
+  // Clear any existing timer on this element
+  const existingTimerId = timerEl.dataset.timerId;
+  if (existingTimerId) {
+    clearInterval(parseInt(existingTimerId));
+  }
+
   const expiresAt = new Date('{{.PaymentInvoice.ExpiresAt.Format "2006-01-02T15:04:05Z07:00"}}');
-  let intervalId = null;
 
   function updateCountdown() {
-    const timerEl = document.getElementById('countdown-timer');
-    if (!timerEl) {
-      // Element was removed, clear the interval
-      if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
+    if (!document.getElementById('countdown-timer')) {
+      // Element was removed from DOM, stop the timer
+      if (timerEl.dataset.timerId) {
+        clearInterval(parseInt(timerEl.dataset.timerId));
+        delete timerEl.dataset.timerId;
       }
       return;
     }
@@ -141,9 +148,9 @@
     if (diff <= 0) {
       timerEl.textContent = 'Expired';
       timerEl.style.color = 'rgb(244, 67, 54)';
-      if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
+      if (timerEl.dataset.timerId) {
+        clearInterval(parseInt(timerEl.dataset.timerId));
+        delete timerEl.dataset.timerId;
       }
       return;
     }
@@ -154,11 +161,12 @@
       `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   }
 
-  // Use setTimeout to ensure DOM is ready when loaded via HTMX
-  setTimeout(function() {
-    updateCountdown();
-    intervalId = setInterval(updateCountdown, 1000);
-  }, 0);
+  // Initial update
+  updateCountdown();
+
+  // Start interval and store ID on the element
+  const intervalId = setInterval(updateCountdown, 1000);
+  timerEl.dataset.timerId = intervalId.toString();
 })();
 </script>
 {{end}}
