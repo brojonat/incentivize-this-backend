@@ -41,8 +41,9 @@ type CreateBountySuccessResponse struct {
 }
 
 type ConfigResponse struct {
-	USDCMintAddress string `json:"usdc_mint_address"`
-	EscrowWallet    string `json:"escrow_wallet"`
+	USDCMintAddress    string  `json:"usdc_mint_address"`
+	EscrowWallet       string  `json:"escrow_wallet"`
+	PlatformFeePercent float64 `json:"platform_fee_percent"`
 }
 
 type SolanaTransaction struct {

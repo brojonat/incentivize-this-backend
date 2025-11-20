@@ -135,6 +135,19 @@ scale(1.02); box-shadow: 0 6px 20px rgba(0, 230, 118, 0.6); } {{end}} {{define
     },
     hardeningInProgress: false,
     submittingBounty: false,
+    platformFeePercent: 100, // default, will be fetched from config
+    init() {
+        // Fetch platform fee from config
+        fetch('/api/v1/config')
+            .then(res => res.json())
+            .then(config => {
+                this.platformFeePercent = config.platform_fee_percent || 100;
+            })
+            .catch(err => {
+                console.error('Failed to fetch config:', err);
+                this.platformFeePercent = 100; // fallback to 100%
+            });
+    },
     clearNewBounty() {
         this.newBounty = {
             requirements: '',
@@ -147,7 +160,7 @@ scale(1.02); box-shadow: 0 6px 20px rgba(0, 230, 118, 0.6); } {{end}} {{define
         const reward = parseFloat(this.newBounty.rewardPerPost) || 0;
         const count = parseInt(this.newBounty.numberOfBounties) || 0;
         const subtotal = reward * count;
-        const fee = subtotal * 1.00; // 100% platform fee
+        const fee = subtotal * (this.platformFeePercent / 100);
         return {
             subtotal: subtotal,
             fee: fee,

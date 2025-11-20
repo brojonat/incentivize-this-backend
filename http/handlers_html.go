@@ -261,7 +261,7 @@ func handleCreateBountyForm(
 	tc client.Client,
 	llmProvider abb.LLMProvider,
 	llmEmbedProvider abb.LLMEmbeddingProvider,
-	defaultFeePercentage float64,
+	platformFeePercent float64,
 	defaultMaxPayoutsPerUser int,
 	env string,
 	prompts struct {
@@ -719,58 +719,41 @@ func handleCreateBountyForm(
 			return
 		}
 
-		// Apply revenue sharing using the calculator function
-		userBountyPerPost := req.BountyPerPost
-		var userTotalBounty float64
-
-		// Determine fee percentage to use
-		// Note: Form endpoint has no auth, so custom fee percentage is not supported
-		// Use default fee percentage
-		feePercentage := defaultFeePercentage
-
 		// Max Payouts Per User
 		// Note: Form endpoint has no auth, so custom max payouts per user is not supported
 		// Use default value from environment variable
 		maxPayoutsPerUser := defaultMaxPayoutsPerUser
 
-		// Calculate the final bounty amount for the user after platform fees.
-		// This uses go-money for safe currency allocation.
-		totalMoney := money.NewFromFloat(req.TotalBounty, money.USD)
-		feeIntPercentage := int(feePercentage)
-		userIntPercentage := 100 - feeIntPercentage
-
-		parties, err := totalMoney.Allocate(userIntPercentage, feeIntPercentage)
-		if err != nil {
-			writeHTMLInternalError(logger, w, fmt.Errorf("failed to allocate bounty amount: %w", err))
+		// Validate amounts
+		if req.BountyPerPost <= 0 {
+			writeHTMLErrorDialog(w, fmt.Errorf("bounty_per_post must be greater than 0"))
 			return
 		}
-		userTotalBounty = parties[0].AsMajorUnits()
-
-		// --- START: Validate BountyPerPost against effective TotalBounty ---
-		if userBountyPerPost > userTotalBounty {
-			errMsg := fmt.Sprintf("bounty_per_post (%.6f) cannot be greater than the effective total_bounty after fees (%.6f)", userBountyPerPost, userTotalBounty)
-			logger.Warn(errMsg, "raw_bounty_per_post", req.BountyPerPost, "raw_total_bounty", req.TotalBounty, "effective_total_bounty", userTotalBounty)
-			writeHTMLErrorDialog(w, fmt.Errorf("%s", errMsg))
+		if req.TotalBounty <= 0 {
+			writeHTMLErrorDialog(w, fmt.Errorf("total_bounty must be greater than 0"))
 			return
 		}
-		// --- END: Validate BountyPerPost against effective TotalBounty ---
+		if req.BountyPerPost > req.TotalBounty {
+			writeHTMLErrorDialog(w, fmt.Errorf("bounty_per_post (%.6f) cannot be greater than total_bounty (%.6f)", req.BountyPerPost, req.TotalBounty))
+			return
+		}
 
 		// Convert amounts to USDCAmount
-		bountyPerPostAmount, err := solana.NewUSDCAmount(userBountyPerPost)
+		bountyPerPostAmount, err := solana.NewUSDCAmount(req.BountyPerPost)
 		if err != nil {
 			writeHTMLErrorDialog(w, fmt.Errorf("invalid bounty_per_post amount: %w", err))
 			return
 		}
-		totalBountyAmount, err := solana.NewUSDCAmount(userTotalBounty)
+		totalBountyAmount, err := solana.NewUSDCAmount(req.TotalBounty)
 		if err != nil {
 			writeHTMLErrorDialog(w, fmt.Errorf("invalid total_bounty amount: %w", err))
 			return
 		}
 
-		// Calculate total amount user must pay (including platform fee)
-		// If user revenue share is 50%, and they want 0.06 in bounties, they pay 0.12 total
-		// Formula: totalCharged = bountyAmount / (userRevenueSharePct / 100)
-		totalChargedAmount := req.TotalBounty / (feePercentage / 100)
+		// Calculate total amount user must pay (bounty subtotal + platform fee)
+		// If platform fee is 100%, and bounty subtotal is 0.06, total charged is 0.06 + 0.06 = 0.12
+		// Formula: totalCharged = subtotal * (1 + platformFeePercent / 100)
+		totalChargedAmount := req.TotalBounty * (1 + platformFeePercent/100)
 		totalCharged, err := solana.NewUSDCAmount(totalChargedAmount)
 		if err != nil {
 			writeHTMLErrorDialog(w, fmt.Errorf("invalid total charged amount: %w", err))

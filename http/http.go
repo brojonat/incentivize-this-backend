@@ -31,7 +31,8 @@ const (
 	EnvServerSecretKey                   = "ABB_SECRET_KEY"
 	EnvServerEnv                         = "ENV"
 	EnvTaskQueue                         = "TASK_QUEUE"
-	EnvUserRevenueSharePct               = "USER_REVENUE_SHARE_PCT"
+	EnvUserRevenueSharePct               = "USER_REVENUE_SHARE_PCT" // DEPRECATED: Use PLATFORM_FEE_PERCENT instead
+	EnvPlatformFeePercent                = "PLATFORM_FEE_PERCENT"
 	EnvMaxPayoutsPerUser                 = "MAX_PAYOUTS_PER_USER"
 	EnvPublishTargetSubreddit            = "PUBLISH_TARGET_SUBREDDIT"
 	EnvPeriodicPublisherScheduleID       = "PERIODIC_PUBLISHER_SCHEDULE_ID"
@@ -63,7 +64,8 @@ type Config struct {
 	SecretKey           string
 	Environment         string
 	TaskQueue           string
-	UserRevenueSharePct float64
+	UserRevenueSharePct float64 // DEPRECATED: Use PlatformFeePercent instead
+	PlatformFeePercent  float64
 	MaxPayoutsPerUser   int
 	DatabaseURL         string
 	Solana              struct {
@@ -117,7 +119,7 @@ func NewConfigFromEnv(logger *slog.Logger) (*Config, error) {
 		return nil, fmt.Errorf("server startup error: %s not set", EnvAbbDatabaseURL)
 	}
 
-	// Payout Config
+	// Payout Config (DEPRECATED)
 	pctStr := os.Getenv(EnvUserRevenueSharePct)
 	if pctStr == "" {
 		return nil, fmt.Errorf("server startup error: %s not set", EnvUserRevenueSharePct)
@@ -127,6 +129,19 @@ func NewConfigFromEnv(logger *slog.Logger) (*Config, error) {
 		return nil, fmt.Errorf("server startup error: invalid value for %s: '%s'", EnvUserRevenueSharePct, pctStr)
 	}
 	cfg.UserRevenueSharePct = pct
+
+	// Platform Fee Percent Config
+	platformFeeStr := os.Getenv(EnvPlatformFeePercent)
+	if platformFeeStr == "" {
+		// Default to 100% fee if not set
+		cfg.PlatformFeePercent = 100
+	} else {
+		platformFee, err := strconv.ParseFloat(platformFeeStr, 64)
+		if err != nil || platformFee < 0 {
+			return nil, fmt.Errorf("server startup error: invalid value for %s: '%s'", EnvPlatformFeePercent, platformFeeStr)
+		}
+		cfg.PlatformFeePercent = platformFee
+	}
 
 	// Max Payouts Per User Config
 	maxPayoutsStr := os.Getenv(EnvMaxPayoutsPerUser)
@@ -477,7 +492,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	// Since it's unauthenticated, content moderation is ALWAYS performed for all submissions
 	// Authenticated users who want to skip moderation should use the JSON API endpoint with Bearer token authentication
 	mux.HandleFunc("POST /forms/create-bounty", stools.AdaptHandler(
-		handleCreateBountyForm(logger, tc, llmProvider, llmEmbedProvider, cfg.UserRevenueSharePct, cfg.MaxPayoutsPerUser, cfg.Environment, cfg.Prompts, cfg.Solana.EscrowWallet, cfg.Solana.USDCMintAddress),
+		handleCreateBountyForm(logger, tc, llmProvider, llmEmbedProvider, cfg.PlatformFeePercent, cfg.MaxPayoutsPerUser, cfg.Environment, cfg.Prompts, cfg.Solana.EscrowWallet, cfg.Solana.USDCMintAddress),
 		htmlMode(logger, llmRateLimiter),
 		withLogging(logger),
 	))
@@ -506,7 +521,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 	))
 
 	mux.HandleFunc("GET /api/v1/config", stools.AdaptHandler(
-		handleGetConfig(cfg.Solana.USDCMintAddress.String(), cfg.Solana.EscrowWallet.String()),
+		handleGetConfig(cfg.Solana.USDCMintAddress.String(), cfg.Solana.EscrowWallet.String(), cfg.PlatformFeePercent),
 		apiMode(logger, defaultRateLimiter, 1024*1024, cfg.CORS.AllowedHeaders, cfg.CORS.AllowedMethods, cfg.CORS.AllowedOrigins),
 		withLogging(logger),
 	))

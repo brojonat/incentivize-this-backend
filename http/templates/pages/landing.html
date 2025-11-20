@@ -92,8 +92,19 @@ more{{end}} {{define "head-scripts"}}
       },
       hardeningInProgress: false,
       submittingBounty: false,
+      platformFeePercent: 100, // default, will be fetched from config
 
       init() {
+        // Fetch platform fee from config
+        fetch('/api/v1/config')
+          .then(res => res.json())
+          .then(config => {
+            this.platformFeePercent = config.platform_fee_percent || 100;
+          })
+          .catch(err => {
+            console.error('Failed to fetch config:', err);
+            this.platformFeePercent = 100; // fallback to 100%
+          });
         // Shuffle platforms on load
         this._shuffledPlatforms = this.platforms.sort(
           () => Math.random() - 0.5
@@ -142,7 +153,7 @@ more{{end}} {{define "head-scripts"}}
         const reward = parseFloat(this.newBounty.rewardPerPost) || 0;
         const count = parseInt(this.newBounty.numberOfBounties) || 0;
         const subtotal = reward * count;
-        const fee = subtotal * 1.0; // 100% platform fee
+        const fee = subtotal * (this.platformFeePercent / 100);
         return {
           subtotal: subtotal,
           fee: fee,
