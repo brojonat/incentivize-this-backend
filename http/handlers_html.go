@@ -767,10 +767,13 @@ func handleCreateBountyForm(
 			return
 		}
 
-		// Convert ORIGINAL total bounty for verification
-		totalCharged, err := solana.NewUSDCAmount(req.TotalBounty)
+		// Calculate total amount user must pay (including platform fee)
+		// If user revenue share is 50%, and they want 0.06 in bounties, they pay 0.12 total
+		// Formula: totalCharged = bountyAmount / (userRevenueSharePct / 100)
+		totalChargedAmount := req.TotalBounty / (feePercentage / 100)
+		totalCharged, err := solana.NewUSDCAmount(totalChargedAmount)
 		if err != nil {
-			writeHTMLErrorDialog(w, fmt.Errorf("invalid original total_bounty amount: %w", err))
+			writeHTMLErrorDialog(w, fmt.Errorf("invalid total charged amount: %w", err))
 			return
 		}
 
