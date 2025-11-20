@@ -53,7 +53,7 @@
                 @click="fundBountyModalOpen = true"
                 style="
                     padding: 0.5rem 1rem;
-                    background: linear-gradient(135deg, #00c853 0%, #00b0ff 100%);
+                    background: linear-gradient(135deg, #00c853 0%, #ff6f00 100%);
                     color: white;
                     border: none;
                     border-radius: 8px;
@@ -65,11 +65,11 @@
                     align-items: center;
                     justify-content: center;
                     gap: 0.4rem;
-                    box-shadow: 0 0 15px rgba(0, 200, 83, 0.4), 0 0 30px rgba(0, 176, 255, 0.3);
+                    box-shadow: 0 0 15px rgba(0, 200, 83, 0.4), 0 0 30px rgba(255, 111, 0, 0.3);
                     white-space: nowrap;
                 "
-                @mouseenter="$el.style.background='linear-gradient(135deg, #00e676 0%, #40c4ff 100%)'; $el.style.transform='translateY(-2px)'; $el.style.boxShadow='0 0 20px rgba(0, 230, 118, 0.6), 0 0 40px rgba(64, 196, 255, 0.5)'"
-                @mouseleave="$el.style.background='linear-gradient(135deg, #00c853 0%, #00b0ff 100%)'; $el.style.transform='translateY(0)'; $el.style.boxShadow='0 0 15px rgba(0, 200, 83, 0.4), 0 0 30px rgba(0, 176, 255, 0.3)'"
+                @mouseenter="$el.style.background='linear-gradient(135deg, #00e676 0%, #ff8f00 100%)'; $el.style.transform='translateY(-2px)'; $el.style.boxShadow='0 0 20px rgba(0, 230, 118, 0.6), 0 0 40px rgba(255, 111, 0, 0.5)'"
+                @mouseleave="$el.style.background='linear-gradient(135deg, #00c853 0%, #ff6f00 100%)'; $el.style.transform='translateY(0)'; $el.style.boxShadow='0 0 15px rgba(0, 200, 83, 0.4), 0 0 30px rgba(255, 111, 0, 0.3)'"
             >
                 <span class="material-icons-outlined" style="font-size: 18px">qr_code_scanner</span>
                 Fund Bounty
