@@ -482,6 +482,19 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 		withLogging(logger),
 	))
 
+	mux.HandleFunc("POST /forms/claim-bounty", stools.AdaptHandler(
+		handleClaimBountyForm(logger, tc),
+		htmlMode(logger, defaultRateLimiter),
+		withLogging(logger),
+	))
+
+	// SSE endpoint for real-time assessment status updates
+	mux.HandleFunc("GET /events/assessment/{id}", stools.AdaptHandler(
+		handleAssessmentStatusSSE(logger, tc),
+		htmlMode(logger, defaultRateLimiter),
+		withLogging(logger),
+	))
+
 	// Serve static files (images, css, js)
 	mux.Handle("GET /static/", http.StripPrefix("/static", handleStaticFiles()))
 

@@ -208,6 +208,52 @@ func writeHTMLInternalError(logger *slog.Logger, w http.ResponseWriter, err erro
 	}
 }
 
+// writeHTMLErrorDialog writes an HTML error dialog response for modal displays
+func writeHTMLErrorDialog(w http.ResponseWriter, err error) {
+	w.Header().Set("Content-Type", "text/html")
+	w.WriteHeader(http.StatusBadRequest)
+
+	// Parse error dialog template
+	tmpl, parseErr := template.ParseFS(getTemplateFS(), "templates/partials/dialog_error.html")
+	if parseErr != nil {
+		// Fallback to simple HTML if template parsing fails
+		fmt.Fprintf(w, `<div class="message-error">%s</div>`, err.Error())
+		return
+	}
+
+	// Execute template with error message
+	data := map[string]interface{}{
+		"Message": err.Error(),
+	}
+	if execErr := tmpl.ExecuteTemplate(w, "dialog-error", data); execErr != nil {
+		// Fallback to simple HTML if template execution fails
+		fmt.Fprintf(w, `<div class="message-error">%s</div>`, err.Error())
+	}
+}
+
+// writeHTMLSuccessDialog writes an HTML success dialog response for modal displays
+func writeHTMLSuccessDialog(w http.ResponseWriter, message string) {
+	w.Header().Set("Content-Type", "text/html")
+	w.WriteHeader(http.StatusOK)
+
+	// Parse success dialog template
+	tmpl, parseErr := template.ParseFS(getTemplateFS(), "templates/partials/dialog_success.html")
+	if parseErr != nil {
+		// Fallback to simple HTML if template parsing fails
+		fmt.Fprintf(w, `<div class="message-success">%s</div>`, message)
+		return
+	}
+
+	// Execute template with success message
+	data := map[string]interface{}{
+		"Message": message,
+	}
+	if execErr := tmpl.ExecuteTemplate(w, "dialog-success", data); execErr != nil {
+		// Fallback to simple HTML if template execution fails
+		fmt.Fprintf(w, `<div class="message-success">%s</div>`, message)
+	}
+}
+
 // handleCreateBountyForm handles form submission for creating a bounty
 // It does the same thing as handleCreateBounty but returns HTML responses instead of JSON
 func handleCreateBountyForm(
@@ -237,7 +283,7 @@ func handleCreateBountyForm(
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Parse form data
 		if err := r.ParseForm(); err != nil {
-			writeHTMLBadRequestError(w, fmt.Errorf("invalid form data: %w", err))
+			writeHTMLErrorDialog(w, fmt.Errorf("invalid form data: %w", err))
 			return
 		}
 
@@ -248,21 +294,21 @@ func handleCreateBountyForm(
 
 		// Basic validation
 		if requirements == "" || rewardPerPostStr == "" || numberOfBountiesStr == "" {
-			writeHTMLBadRequestError(w, fmt.Errorf("all fields are required"))
+			writeHTMLErrorDialog(w, fmt.Errorf("all fields are required"))
 			return
 		}
 
 		// Parse reward per post
 		rewardPerPost, err := strconv.ParseFloat(rewardPerPostStr, 64)
 		if err != nil {
-			writeHTMLBadRequestError(w, fmt.Errorf("invalid reward_per_post: %w", err))
+			writeHTMLErrorDialog(w, fmt.Errorf("invalid reward_per_post: %w", err))
 			return
 		}
 
 		// Parse number of bounties
 		numberOfBounties, err := strconv.Atoi(numberOfBountiesStr)
 		if err != nil {
-			writeHTMLBadRequestError(w, fmt.Errorf("invalid number_of_bounties: %w", err))
+			writeHTMLErrorDialog(w, fmt.Errorf("invalid number_of_bounties: %w", err))
 			return
 		}
 
@@ -274,11 +320,11 @@ func handleCreateBountyForm(
 		if durationStr != "" {
 			days, err := strconv.Atoi(durationStr)
 			if err != nil {
-				writeHTMLBadRequestError(w, fmt.Errorf("invalid duration: %w", err))
+				writeHTMLErrorDialog(w, fmt.Errorf("invalid duration: %w", err))
 				return
 			}
 			if days <= 0 {
-				writeHTMLBadRequestError(w, fmt.Errorf("duration must be positive"))
+				writeHTMLErrorDialog(w, fmt.Errorf("duration must be positive"))
 				return
 			}
 			timeoutDuration = fmt.Sprintf("%dd", days)
@@ -294,7 +340,7 @@ func handleCreateBountyForm(
 			}
 		}
 		if len(requirementsArray) == 0 {
-			writeHTMLBadRequestError(w, fmt.Errorf("requirements cannot be empty"))
+			writeHTMLErrorDialog(w, fmt.Errorf("requirements cannot be empty"))
 			return
 		}
 
@@ -309,20 +355,20 @@ func handleCreateBountyForm(
 		// Now use the same validation and processing logic as handleCreateBounty
 		// Validate request
 		if len(req.Requirements) == 0 {
-			writeHTMLBadRequestError(w, fmt.Errorf("requirements is required"))
+			writeHTMLErrorDialog(w, fmt.Errorf("requirements is required"))
 			return
 		}
 		requirementsStr := strings.Join(req.Requirements, "\n")
 		if requirementsStr == "" {
-			writeHTMLBadRequestError(w, fmt.Errorf("requirements cannot be empty"))
+			writeHTMLErrorDialog(w, fmt.Errorf("requirements cannot be empty"))
 			return
 		}
 		if req.BountyPerPost <= 0 {
-			writeHTMLBadRequestError(w, fmt.Errorf("bounty_per_post must be greater than 0"))
+			writeHTMLErrorDialog(w, fmt.Errorf("bounty_per_post must be greater than 0"))
 			return
 		}
 		if req.TotalBounty <= 0 {
-			writeHTMLBadRequestError(w, fmt.Errorf("total_bounty must be greater than 0"))
+			writeHTMLErrorDialog(w, fmt.Errorf("total_bounty must be greater than 0"))
 			return
 		}
 
@@ -376,11 +422,11 @@ func handleCreateBountyForm(
 			}
 			if moderationResp.Error != "" {
 				logger.Warn("Could not moderate content", "error", moderationResp.Error)
-				writeHTMLBadRequestError(w, fmt.Errorf("could not moderate content: %s", moderationResp.Error))
+				writeHTMLErrorDialog(w, fmt.Errorf("could not moderate content: %s", moderationResp.Error))
 				return
 			}
 			if !moderationResp.IsAcceptable {
-				writeHTMLBadRequestError(w, fmt.Errorf("content is not acceptable: %s", moderationResp.Reason))
+				writeHTMLErrorDialog(w, fmt.Errorf("content is not acceptable: %s", moderationResp.Reason))
 				return
 			}
 		}
@@ -391,7 +437,7 @@ func handleCreateBountyForm(
 		if req.Tier != "" {
 			tier, valid := abb.FromString(req.Tier)
 			if !valid {
-				writeHTMLBadRequestError(w, fmt.Errorf("invalid tier specified: '%s'", req.Tier))
+				writeHTMLErrorDialog(w, fmt.Errorf("invalid tier specified: '%s'", req.Tier))
 				return
 			}
 			bountyTier = tier
@@ -443,7 +489,7 @@ func handleCreateBountyForm(
 			}
 			if inferredTitle.Error != "" {
 				logger.Warn("Could not infer title", "error", inferredTitle.Error, "title", inferredTitle.Title)
-				writeHTMLBadRequestError(w, fmt.Errorf("could not infer title: %s", inferredTitle.Error))
+				writeHTMLErrorDialog(w, fmt.Errorf("could not infer title: %s", inferredTitle.Error))
 				return
 			}
 			bountyTitle = inferredTitle.Title
@@ -454,7 +500,7 @@ func handleCreateBountyForm(
 		if len(requirementsStr) > abb.MaxRequirementsCharsForLLMCheck {
 			warnMsg := fmt.Sprintf("Total length of requirements exceeds maximum limit (%d > %d)", len(requirementsStr), abb.MaxRequirementsCharsForLLMCheck)
 			logger.Warn(warnMsg)
-			writeHTMLBadRequestError(w, fmt.Errorf("%s", warnMsg))
+			writeHTMLErrorDialog(w, fmt.Errorf("%s", warnMsg))
 			return
 		}
 		// --- End Requirements Length Check ---
@@ -546,7 +592,7 @@ func handleCreateBountyForm(
 		}
 
 		if inferredParams.Error != "" {
-			writeHTMLBadRequestError(w, fmt.Errorf("failed to infer content parameters: %s", inferredParams.Error))
+			writeHTMLErrorDialog(w, fmt.Errorf("failed to infer content parameters: %s", inferredParams.Error))
 			return
 		}
 
@@ -562,7 +608,7 @@ func handleCreateBountyForm(
 		if !validPlatformFound {
 			errMsg := fmt.Sprintf("LLM inferred an unsupported PlatformKind: '%s'. Supported kinds are: %s", inferredParams.PlatformKind, strings.Join(validPlatformKindsStr, ", "))
 			logger.Warn(errMsg)
-			writeHTMLBadRequestError(w, fmt.Errorf("%s", errMsg))
+			writeHTMLErrorDialog(w, fmt.Errorf("%s", errMsg))
 			return
 		}
 
@@ -578,7 +624,7 @@ func handleCreateBountyForm(
 		if !validContentFound {
 			errMsg := fmt.Sprintf("LLM inferred an unsupported ContentKind: '%s'. Supported kinds are: %s", inferredParams.ContentKind, strings.Join(validContentKindsStr, ", "))
 			logger.Warn(errMsg)
-			writeHTMLBadRequestError(w, fmt.Errorf("%s", errMsg))
+			writeHTMLErrorDialog(w, fmt.Errorf("%s", errMsg))
 			return
 		}
 
@@ -586,56 +632,56 @@ func handleCreateBountyForm(
 		switch normalizedPlatform {
 		case abb.PlatformReddit:
 			if normalizedContentKind != abb.ContentKindPost && normalizedContentKind != abb.ContentKindComment {
-				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for Reddit: must be '%s' or '%s'", abb.ContentKindPost, abb.ContentKindComment))
+				writeHTMLErrorDialog(w, fmt.Errorf("invalid content_kind for Reddit: must be '%s' or '%s'", abb.ContentKindPost, abb.ContentKindComment))
 				return
 			}
 		case abb.PlatformYouTube:
 			if normalizedContentKind != abb.ContentKindVideo && normalizedContentKind != abb.ContentKindComment {
-				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for YouTube: must be '%s' or '%s'", abb.ContentKindVideo, abb.ContentKindComment))
+				writeHTMLErrorDialog(w, fmt.Errorf("invalid content_kind for YouTube: must be '%s' or '%s'", abb.ContentKindVideo, abb.ContentKindComment))
 				return
 			}
 		case abb.PlatformTwitch:
 			if normalizedContentKind != abb.ContentKindVideo && normalizedContentKind != abb.ContentKindClip {
-				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for Twitch: must be '%s' or '%s'", abb.ContentKindVideo, abb.ContentKindClip))
+				writeHTMLErrorDialog(w, fmt.Errorf("invalid content_kind for Twitch: must be '%s' or '%s'", abb.ContentKindVideo, abb.ContentKindClip))
 				return
 			}
 		case abb.PlatformHackerNews:
 			if normalizedContentKind != abb.ContentKindPost && normalizedContentKind != abb.ContentKindComment {
-				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for Hacker News: must be '%s' or '%s'", abb.ContentKindPost, abb.ContentKindComment))
+				writeHTMLErrorDialog(w, fmt.Errorf("invalid content_kind for Hacker News: must be '%s' or '%s'", abb.ContentKindPost, abb.ContentKindComment))
 				return
 			}
 		case abb.PlatformBluesky:
 			if normalizedContentKind != abb.ContentKindPost {
-				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for Bluesky: must be '%s'", abb.ContentKindPost))
+				writeHTMLErrorDialog(w, fmt.Errorf("invalid content_kind for Bluesky: must be '%s'", abb.ContentKindPost))
 				return
 			}
 		case abb.PlatformInstagram:
 			if normalizedContentKind != abb.ContentKindPost {
-				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for Instagram: must be '%s' (not '%s')", abb.ContentKindPost, normalizedContentKind))
+				writeHTMLErrorDialog(w, fmt.Errorf("invalid content_kind for Instagram: must be '%s' (not '%s')", abb.ContentKindPost, normalizedContentKind))
 				return
 			}
 		case abb.PlatformIncentivizeThis:
 			if normalizedContentKind != abb.ContentKindBounty {
-				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for IncentivizeThis: must be '%s'", abb.ContentKindBounty))
+				writeHTMLErrorDialog(w, fmt.Errorf("invalid content_kind for IncentivizeThis: must be '%s'", abb.ContentKindBounty))
 				return
 			}
 		case abb.PlatformTripAdvisor:
 			if normalizedContentKind != abb.ContentKindReview {
-				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for TripAdvisor: must be '%s'", abb.ContentKindReview))
+				writeHTMLErrorDialog(w, fmt.Errorf("invalid content_kind for TripAdvisor: must be '%s'", abb.ContentKindReview))
 				return
 			}
 		case abb.PlatformSteam:
 			if normalizedContentKind != abb.ContentKindDota2Chat {
-				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for Steam: must be '%s'", abb.ContentKindDota2Chat))
+				writeHTMLErrorDialog(w, fmt.Errorf("invalid content_kind for Steam: must be '%s'", abb.ContentKindDota2Chat))
 				return
 			}
 		case abb.PlatformGitHub:
 			if normalizedContentKind != abb.ContentKindIssue {
-				writeHTMLBadRequestError(w, fmt.Errorf("invalid content_kind for GitHub: must be '%s'", abb.ContentKindIssue))
+				writeHTMLErrorDialog(w, fmt.Errorf("invalid content_kind for GitHub: must be '%s'", abb.ContentKindIssue))
 				return
 			}
 		default:
-			writeHTMLBadRequestError(w, fmt.Errorf("invalid platform_kind: must be one of %s, %s, %s, %s, %s, %s, %s, %s, %s, or %s", abb.PlatformReddit, abb.PlatformYouTube, abb.PlatformTwitch, abb.PlatformHackerNews, abb.PlatformBluesky, abb.PlatformInstagram, abb.PlatformIncentivizeThis, abb.PlatformTripAdvisor, abb.PlatformSteam, abb.PlatformGitHub))
+			writeHTMLErrorDialog(w, fmt.Errorf("invalid platform_kind: must be one of %s, %s, %s, %s, %s, %s, %s, %s, %s, or %s", abb.PlatformReddit, abb.PlatformYouTube, abb.PlatformTwitch, abb.PlatformHackerNews, abb.PlatformBluesky, abb.PlatformInstagram, abb.PlatformIncentivizeThis, abb.PlatformTripAdvisor, abb.PlatformSteam, abb.PlatformGitHub))
 			return
 		}
 
@@ -647,11 +693,11 @@ func handleCreateBountyForm(
 				daysStr := strings.TrimSuffix(strings.ToLower(req.TimeoutDuration), "d")
 				days, err := strconv.Atoi(daysStr)
 				if err != nil {
-					writeHTMLBadRequestError(w, fmt.Errorf("invalid day value in timeout_duration '%s': %w", req.TimeoutDuration, err))
+					writeHTMLErrorDialog(w, fmt.Errorf("invalid day value in timeout_duration '%s': %w", req.TimeoutDuration, err))
 					return
 				}
 				if days <= 0 {
-					writeHTMLBadRequestError(w, fmt.Errorf("day value in timeout_duration '%s' must be positive", req.TimeoutDuration))
+					writeHTMLErrorDialog(w, fmt.Errorf("day value in timeout_duration '%s' must be positive", req.TimeoutDuration))
 					return
 				}
 				hours := days * 24
@@ -661,7 +707,7 @@ func handleCreateBountyForm(
 
 			duration, err := time.ParseDuration(parsedDurationString)
 			if err != nil {
-				writeHTMLBadRequestError(w, fmt.Errorf("invalid timeout_duration format '%s' (parsed as '%s'): %w", req.TimeoutDuration, parsedDurationString, err))
+				writeHTMLErrorDialog(w, fmt.Errorf("invalid timeout_duration format '%s' (parsed as '%s'): %w", req.TimeoutDuration, parsedDurationString, err))
 				return
 			}
 			bountyTimeoutDuration = duration
@@ -669,7 +715,7 @@ func handleCreateBountyForm(
 
 		// Validate minimum duration
 		if bountyTimeoutDuration < 24*time.Hour {
-			writeHTMLBadRequestError(w, fmt.Errorf("timeout_duration must be at least 24 hours (e.g., \"24h\")"))
+			writeHTMLErrorDialog(w, fmt.Errorf("timeout_duration must be at least 24 hours (e.g., \"24h\")"))
 			return
 		}
 
@@ -704,7 +750,7 @@ func handleCreateBountyForm(
 		if userBountyPerPost > userTotalBounty {
 			errMsg := fmt.Sprintf("bounty_per_post (%.6f) cannot be greater than the effective total_bounty after fees (%.6f)", userBountyPerPost, userTotalBounty)
 			logger.Warn(errMsg, "raw_bounty_per_post", req.BountyPerPost, "raw_total_bounty", req.TotalBounty, "effective_total_bounty", userTotalBounty)
-			writeHTMLBadRequestError(w, fmt.Errorf("%s", errMsg))
+			writeHTMLErrorDialog(w, fmt.Errorf("%s", errMsg))
 			return
 		}
 		// --- END: Validate BountyPerPost against effective TotalBounty ---
@@ -712,19 +758,19 @@ func handleCreateBountyForm(
 		// Convert amounts to USDCAmount
 		bountyPerPostAmount, err := solana.NewUSDCAmount(userBountyPerPost)
 		if err != nil {
-			writeHTMLBadRequestError(w, fmt.Errorf("invalid bounty_per_post amount: %w", err))
+			writeHTMLErrorDialog(w, fmt.Errorf("invalid bounty_per_post amount: %w", err))
 			return
 		}
 		totalBountyAmount, err := solana.NewUSDCAmount(userTotalBounty)
 		if err != nil {
-			writeHTMLBadRequestError(w, fmt.Errorf("invalid total_bounty amount: %w", err))
+			writeHTMLErrorDialog(w, fmt.Errorf("invalid total_bounty amount: %w", err))
 			return
 		}
 
 		// Convert ORIGINAL total bounty for verification
 		totalCharged, err := solana.NewUSDCAmount(req.TotalBounty)
 		if err != nil {
-			writeHTMLBadRequestError(w, fmt.Errorf("invalid original total_bounty amount: %w", err))
+			writeHTMLErrorDialog(w, fmt.Errorf("invalid original total_bounty amount: %w", err))
 			return
 		}
 
@@ -1261,6 +1307,146 @@ func handle404(logger *slog.Logger) http.HandlerFunc {
 			logger.Error("failed to execute 404 template", "error", err)
 			http.Error(w, "Page Not Found", http.StatusNotFound)
 			return
+		}
+	}
+}
+
+// handleClaimBountyForm handles form submission for claiming a bounty
+// It does the same thing as handleAssessContent but returns HTML dialog responses
+func handleClaimBountyForm(logger *slog.Logger, tc client.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Parse form data
+		if err := r.ParseForm(); err != nil {
+			writeHTMLErrorDialog(w, fmt.Errorf("invalid form data: %w", err))
+			return
+		}
+
+		// Extract form values
+		bountyID := r.FormValue("bounty_id")
+		contentURL := r.FormValue("content_url")
+		payoutWallet := r.FormValue("payout_wallet")
+		platform := r.FormValue("platform")
+		contentKind := r.FormValue("content_kind")
+
+		// Validate required fields
+		if bountyID == "" || contentURL == "" || payoutWallet == "" || platform == "" {
+			writeHTMLErrorDialog(w, fmt.Errorf("all fields are required"))
+			return
+		}
+
+		// Validate that PayoutWallet is a valid Solana address
+		if _, err := solanago.PublicKeyFromBase58(payoutWallet); err != nil {
+			writeHTMLErrorDialog(w, fmt.Errorf("invalid Solana wallet address"))
+			return
+		}
+
+		// Normalize platform and content kind to lowercase for consistent handling
+		normalizedPlatform := abb.PlatformKind(strings.ToLower(platform))
+		normalizedContentKind := abb.ContentKind(strings.ToLower(contentKind))
+
+		// Signal the workflow
+		err := tc.SignalWorkflow(r.Context(), bountyID, "", abb.AssessmentSignalName, abb.AssessContentSignal{
+			ContentID:    contentURL,
+			PayoutWallet: payoutWallet,
+			Platform:     normalizedPlatform,
+			ContentKind:  normalizedContentKind,
+		})
+		if err != nil {
+			logger.Error("failed to signal workflow", "error", err, "bounty_id", bountyID)
+			writeHTMLErrorDialog(w, fmt.Errorf("failed to submit claim. Please try again"))
+			return
+		}
+
+		// Return status stream dialog with workflow ID for SSE connection
+		tmpl, parseErr := template.ParseFS(getTemplateFS(), "templates/partials/dialog_status_stream.html")
+		if parseErr != nil {
+			logger.Error("failed to parse status stream template", "error", parseErr)
+			writeHTMLErrorDialog(w, fmt.Errorf("failed to initialize status updates"))
+			return
+		}
+
+		data := map[string]interface{}{
+			"WorkflowID": bountyID,
+		}
+
+		w.Header().Set("Content-Type", "text/html")
+		if execErr := tmpl.ExecuteTemplate(w, "dialog-status-stream", data); execErr != nil {
+			logger.Error("failed to execute status stream template", "error", execErr)
+			writeHTMLErrorDialog(w, fmt.Errorf("failed to initialize status updates"))
+		}
+	}
+}
+
+// handleAssessmentStatusSSE streams workflow assessment status via Server-Sent Events
+func handleAssessmentStatusSSE(logger *slog.Logger, tc client.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		workflowID := r.PathValue("id")
+		if workflowID == "" {
+			http.Error(w, "Missing workflow ID", http.StatusBadRequest)
+			return
+		}
+
+		// Set SSE headers
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+			return
+		}
+
+		ctx := r.Context()
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+
+		timeout := time.After(5 * time.Minute)
+
+		// Send initial connection message
+		fmt.Fprintf(w, "data: {\"message\": \"Connected\", \"current_step\": \"initializing\"}\n\n")
+		flusher.Flush()
+
+		for {
+			select {
+			case <-ctx.Done():
+				// Client disconnected
+				logger.Debug("SSE client disconnected", "workflow_id", workflowID)
+				return
+
+			case <-timeout:
+				// Timeout after 5 minutes
+				fmt.Fprintf(w, "data: {\"is_complete\": true, \"is_approved\": false, \"error_message\": \"Assessment timed out. Please check your bounty status later.\"}\n\n")
+				flusher.Flush()
+				return
+
+			case <-ticker.C:
+				// Query workflow for status
+				var status map[string]interface{}
+				resp, err := tc.QueryWorkflow(ctx, workflowID, "", "GetAssessmentStatus")
+				if err != nil {
+					logger.Debug("failed to query workflow", "error", err, "workflow_id", workflowID)
+					// Don't fail immediately, workflow might not be ready yet
+					continue
+				}
+
+				if err := resp.Get(&status); err != nil {
+					logger.Error("failed to decode workflow status", "error", err, "workflow_id", workflowID)
+					continue
+				}
+
+				// Send status update as SSE event
+				statusJSON, _ := json.Marshal(status)
+				fmt.Fprintf(w, "data: %s\n\n", statusJSON)
+				flusher.Flush()
+
+				// Check if assessment is complete
+				if isComplete, ok := status["is_complete"].(bool); ok && isComplete {
+					logger.Debug("assessment complete, closing SSE", "workflow_id", workflowID)
+					return
+				}
+			}
 		}
 	}
 }

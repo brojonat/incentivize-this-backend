@@ -554,7 +554,8 @@ html, body {
     fundBountyModalOpen: false,
     submission: {
         contentUrl: '',
-        walletAddress: ''
+        walletAddress: '',
+        submitting: false
     },
 
     init() {
@@ -569,40 +570,9 @@ html, body {
         // Clear only the content URL, keep the wallet address persisted
         this.submission = {
             contentUrl: '',
-            walletAddress: this.submission.walletAddress
+            walletAddress: this.submission.walletAddress,
+            submitting: false
         };
-    },
-
-    async submitClaim() {
-        try {
-            const response = await fetch('/api/v1/bounties/assess', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    bounty_id: '{{.Bounty.id}}',
-                    content_id: this.submission.contentUrl,
-                    payout_wallet: this.submission.walletAddress,
-                    platform: '{{.Bounty.platform}}',
-                    content_kind: '{{.Bounty.content_type}}'
-                })
-            });
-
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error || 'Failed to submit claim');
-            }
-
-            // Save wallet address to localStorage on successful submission
-            localStorage.setItem('solana_wallet_address', this.submission.walletAddress);
-
-            const data = await response.json();
-            alert('Claim submitted successfully! Your content is being evaluated.');
-            this.claimModalOpen = false;
-            this.clearSubmission();
-        } catch (err) {
-            console.error('Failed to submit claim:', err);
-            alert('Failed to submit claim: ' + err.message);
-        }
     }
 }" class="min-h-screen">
 
@@ -742,41 +712,61 @@ html, body {
                 </button>
             </div>
 
-            <!-- Content URL Input -->
-            <div class="form-section">
-                <label class="form-label">Content URL</label>
-                <input type="url"
-                       class="form-input"
-                       placeholder="https://reddit.com/r/example/comments/..."
-                       x-model="submission.contentUrl">
-                <p class="form-help">
-                    Paste the link to your Reddit post, YouTube video, tweet, or other content
-                </p>
-            </div>
+            <!-- Claim form container - will be replaced with success/error dialog -->
+            <div id="claim-form-container">
+                <form hx-post="/forms/claim-bounty"
+                      hx-target="#claim-form-container"
+                      hx-swap="innerHTML"
+                      @htmx:before-request="submission.submitting = true"
+                      @htmx:after-request="submission.submitting = false">
 
-            <!-- Wallet Address Input -->
-            <div class="form-section">
-                <label class="form-label">Solana Wallet Address</label>
-                <input type="text"
-                       class="form-input"
-                       placeholder="Your Solana wallet address"
-                       x-model="submission.walletAddress"
-                       style="font-family: monospace;">
-                <p class="form-help">
-                    USDC rewards will be sent to this address if your content is approved
-                </p>
-            </div>
+                    <!-- Hidden fields for bounty data -->
+                    <input type="hidden" name="bounty_id" value="{{.Bounty.id}}">
+                    <input type="hidden" name="platform" value="{{.Bounty.platform}}">
+                    <input type="hidden" name="content_kind" value="{{.Bounty.content_type}}">
 
-            <!-- Actions -->
-            <div class="form-actions">
-                <button class="form-button form-button-secondary" @click="claimModalOpen = false">
-                    Cancel
-                </button>
-                <button class="form-button form-button-primary"
-                        @click="submitClaim()"
-                        :disabled="!submission.contentUrl || !submission.walletAddress">
-                    Submit Claim
-                </button>
+                    <!-- Content URL Input -->
+                    <div class="form-section">
+                        <label class="form-label">Content URL</label>
+                        <input type="url"
+                               name="content_url"
+                               class="form-input"
+                               placeholder="https://reddit.com/r/example/comments/..."
+                               x-model="submission.contentUrl"
+                               required>
+                        <p class="form-help">
+                            Paste the link to your Reddit post, YouTube video, tweet, or other content
+                        </p>
+                    </div>
+
+                    <!-- Wallet Address Input -->
+                    <div class="form-section">
+                        <label class="form-label">Solana Wallet Address</label>
+                        <input type="text"
+                               name="payout_wallet"
+                               class="form-input"
+                               placeholder="Your Solana wallet address"
+                               x-model="submission.walletAddress"
+                               style="font-family: monospace;"
+                               required>
+                        <p class="form-help">
+                            USDC rewards will be sent to this address if your content is approved
+                        </p>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="form-actions">
+                        <button type="button" class="form-button form-button-secondary" @click="claimModalOpen = false">
+                            Cancel
+                        </button>
+                        <button type="submit"
+                                class="form-button form-button-primary"
+                                :disabled="!submission.contentUrl || !submission.walletAddress || submission.submitting">
+                            <span x-show="!submission.submitting">Submit Claim</span>
+                            <span x-show="submission.submitting">Submitting...</span>
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>

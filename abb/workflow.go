@@ -127,22 +127,33 @@ type BountyAssessmentWorkflowInput struct {
 	MaxPayoutsPerUser int                `json:"max_payouts_per_user"`
 }
 
+// AssessmentProgress tracks the current state of an in-progress assessment
+type AssessmentProgress struct {
+	ContentID    string    `json:"content_id"`
+	PayoutWallet string    `json:"payout_wallet"`
+	CurrentStep  string    `json:"current_step"`
+	Message      string    `json:"message"`
+	StartedAt    time.Time `json:"started_at"`
+}
+
 // BountyState manages the state of the bounty within the workflow.
 type BountyState struct {
-	BountyID       string
-	Status         BountyStatus
-	Requirements   []string
-	BountyPerPost  *solana.USDCAmount
-	TotalBounty    *solana.USDCAmount
-	TotalCharged   *solana.USDCAmount
-	ValueRemaining *solana.USDCAmount
-	Payouts        []PayoutDetail
-	PayoutCounts   map[string]int
-	Platform       PlatformKind
-	ContentKind    ContentKind
-	Timeout        time.Duration
-	FailedClaims   map[string]time.Time
-	FunderWallet   string
+	BountyID            string
+	Status              BountyStatus
+	Requirements        []string
+	BountyPerPost       *solana.USDCAmount
+	TotalBounty         *solana.USDCAmount
+	TotalCharged        *solana.USDCAmount
+	ValueRemaining      *solana.USDCAmount
+	Payouts             []PayoutDetail
+	PayoutCounts        map[string]int
+	Platform            PlatformKind
+	ContentKind         ContentKind
+	Timeout             time.Duration
+	FailedClaims        map[string]time.Time
+	FunderWallet        string
+	CurrentAssessment   *AssessmentProgress // Track in-progress assessment for SSE updates
+	LastAssessmentError string              // Store last error for SSE feedback
 }
 
 // BountyAssessmentWorkflow is the main workflow for managing a bounty.
@@ -196,6 +207,39 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 				details.PaymentTimeoutExpiresAt = &expiresAt
 			}
 			return details, nil
+		})
+
+		// Query handler for SSE status updates during assessment
+		workflow.SetQueryHandler(ctx, "GetAssessmentStatus", func() (map[string]interface{}, error) {
+			status := map[string]interface{}{
+				"is_complete": false,
+				"is_approved": false,
+			}
+
+			if bountyState.CurrentAssessment != nil {
+				// Assessment in progress
+				status["current_step"] = bountyState.CurrentAssessment.CurrentStep
+				status["message"] = bountyState.CurrentAssessment.Message
+				status["content_id"] = bountyState.CurrentAssessment.ContentID
+			} else if bountyState.LastAssessmentError != "" {
+				// Last assessment failed
+				status["is_complete"] = true
+				status["is_approved"] = false
+				status["error_message"] = bountyState.LastAssessmentError
+				status["message"] = "Assessment rejected"
+			} else if len(bountyState.Payouts) > 0 {
+				// Check if most recent payout matches
+				lastPayout := bountyState.Payouts[len(bountyState.Payouts)-1]
+				status["is_complete"] = true
+				status["is_approved"] = true
+				status["amount"] = fmt.Sprintf("%.2f", lastPayout.Amount.ToUSDC())
+				status["message"] = "Content approved and payment sent!"
+			} else {
+				// Waiting for assessment signal or no assessment yet
+				status["message"] = "Waiting for assessment..."
+			}
+
+			return status, nil
 		})
 
 		// Wait for funding
@@ -532,6 +576,15 @@ func processClaim(ctx workflow.Context, a *Activities, bountyState *BountyState,
 		tools = append(tools, GetClosingPRTool)
 	}
 
+	// Set assessment in progress for SSE updates
+	bountyState.CurrentAssessment = &AssessmentProgress{
+		ContentID:    signal.ContentID,
+		PayoutWallet: signal.PayoutWallet,
+		CurrentStep:  "analyzing",
+		Message:      "Fetching and analyzing your content...",
+		StartedAt:    workflow.Now(ctx),
+	}
+
 	var orchestratorResult OrchestratorWorkflowOutput
 	orchErr := workflow.ExecuteChildWorkflow(ctx, OrchestratorWorkflow, OrchestratorWorkflowInput{
 		Tools:         tools,
@@ -539,9 +592,18 @@ func processClaim(ctx workflow.Context, a *Activities, bountyState *BountyState,
 		InitialSignal: signal,
 	}).Get(ctx, &orchestratorResult)
 
+	// Clear current assessment after orchestrator completes
+	bountyState.CurrentAssessment = nil
+
 	if orchErr != nil || !orchestratorResult.IsApproved {
 		logger.Error("Orchestrator rejected submission.", "error", orchErr, "reason", orchestratorResult.Reason)
 		bountyState.FailedClaims[signal.ContentID] = workflow.Now(ctx)
+		// Store error for SSE feedback
+		if orchErr != nil {
+			bountyState.LastAssessmentError = fmt.Sprintf("Assessment failed: %v", orchErr)
+		} else {
+			bountyState.LastAssessmentError = orchestratorResult.Reason
+		}
 		return
 	}
 
@@ -550,6 +612,7 @@ func processClaim(ctx workflow.Context, a *Activities, bountyState *BountyState,
 	if bountyState.ValueRemaining.Cmp(payoutAmount) < 0 {
 		logger.Warn("Insufficient balance for payout", "requested", payoutAmount, "available", bountyState.ValueRemaining)
 		bountyState.FailedClaims[signal.ContentID] = workflow.Now(ctx)
+		bountyState.LastAssessmentError = "Insufficient balance for payout"
 		return
 	}
 
@@ -562,17 +625,32 @@ func processClaim(ctx workflow.Context, a *Activities, bountyState *BountyState,
 		ContentKind:  signal.ContentKind,
 	}
 
+	// Update status for payment processing
+	bountyState.CurrentAssessment = &AssessmentProgress{
+		ContentID:    signal.ContentID,
+		PayoutWallet: signal.PayoutWallet,
+		CurrentStep:  "paying",
+		Message:      fmt.Sprintf("Content approved! Sending %.2f USDC to your wallet...", payoutAmount.ToUSDC()),
+		StartedAt:    workflow.Now(ctx),
+	}
+
 	// Execute immediate payout
 	payoutErr := workflow.ExecuteActivity(ctx, a.PayBountyActivity, bountyState.BountyID, payoutDetail.PayoutWallet, payoutDetail.Amount).Get(ctx, nil)
+
+	// Clear current assessment
+	bountyState.CurrentAssessment = nil
+
 	if payoutErr != nil {
 		logger.Error("Payout failed", "error", payoutErr, "wallet", payoutDetail.PayoutWallet)
 		bountyState.FailedClaims[signal.ContentID] = workflow.Now(ctx)
+		bountyState.LastAssessmentError = fmt.Sprintf("Payment failed: %v", payoutErr)
 		return
 	}
 
 	bountyState.Payouts = append(bountyState.Payouts, payoutDetail)
 	bountyState.PayoutCounts[signal.PayoutWallet]++
 	bountyState.ValueRemaining = bountyState.ValueRemaining.Sub(payoutAmount)
+	bountyState.LastAssessmentError = "" // Clear any previous errors on success
 	logger.Info("Payout successful", "amount", payoutAmount, "wallet", signal.PayoutWallet, "content_id", signal.ContentID)
 
 	searchAttributes := []temporal.SearchAttributeUpdate{

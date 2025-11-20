@@ -1,0 +1,27 @@
+{{define "dialog-success"}}
+<div class="modal-body" style="padding: 2rem;">
+  <div class="message-success" style="display: flex; align-items: flex-start; gap: 1rem;">
+    <span class="material-icons-outlined" style="font-size: 2rem; flex-shrink: 0;">
+      check_circle
+    </span>
+    <div style="flex: 1;">
+      <h3 style="margin: 0 0 0.5rem 0; color: var(--success); font-size: 1.25rem;">
+        Success
+      </h3>
+      <p style="margin: 0; color: var(--success); line-height: 1.5;">
+        {{.Message}}
+      </p>
+    </div>
+  </div>
+
+  <div style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
+    <button
+      class="btn btn-primary"
+      @click="createBountyModalOpen = false; claimModalOpen = false; fundModalOpen = false"
+      style="min-width: 100px;"
+    >
+      Close
+    </button>
+  </div>
+</div>
+{{end}}
