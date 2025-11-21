@@ -14,12 +14,14 @@
 
     <!-- HTMX Configuration: Allow swapping on 400 errors for form validation -->
     <script>
-      document.body.addEventListener('htmx:beforeSwap', function(evt) {
-        if (evt.detail.xhr.status === 400) {
-          // Allow 400 responses to swap - used for form validation errors
-          evt.detail.shouldSwap = true;
-          evt.detail.isError = false;
-        }
+      document.addEventListener('DOMContentLoaded', function() {
+        document.body.addEventListener('htmx:beforeSwap', function(evt) {
+          if (evt.detail.xhr.status === 400) {
+            // Allow 400 responses to swap - used for form validation errors
+            evt.detail.shouldSwap = true;
+            evt.detail.isError = false;
+          }
+        });
       });
     </script>
 
