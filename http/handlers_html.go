@@ -406,17 +406,20 @@ func handleCreateBountyForm(
 			prompt := fmt.Sprintf(prompts.ContentModeration, requirementsStr)
 			schemaJSON, err := json.Marshal(schema)
 			if err != nil {
-				writeHTMLInternalError(logger, w, fmt.Errorf("failed to marshal content moderation schema: %w", err))
+				logger.Error("Failed to marshal content moderation schema", "error", err)
+				writeHTMLErrorDialog(w, fmt.Errorf("failed to process request: unable to validate content"))
 				return
 			}
 			resp, err := llmProvider.GenerateResponse(r.Context(), "content_moderation", prompt, schemaJSON)
 			if err != nil {
-				writeHTMLInternalError(logger, w, fmt.Errorf("failed to moderate content: %w", err))
+				logger.Error("Failed to moderate content", "error", err)
+				writeHTMLErrorDialog(w, fmt.Errorf("failed to validate content: %w", err))
 				return
 			}
 			var moderationResp contentModerationResponse
 			if err := json.Unmarshal([]byte(resp), &moderationResp); err != nil {
-				writeHTMLInternalError(logger, w, fmt.Errorf("failed to parse moderation response: %w", err))
+				logger.Error("Failed to parse moderation response", "error", err)
+				writeHTMLErrorDialog(w, fmt.Errorf("failed to process content validation response"))
 				return
 			}
 			if moderationResp.Error != "" {
@@ -473,17 +476,20 @@ func handleCreateBountyForm(
 			}
 			schemaJSON, err := json.Marshal(schema)
 			if err != nil {
-				writeHTMLInternalError(logger, w, fmt.Errorf("failed to marshal infer bounty title schema: %w", err))
+				logger.Error("Failed to marshal infer bounty title schema", "error", err)
+				writeHTMLErrorDialog(w, fmt.Errorf("failed to process request: unable to generate title"))
 				return
 			}
 			resp, err := llmProvider.GenerateResponse(r.Context(), prompts.InferBountyTitle, requirementsStr, schemaJSON)
 			if err != nil {
-				writeHTMLInternalError(logger, w, fmt.Errorf("failed to infer bounty title: %w", err))
+				logger.Error("Failed to infer bounty title", "error", err)
+				writeHTMLErrorDialog(w, fmt.Errorf("failed to generate bounty title: %w", err))
 				return
 			}
 			var inferredTitle inferredTitleRequest
 			if err := json.Unmarshal([]byte(resp), &inferredTitle); err != nil {
-				writeHTMLInternalError(logger, w, fmt.Errorf("failed to parse inferred title response: %w", err))
+				logger.Error("Failed to parse inferred title response", "error", err)
+				writeHTMLErrorDialog(w, fmt.Errorf("failed to process title generation response"))
 				return
 			}
 			if inferredTitle.Error != "" {
@@ -576,17 +582,20 @@ func handleCreateBountyForm(
 		}
 		schemaJSON, err := json.Marshal(schema)
 		if err != nil {
-			writeHTMLInternalError(logger, w, fmt.Errorf("failed to marshal content parameters schema: %w", err))
+			logger.Error("Failed to marshal content parameters schema", "error", err)
+			writeHTMLErrorDialog(w, fmt.Errorf("failed to process request: unable to determine content type"))
 			return
 		}
 		resp, err := llmProvider.GenerateResponse(r.Context(), prompts.InferContentParams, requirementsStr, schemaJSON)
 		if err != nil {
-			writeHTMLInternalError(logger, w, fmt.Errorf("failed to infer content parameters: %w", err))
+			logger.Error("Failed to infer content parameters", "error", err)
+			writeHTMLErrorDialog(w, fmt.Errorf("failed to determine content type: %w", err))
 			return
 		}
 		var inferredParams inferredContentParamsRequest
 		if err := json.Unmarshal([]byte(resp), &inferredParams); err != nil {
-			writeHTMLInternalError(logger, w, fmt.Errorf("failed to parse inferred content parameters: %w", err))
+			logger.Error("Failed to parse inferred content parameters", "error", err)
+			writeHTMLErrorDialog(w, fmt.Errorf("failed to process content type determination response"))
 			return
 		}
 
@@ -802,7 +811,8 @@ func handleCreateBountyForm(
 
 		_, err = tc.ExecuteWorkflow(r.Context(), workflowOptions, abb.BountyAssessmentWorkflow, input)
 		if err != nil {
-			writeHTMLInternalError(logger, w, fmt.Errorf("failed to start workflow: %w", err))
+			logger.Error("Failed to start bounty workflow", "error", err, "workflow_id", workflowID)
+			writeHTMLErrorDialog(w, fmt.Errorf("failed to create bounty: %w", err))
 			return
 		}
 
