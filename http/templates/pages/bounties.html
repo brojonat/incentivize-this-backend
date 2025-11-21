@@ -136,7 +136,21 @@ scale(1.02); box-shadow: 0 6px 20px rgba(0, 230, 118, 0.6); } {{end}} {{define
     hardeningInProgress: false,
     submittingBounty: false,
     platformFeePercent: 100, // default, will be fetched from config
+
+    // Calendar mode for duration selection
+    useCalendar: false,
+    bountyEndDate: '',
+    calculatedDuration: '',
+    calculatedDurationValue: '30d',
+    durationError: '',
+
     init() {
+        // Set default calendar date to 30 days from now
+        const defaultDate = new Date();
+        defaultDate.setDate(defaultDate.getDate() + 30);
+        this.bountyEndDate = defaultDate.toISOString().slice(0, 16);
+        this.calculateDuration();
+
         // Fetch platform fee from config
         fetch('/api/v1/config')
             .then(res => res.json())
@@ -167,6 +181,81 @@ scale(1.02); box-shadow: 0 6px 20px rgba(0, 230, 118, 0.6); } {{end}} {{define
             total: subtotal + fee
         };
     },
+
+    get minEndDate() {
+        // Minimum date is 24 hours from now
+        const minDate = new Date();
+        minDate.setHours(minDate.getHours() + 24);
+        return minDate.toISOString().slice(0, 16);
+    },
+
+    calculateDuration() {
+        if (!this.bountyEndDate) {
+            this.durationError = '';
+            this.calculatedDuration = '';
+            this.calculatedDurationValue = '30d';
+            return;
+        }
+
+        const now = new Date();
+        const endDate = new Date(this.bountyEndDate);
+        const diffMs = endDate - now;
+        const diffMinutes = Math.floor(diffMs / (1000 * 60));
+        const diffHours = Math.floor(diffMinutes / 60);
+        const diffDays = Math.floor(diffHours / 24);
+
+        // Validate: must be at least 24 hours in the future
+        if (diffHours < 24) {
+            this.durationError = 'End date must be at least 24 hours from now';
+            this.calculatedDuration = '';
+            this.calculatedDurationValue = '';
+            return;
+        }
+
+        // Clear error
+        this.durationError = '';
+
+        // Calculate duration with minutes precision
+        const remainingHours = diffHours % 24;
+        const remainingMinutes = diffMinutes % 60;
+
+        if (diffDays >= 1) {
+            // Show as days
+            this.calculatedDuration = `${diffDays} day${diffDays !== 1 ? 's' : ''}`;
+            this.calculatedDurationValue = `${diffDays}d`;
+
+            // Add hours and minutes if present
+            if (remainingHours > 0 || remainingMinutes > 0) {
+                const parts = [];
+                if (remainingHours > 0) {
+                    parts.push(`${remainingHours} hour${remainingHours !== 1 ? 's' : ''}`);
+                    this.calculatedDurationValue += `${remainingHours}h`;
+                }
+                if (remainingMinutes > 0) {
+                    parts.push(`${remainingMinutes} minute${remainingMinutes !== 1 ? 's' : ''}`);
+                    this.calculatedDurationValue += `${remainingMinutes}m`;
+                }
+                this.calculatedDuration += `, ${parts.join(', ')}`;
+            }
+        } else {
+            // Less than 1 day, use hours and minutes
+            const parts = [];
+            let durationValue = '';
+
+            if (diffHours > 0) {
+                parts.push(`${diffHours} hour${diffHours !== 1 ? 's' : ''}`;
+                durationValue += `${diffHours}h`;
+            }
+            if (remainingMinutes > 0) {
+                parts.push(`${remainingMinutes} minute${remainingMinutes !== 1 ? 's' : ''}`);
+                durationValue += `${remainingMinutes}m`;
+            }
+
+            this.calculatedDuration = parts.join(', ');
+            this.calculatedDurationValue = durationValue;
+        }
+    },
+
     async hardenRequirements() {
         if (!this.newBounty.requirements || this.hardeningInProgress) return;
         this.hardeningInProgress = true;

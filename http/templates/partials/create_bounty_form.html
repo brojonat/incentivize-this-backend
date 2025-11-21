@@ -4,7 +4,19 @@
   hx-post="/forms/create-bounty"
   hx-target="#create-bounty-form-container"
   hx-swap="innerHTML"
-  @htmx:before-request="submittingBounty = true"
+  @htmx:before-request="
+    if (useCalendar && durationError) {
+      $event.preventDefault();
+      alert('Please select a valid end date (at least 24 hours from now)');
+      return false;
+    }
+    if (useCalendar && !calculatedDurationValue) {
+      $event.preventDefault();
+      alert('Please select an end date');
+      return false;
+    }
+    submittingBounty = true;
+  "
   @htmx:after-request="submittingBounty = false; if($event.detail.successful) handleBountyFormSuccess()"
 >
   <!-- Requirements -->
@@ -127,21 +139,68 @@
 
   <!-- Duration -->
   <div class="filter-section">
-    <label class="filter-label">Duration (Days)</label>
-    <select
-      class="filter-input"
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+      <label class="filter-label" style="margin: 0;">Bounty Expiration</label>
+      <button
+        type="button"
+        @click="useCalendar = !useCalendar"
+        style="
+          background: rgba(160, 202, 252, 0.15);
+          border: 1px solid rgba(160, 202, 252, 0.4);
+          border-radius: 6px;
+          padding: 0.4rem 0.8rem;
+          font-size: 0.8rem;
+          color: var(--text-primary);
+          cursor: pointer;
+          transition: all 0.2s;
+        "
+        @mouseenter="$el.style.background = 'rgba(160, 202, 252, 0.25)'"
+        @mouseleave="$el.style.background = 'rgba(160, 202, 252, 0.15)'"
+      >
+        <span x-show="!useCalendar">📅 Use Calendar</span>
+        <span x-show="useCalendar">⏱️ Use Duration</span>
+      </button>
+    </div>
+
+    <!-- Duration dropdown (shown by default) -->
+    <div x-show="!useCalendar">
+      <select
+        class="filter-input"
+        name="timeout_duration"
+        x-model="newBounty.duration"
+        style="width: 100%"
+      >
+        <option value="1d">1 day</option>
+        <option value="7d">7 days</option>
+        <option value="14d">14 days</option>
+        <option value="30d" selected>30 days</option>
+        <option value="60d">60 days</option>
+        <option value="90d">90 days</option>
+        <option value="180d">180 days</option>
+      </select>
+    </div>
+
+    <!-- Calendar picker (shown when toggled) -->
+    <div x-show="useCalendar">
+      <input
+        type="datetime-local"
+        class="filter-input"
+        x-model="bountyEndDate"
+        :min="minEndDate"
+        @change="calculateDuration()"
+        style="width: 100%"
+      >
+      <p x-show="durationError" style="color: rgb(244, 67, 54); font-size: 0.8rem; margin-top: 0.5rem;" x-text="durationError"></p>
+      <p x-show="!durationError && calculatedDuration" style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.5rem;" x-text="'Duration: ' + calculatedDuration"></p>
+    </div>
+
+    <!-- Hidden input for calculated duration (used when calendar mode is active) -->
+    <input
+      x-show="useCalendar"
+      type="hidden"
       name="timeout_duration"
-      x-model="newBounty.duration"
-      style="width: 100%"
+      :value="calculatedDurationValue"
     >
-      <option value="1d">1 day</option>
-      <option value="7d">7 days</option>
-      <option value="14d">14 days</option>
-      <option value="30d" selected>30 days</option>
-      <option value="60d">60 days</option>
-      <option value="90d">90 days</option>
-      <option value="180d">180 days</option>
-    </select>
   </div>
 
   <!-- Cost Breakdown -->
