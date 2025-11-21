@@ -130,7 +130,18 @@
     clearInterval(parseInt(existingTimerId));
   }
 
-  const expiresAt = new Date('{{.PaymentInvoice.ExpiresAt.Format "2006-01-02T15:04:05Z07:00"}}');
+  const expiresAtStr = '{{.PaymentInvoice.ExpiresAt.Format "2006-01-02T15:04:05Z07:00"}}';
+  const expiresAt = new Date(expiresAtStr);
+
+  // Check if date is valid
+  if (isNaN(expiresAt.getTime())) {
+    console.error('Invalid expiration date:', expiresAtStr);
+    timerEl.textContent = 'Error loading timer';
+    timerEl.style.color = 'rgb(244, 67, 54)';
+    return;
+  }
+
+  console.log('Payment expires at:', expiresAt, '(raw:', expiresAtStr, ')');
 
   function updateCountdown() {
     if (!document.getElementById('countdown-timer')) {
