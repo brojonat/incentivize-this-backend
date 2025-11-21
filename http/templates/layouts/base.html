@@ -11,7 +11,17 @@
 
     <!-- HTMX -->
     <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js" integrity="sha384-/TgkGk7p307TH7EXJDuUlgG3Ce1UVolAOFopFekQkkXihi5u/6OCvVKyz1W+idaz" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/htmx-ext-response-targets@2.0.4"></script>
+
+    <!-- HTMX Configuration: Allow swapping on 400 errors for form validation -->
+    <script>
+      document.body.addEventListener('htmx:beforeSwap', function(evt) {
+        if (evt.detail.xhr.status === 400) {
+          // Allow 400 responses to swap - used for form validation errors
+          evt.detail.shouldSwap = true;
+          evt.detail.isError = false;
+        }
+      });
+    </script>
 
     <!-- Alpine.js -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>

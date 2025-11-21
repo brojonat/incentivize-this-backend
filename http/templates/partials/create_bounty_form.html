@@ -3,9 +3,7 @@
 <form
   hx-post="/forms/create-bounty"
   hx-target="#create-bounty-form-container"
-  hx-target-error="#create-bounty-form-container"
   hx-swap="innerHTML"
-  hx-ext="response-targets"
   @htmx:before-request="submittingBounty = true"
   @htmx:after-request="submittingBounty = false; if($event.detail.successful) handleBountyFormSuccess()"
 >
