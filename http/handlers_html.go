@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Rhymond/go-money"
 	"github.com/brojonat/affiliate-bounty-board/abb"
 	"github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
