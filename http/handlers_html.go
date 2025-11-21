@@ -210,7 +210,7 @@ func writeHTMLInternalError(logger *slog.Logger, w http.ResponseWriter, err erro
 // writeHTMLErrorDialog writes an HTML error dialog response for modal displays
 func writeHTMLErrorDialog(w http.ResponseWriter, err error) {
 	w.Header().Set("Content-Type", "text/html")
-	w.WriteHeader(http.StatusOK) // Use 200 so HTMX swaps the content
+	w.WriteHeader(http.StatusBadRequest)
 
 	// Parse error dialog template
 	tmpl, parseErr := template.ParseFS(getTemplateFS(), "templates/partials/dialog_error.html")
