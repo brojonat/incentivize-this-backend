@@ -210,9 +210,6 @@ func writeHTMLInternalError(logger *slog.Logger, w http.ResponseWriter, err erro
 // writeHTMLErrorDialog writes an HTML error dialog response for modal displays
 func writeHTMLErrorDialog(w http.ResponseWriter, err error) {
 	w.Header().Set("Content-Type", "text/html")
-	// Tell HTMX to swap the error response into the target
-	w.Header().Set("HX-Reswap", "innerHTML")
-	w.Header().Set("HX-Retarget", "#create-bounty-form-container")
 	w.WriteHeader(http.StatusBadRequest)
 
 	// Parse error dialog template
