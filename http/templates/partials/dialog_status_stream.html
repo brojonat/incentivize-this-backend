@@ -43,7 +43,11 @@
 
              this.eventSource.onerror = (err) => {
                  console.error('SSE error:', err);
-                 this.status = 'Connection error. Please refresh the page.';
+                 // Only show connection error if workflow hasn't completed
+                 // (connection closes normally after workflow finishes)
+                 if (!this.isComplete) {
+                     this.status = 'Connection error. Please refresh the page.';
+                 }
                  this.eventSource.close();
              };
          },
