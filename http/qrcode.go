@@ -62,7 +62,7 @@ func generatePaymentInvoice(
 }
 
 // buildSolanaPayURL creates a Solana Pay-compatible URL for USDC payment.
-// Format: solana:{recipient}?amount={amount}&spl-token={usdcMint}&memo={memo}&label={label}&message={message}
+// Format: solana:{recipient}?amount={amount}&spl-token={usdcMint}&memo={memo}
 // See: https://docs.solanapay.com/spec#transfer-request
 func buildSolanaPayURL(recipient string, amount float64, usdcMint, memo string) string {
 	// Format amount without trailing zeros for better wallet compatibility
@@ -75,14 +75,9 @@ func buildSolanaPayURL(recipient string, amount float64, usdcMint, memo string) 
 	params.Set("spl-token", usdcMint)
 
 	// Add memo for transaction tracking
-	// Note: reference parameter requires a valid public key, so we don't include it
 	if memo != "" {
 		params.Set("memo", memo)
 	}
-
-	// Use simple labels without spaces to avoid encoding issues
-	params.Set("label", "IncentivizeThis")
-	params.Set("message", "Bounty funding payment")
 
 	return fmt.Sprintf("solana:%s?%s", recipient, params.Encode())
 }
