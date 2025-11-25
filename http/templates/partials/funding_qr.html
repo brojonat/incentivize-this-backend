@@ -75,8 +75,8 @@
   <!-- Buttons Container -->
   <div style="display: flex; gap: 0.75rem;">
     <!-- View Bounty Button -->
-    <button
-      onclick="window.location.href='/browse/{{.BountyID}}'"
+    <a
+      href="/browse/{{.BountyID}}"
       style="
         flex: 1;
         padding: 0.75rem 1rem;
@@ -91,16 +91,22 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        text-align: center;
+        text-decoration: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
       "
       onmouseover="this.style.backgroundColor='rgb(180, 180, 180)'"
       onmouseout="this.style.backgroundColor='rgb(200, 200, 200)'"
     >
       View Bounty
-    </button>
+    </a>
 
     <!-- Open in Wallet Button -->
-    <button
-      onclick="window.location.href='{{.PaymentInvoice.PaymentURL}}'"
+    <a
+      href="{{.PaymentInvoice.PaymentURL}}"
+      onclick="console.log('Solana Pay URL:', '{{.PaymentInvoice.PaymentURL}}'); return true;"
       style="
         flex: 1;
         padding: 0.75rem 1rem;
@@ -115,49 +121,66 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        text-align: center;
+        text-decoration: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
       "
       onmouseover="this.style.backgroundColor='rgb(140, 182, 232)'"
       onmouseout="this.style.backgroundColor='rgb(160, 202, 252)'"
     >
       Open in Wallet
-    </button>
+    </a>
   </div>
 </div>
 
 <script>
 // Countdown timer - prevent multiple timers from running
 (function() {
+  console.log('[Timer] Script started');
+
   // Use requestAnimationFrame to ensure DOM is fully ready
   requestAnimationFrame(function() {
+    console.log('[Timer] requestAnimationFrame callback started');
+
     const timerEl = document.getElementById('countdown-timer');
     if (!timerEl) {
-      console.error('Countdown timer element not found');
+      console.error('[Timer] Countdown timer element not found in DOM');
       return;
     }
+    console.log('[Timer] Timer element found:', timerEl);
 
     // Clear any existing timer on this element
     const existingTimerId = timerEl.dataset.timerId;
     if (existingTimerId) {
+      console.log('[Timer] Clearing existing timer:', existingTimerId);
       clearInterval(parseInt(existingTimerId));
     }
 
     const expiresAtStr = '{{.PaymentInvoice.ExpiresAt.Format "2006-01-02T15:04:05Z07:00"}}';
+    console.log('[Timer] Raw expiration string:', expiresAtStr);
+
     const expiresAt = new Date(expiresAtStr);
+    console.log('[Timer] Parsed expiration date:', expiresAt);
 
     // Check if date is valid
     if (isNaN(expiresAt.getTime())) {
-      console.error('Invalid expiration date:', expiresAtStr);
+      console.error('[Timer] Invalid expiration date:', expiresAtStr);
       timerEl.textContent = 'Error loading timer';
       timerEl.style.color = 'rgb(244, 67, 54)';
       return;
     }
 
-    console.log('Payment expires at:', expiresAt, '(raw:', expiresAtStr, ')');
+    const now = new Date();
+    const diff = expiresAt - now;
+    console.log('[Timer] Time diff (ms):', diff, '(minutes:', Math.floor(diff / 60000), ')');
 
     function updateCountdown() {
       const currentTimerEl = document.getElementById('countdown-timer');
       if (!currentTimerEl) {
         // Element was removed from DOM, stop the timer
+        console.log('[Timer] Element removed from DOM, stopping timer');
         if (timerEl.dataset.timerId) {
           clearInterval(parseInt(timerEl.dataset.timerId));
           delete timerEl.dataset.timerId;
@@ -169,6 +192,7 @@
       const diff = expiresAt - now;
 
       if (diff <= 0) {
+        console.log('[Timer] Payment expired');
         currentTimerEl.textContent = 'Expired';
         currentTimerEl.style.color = 'rgb(244, 67, 54)';
         if (timerEl.dataset.timerId) {
@@ -180,16 +204,19 @@
 
       const minutes = Math.floor(diff / 60000);
       const seconds = Math.floor((diff % 60000) / 1000);
-      currentTimerEl.textContent =
-        `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+      const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+      currentTimerEl.textContent = timeStr;
+      console.log('[Timer] Updated countdown to:', timeStr);
     }
 
     // Initial update
+    console.log('[Timer] Calling initial updateCountdown');
     updateCountdown();
 
     // Start interval and store ID on the element
     const intervalId = setInterval(updateCountdown, 1000);
     timerEl.dataset.timerId = intervalId.toString();
+    console.log('[Timer] Interval started with ID:', intervalId);
   });
 })();
 </script>
