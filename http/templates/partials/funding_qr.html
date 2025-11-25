@@ -79,7 +79,7 @@
       onclick="window.location.href='/browse/{{.BountyID}}'"
       style="
         flex: 1;
-        padding: 0.75rem 1.5rem;
+        padding: 0.75rem 1rem;
         background-color: rgb(200, 200, 200);
         color: rgb(50, 50, 50);
         border: none;
@@ -88,6 +88,9 @@
         transition: background-color 0.2s ease;
         font-size: 0.875rem;
         cursor: pointer;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       "
       onmouseover="this.style.backgroundColor='rgb(180, 180, 180)'"
       onmouseout="this.style.backgroundColor='rgb(200, 200, 200)'"
@@ -97,10 +100,10 @@
 
     <!-- Open in Wallet Button -->
     <button
-      onclick="window.open('{{.PaymentInvoice.PaymentURL}}', '_blank')"
+      onclick="window.location.href='{{.PaymentInvoice.PaymentURL}}'"
       style="
         flex: 1;
-        padding: 0.75rem 1.5rem;
+        padding: 0.75rem 1rem;
         background-color: rgb(160, 202, 252);
         color: rgb(0, 50, 88);
         border: none;
@@ -109,6 +112,9 @@
         transition: background-color 0.2s ease;
         font-size: 0.875rem;
         cursor: pointer;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       "
       onmouseover="this.style.backgroundColor='rgb(140, 182, 232)'"
       onmouseout="this.style.backgroundColor='rgb(160, 202, 252)'"
@@ -121,63 +127,70 @@
 <script>
 // Countdown timer - prevent multiple timers from running
 (function() {
-  const timerEl = document.getElementById('countdown-timer');
-  if (!timerEl) return;
-
-  // Clear any existing timer on this element
-  const existingTimerId = timerEl.dataset.timerId;
-  if (existingTimerId) {
-    clearInterval(parseInt(existingTimerId));
-  }
-
-  const expiresAtStr = '{{.PaymentInvoice.ExpiresAt.Format "2006-01-02T15:04:05Z07:00"}}';
-  const expiresAt = new Date(expiresAtStr);
-
-  // Check if date is valid
-  if (isNaN(expiresAt.getTime())) {
-    console.error('Invalid expiration date:', expiresAtStr);
-    timerEl.textContent = 'Error loading timer';
-    timerEl.style.color = 'rgb(244, 67, 54)';
-    return;
-  }
-
-  console.log('Payment expires at:', expiresAt, '(raw:', expiresAtStr, ')');
-
-  function updateCountdown() {
-    if (!document.getElementById('countdown-timer')) {
-      // Element was removed from DOM, stop the timer
-      if (timerEl.dataset.timerId) {
-        clearInterval(parseInt(timerEl.dataset.timerId));
-        delete timerEl.dataset.timerId;
-      }
+  // Use requestAnimationFrame to ensure DOM is fully ready
+  requestAnimationFrame(function() {
+    const timerEl = document.getElementById('countdown-timer');
+    if (!timerEl) {
+      console.error('Countdown timer element not found');
       return;
     }
 
-    const now = new Date();
-    const diff = expiresAt - now;
+    // Clear any existing timer on this element
+    const existingTimerId = timerEl.dataset.timerId;
+    if (existingTimerId) {
+      clearInterval(parseInt(existingTimerId));
+    }
 
-    if (diff <= 0) {
-      timerEl.textContent = 'Expired';
+    const expiresAtStr = '{{.PaymentInvoice.ExpiresAt.Format "2006-01-02T15:04:05Z07:00"}}';
+    const expiresAt = new Date(expiresAtStr);
+
+    // Check if date is valid
+    if (isNaN(expiresAt.getTime())) {
+      console.error('Invalid expiration date:', expiresAtStr);
+      timerEl.textContent = 'Error loading timer';
       timerEl.style.color = 'rgb(244, 67, 54)';
-      if (timerEl.dataset.timerId) {
-        clearInterval(parseInt(timerEl.dataset.timerId));
-        delete timerEl.dataset.timerId;
-      }
       return;
     }
 
-    const minutes = Math.floor(diff / 60000);
-    const seconds = Math.floor((diff % 60000) / 1000);
-    timerEl.textContent =
-      `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-  }
+    console.log('Payment expires at:', expiresAt, '(raw:', expiresAtStr, ')');
 
-  // Initial update
-  updateCountdown();
+    function updateCountdown() {
+      const currentTimerEl = document.getElementById('countdown-timer');
+      if (!currentTimerEl) {
+        // Element was removed from DOM, stop the timer
+        if (timerEl.dataset.timerId) {
+          clearInterval(parseInt(timerEl.dataset.timerId));
+          delete timerEl.dataset.timerId;
+        }
+        return;
+      }
 
-  // Start interval and store ID on the element
-  const intervalId = setInterval(updateCountdown, 1000);
-  timerEl.dataset.timerId = intervalId.toString();
+      const now = new Date();
+      const diff = expiresAt - now;
+
+      if (diff <= 0) {
+        currentTimerEl.textContent = 'Expired';
+        currentTimerEl.style.color = 'rgb(244, 67, 54)';
+        if (timerEl.dataset.timerId) {
+          clearInterval(parseInt(timerEl.dataset.timerId));
+          delete timerEl.dataset.timerId;
+        }
+        return;
+      }
+
+      const minutes = Math.floor(diff / 60000);
+      const seconds = Math.floor((diff % 60000) / 1000);
+      currentTimerEl.textContent =
+        `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+
+    // Initial update
+    updateCountdown();
+
+    // Start interval and store ID on the element
+    const intervalId = setInterval(updateCountdown, 1000);
+    timerEl.dataset.timerId = intervalId.toString();
+  });
 })();
 </script>
 {{end}}

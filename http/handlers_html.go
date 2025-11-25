@@ -697,20 +697,28 @@ func handleCreateBountyForm(
 		bountyTimeoutDuration := 7 * 24 * time.Hour
 		if req.TimeoutDuration != "" {
 			parsedDurationString := req.TimeoutDuration
-			if strings.HasSuffix(strings.ToLower(req.TimeoutDuration), "d") {
-				daysStr := strings.TrimSuffix(strings.ToLower(req.TimeoutDuration), "d")
-				days, err := strconv.Atoi(daysStr)
-				if err != nil {
-					writeHTMLErrorDialog(w, fmt.Errorf("invalid day value in timeout_duration '%s': %w", req.TimeoutDuration, err))
-					return
+			// Handle day-based durations (e.g., "90d", "90d3h45m")
+			// Go's time.ParseDuration doesn't support "d" suffix, so we convert days to hours
+			if strings.Contains(strings.ToLower(req.TimeoutDuration), "d") {
+				parts := strings.SplitN(strings.ToLower(req.TimeoutDuration), "d", 2)
+				if len(parts) == 2 {
+					daysStr := parts[0]
+					remainder := parts[1] // e.g., "3h45m" or empty string
+
+					days, err := strconv.Atoi(daysStr)
+					if err != nil {
+						writeHTMLErrorDialog(w, fmt.Errorf("invalid day value in timeout_duration '%s': %w", req.TimeoutDuration, err))
+						return
+					}
+					if days <= 0 {
+						writeHTMLErrorDialog(w, fmt.Errorf("day value in timeout_duration '%s' must be positive", req.TimeoutDuration))
+						return
+					}
+					hours := days * 24
+					// Combine hours with any remaining duration (e.g., "2160h3h45m")
+					parsedDurationString = fmt.Sprintf("%dh%s", hours, remainder)
+					logger.Info("Converted day-based duration to hours", "original_duration", req.TimeoutDuration, "converted_duration", parsedDurationString)
 				}
-				if days <= 0 {
-					writeHTMLErrorDialog(w, fmt.Errorf("day value in timeout_duration '%s' must be positive", req.TimeoutDuration))
-					return
-				}
-				hours := days * 24
-				parsedDurationString = fmt.Sprintf("%dh", hours)
-				logger.Info("Converted day-based duration to hours", "original_duration", req.TimeoutDuration, "converted_duration", parsedDurationString)
 			}
 
 			duration, err := time.ParseDuration(parsedDurationString)
