@@ -480,6 +480,12 @@ func handleCreateBounty(
 				return
 			}
 			bountyTimeoutDuration = duration
+			logger.Info("Parsed bounty timeout duration",
+				"original_input", req.TimeoutDuration,
+				"parsed_string", parsedDurationString,
+				"final_duration_hours", duration.Hours(),
+				"final_duration_days", duration.Hours()/24,
+			)
 		}
 
 		// Validate minimum duration
