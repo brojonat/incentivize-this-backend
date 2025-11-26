@@ -140,6 +140,13 @@
 (function() {
   console.log('[Timer] Script started');
 
+  // Clear any globally running payment timer
+  if (window.paymentTimerInterval) {
+    console.log('[Timer] Clearing previous global timer:', window.paymentTimerInterval);
+    clearInterval(window.paymentTimerInterval);
+    window.paymentTimerInterval = null;
+  }
+
   // Use requestAnimationFrame to ensure DOM is fully ready
   requestAnimationFrame(function() {
     console.log('[Timer] requestAnimationFrame callback started');
@@ -154,7 +161,7 @@
     // Clear any existing timer on this element
     const existingTimerId = timerEl.dataset.timerId;
     if (existingTimerId) {
-      console.log('[Timer] Clearing existing timer:', existingTimerId);
+      console.log('[Timer] Clearing existing timer on element:', existingTimerId);
       clearInterval(parseInt(existingTimerId));
     }
 
@@ -181,6 +188,10 @@
       if (!currentTimerEl) {
         // Element was removed from DOM, stop the timer
         console.log('[Timer] Element removed from DOM, stopping timer');
+        if (window.paymentTimerInterval) {
+          clearInterval(window.paymentTimerInterval);
+          window.paymentTimerInterval = null;
+        }
         if (timerEl.dataset.timerId) {
           clearInterval(parseInt(timerEl.dataset.timerId));
           delete timerEl.dataset.timerId;
@@ -195,6 +206,10 @@
         console.log('[Timer] Payment expired');
         currentTimerEl.textContent = 'Expired';
         currentTimerEl.style.color = 'rgb(244, 67, 54)';
+        if (window.paymentTimerInterval) {
+          clearInterval(window.paymentTimerInterval);
+          window.paymentTimerInterval = null;
+        }
         if (timerEl.dataset.timerId) {
           clearInterval(parseInt(timerEl.dataset.timerId));
           delete timerEl.dataset.timerId;
@@ -213,8 +228,9 @@
     console.log('[Timer] Calling initial updateCountdown');
     updateCountdown();
 
-    // Start interval and store ID on the element
+    // Start interval and store ID globally and on the element
     const intervalId = setInterval(updateCountdown, 1000);
+    window.paymentTimerInterval = intervalId;
     timerEl.dataset.timerId = intervalId.toString();
     console.log('[Timer] Interval started with ID:', intervalId);
   });

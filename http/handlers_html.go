@@ -925,7 +925,16 @@ func handleBountyListPartial(logger *slog.Logger, tc client.Client, env string) 
 		// Parse partial template with custom functions
 		funcMap := template.FuncMap{
 			"daysUntil": func(t time.Time) int {
-				return int(time.Until(t).Hours() / 24)
+				// Handle zero/nil time
+				if t.IsZero() {
+					return 0
+				}
+				days := int(time.Until(t).Hours() / 24)
+				// Return 0 for expired bounties instead of negative
+				if days < 0 {
+					return 0
+				}
+				return days
 			},
 		}
 		tmpl, err := template.New("bounty-list").Funcs(funcMap).ParseFS(getTemplateFS(), "templates/partials/bounty_list.html")
