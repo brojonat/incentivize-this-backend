@@ -15,6 +15,7 @@
       alert('Please select an end date');
       return false;
     }
+    calculateTimeoutTimestamp();
     console.log('Submitting bounty with timestamp:', timeoutTimestamp);
     console.log('Duration:', newBounty.duration, 'UseCalendar:', useCalendar);
     submittingBounty = true;

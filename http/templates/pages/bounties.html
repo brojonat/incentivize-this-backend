@@ -143,21 +143,29 @@ scale(1.02); box-shadow: 0 6px 20px rgba(0, 230, 118, 0.6); } {{end}} {{define
     calculatedDuration: '',
     calculatedDurationValue: '30d',
     durationError: '',
+    timeoutTimestamp: '', // Will be calculated when form is submitted
 
-    // Get timeout timestamp (either from calendar or calculated from duration)
-    get timeoutTimestamp() {
+    // Calculate timeout timestamp (called before form submission)
+    calculateTimeoutTimestamp() {
         if (this.useCalendar) {
-            if (!this.bountyEndDate) return '';
+            if (!this.bountyEndDate) {
+                this.timeoutTimestamp = '';
+                return '';
+            }
             // bountyEndDate is in local time from datetime-local input
-            return new Date(this.bountyEndDate).toISOString();
+            this.timeoutTimestamp = new Date(this.bountyEndDate).toISOString();
         } else {
             // Calculate from duration
             const durationDays = parseInt(this.newBounty.duration);
-            if (isNaN(durationDays)) return '';
+            if (isNaN(durationDays)) {
+                this.timeoutTimestamp = '';
+                return '';
+            }
             const endDate = new Date();
             endDate.setDate(endDate.getDate() + durationDays);
-            return endDate.toISOString();
+            this.timeoutTimestamp = endDate.toISOString();
         }
+        return this.timeoutTimestamp;
     },
 
     init() {
