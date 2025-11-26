@@ -47,7 +47,23 @@ func getStaticFS() fs.FS {
 
 // parseTemplates parses all templates from the embedded filesystem
 func parseTemplates() (*template.Template, error) {
-	tmpl := template.New("")
+	// Define custom template functions
+	funcMap := template.FuncMap{
+		"daysUntil": func(t time.Time) int {
+			// Handle zero/nil time
+			if t.IsZero() {
+				return 0
+			}
+			days := int(time.Until(t).Hours() / 24)
+			// Return 0 for expired bounties instead of negative
+			if days < 0 {
+				return 0
+			}
+			return days
+		},
+	}
+
+	tmpl := template.New("").Funcs(funcMap)
 
 	// Parse all template files
 	err := fs.WalkDir(getTemplateFS(), "templates", func(path string, d fs.DirEntry, err error) error {
