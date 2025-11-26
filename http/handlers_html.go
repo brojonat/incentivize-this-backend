@@ -917,6 +917,7 @@ func handleBountyListPartial(logger *slog.Logger, tc client.Client, env string) 
 				"Remaining":               calculateRemaining(details),
 				"TotalCharged":            details.TotalCharged,
 				"PaymentTimeoutExpiresAt": details.PaymentTimeoutExpiresAt,
+				"EndAt":                   details.EndAt,
 			}
 
 			bounties = append(bounties, bounty)
