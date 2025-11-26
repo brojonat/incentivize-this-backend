@@ -134,77 +134,12 @@
     </button>
   </div>
 
-  <!-- Payment URL Display (for manual copy if wallet doesn't open) -->
-  <div style="margin-top: 1rem; padding: 0.75rem; background-color: rgba(255, 255, 255, 0.05); border-radius: 8px;">
-    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
-      If your wallet doesn't open automatically, copy this URL:
-    </div>
-    <div style="display: flex; gap: 0.5rem; align-items: center;">
-      <input
-        id="payment-url-input"
-        type="text"
-        readonly
-        value="{{.PaymentInvoice.PaymentURL}}"
-        style="
-          flex: 1;
-          padding: 0.5rem;
-          background-color: rgba(0, 0, 0, 0.2);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 4px;
-          color: var(--text-primary);
-          font-size: 0.75rem;
-          font-family: monospace;
-        "
-        onclick="this.select()"
-      />
-      <button
-        onclick="copyPaymentUrl()"
-        style="
-          padding: 0.5rem 1rem;
-          background-color: rgb(100, 150, 200);
-          color: white;
-          border: none;
-          border-radius: 4px;
-          font-size: 0.75rem;
-          cursor: pointer;
-          white-space: nowrap;
-        "
-      >
-        Copy
-      </button>
-    </div>
-    <div id="copy-feedback" style="font-size: 0.75rem; color: rgb(129, 199, 132); margin-top: 0.5rem; display: none;">
-      ✓ Copied to clipboard!
-    </div>
-  </div>
-
   <script>
   // Open wallet function - tries to open the Solana Pay URL
   function openWallet(url) {
     console.log('[Wallet] Attempting to open:', url);
     // Try to open in new window/tab (will trigger wallet app on mobile)
     window.location.href = url;
-  }
-
-  // Copy payment URL to clipboard
-  function copyPaymentUrl() {
-    const input = document.getElementById('payment-url-input');
-    const feedback = document.getElementById('copy-feedback');
-
-    // Select and copy the text
-    input.select();
-    input.setSelectionRange(0, 99999); // For mobile
-
-    navigator.clipboard.writeText(input.value).then(() => {
-      // Show feedback
-      feedback.style.display = 'block';
-      setTimeout(() => {
-        feedback.style.display = 'none';
-      }, 2000);
-    }).catch(err => {
-      console.error('[Copy] Failed to copy:', err);
-      // Fallback: the text is already selected, user can copy manually
-    });
   }
 
   // Countdown timer - prevent multiple timers from running
