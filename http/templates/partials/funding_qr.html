@@ -164,15 +164,17 @@
       clearInterval(parseInt(existingTimerId));
     }
 
-    const expiresAtStr = '{{.PaymentInvoice.ExpiresAt.Format "2006-01-02T15:04:05Z07:00"}}';
-    console.log('[Timer] Raw expiration string:', expiresAtStr);
+    // Use Unix timestamp (milliseconds) for more reliable parsing
+    const expiresAtMs = {{.PaymentInvoice.ExpiresAt.UnixMilli}};
+    console.log('[Timer] Expiration timestamp (ms):', expiresAtMs);
 
-    const expiresAt = new Date(expiresAtStr);
+    const expiresAt = new Date(expiresAtMs);
     console.log('[Timer] Parsed expiration date:', expiresAt);
+    console.log('[Timer] Is valid date?:', !isNaN(expiresAt.getTime()));
 
     // Check if date is valid
-    if (isNaN(expiresAt.getTime())) {
-      console.error('[Timer] Invalid expiration date:', expiresAtStr);
+    if (isNaN(expiresAt.getTime()) || expiresAtMs === 0) {
+      console.error('[Timer] Invalid expiration timestamp:', expiresAtMs);
       timerEl.textContent = 'Error loading timer';
       timerEl.style.color = 'rgb(244, 67, 54)';
       return;
