@@ -1039,6 +1039,13 @@ func handleGetBountyFundingQRHTML(
 			return
 		}
 
+		logger.Info("Generated payment invoice",
+			"bounty_id", bountyID,
+			"expires_at", paymentInvoice.ExpiresAt,
+			"expires_at_formatted", paymentInvoice.ExpiresAt.Format("2006-01-02T15:04:05Z07:00"),
+			"payment_timeout_minutes", paymentTimeout.Minutes(),
+		)
+
 		// Parse and render QR code template
 		tmpl, err := template.ParseFS(getTemplateFS(), "templates/partials/funding_qr.html")
 		if err != nil {
