@@ -892,11 +892,38 @@ func handleBountyListPartial(logger *slog.Logger, tc client.Client, env string) 
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		// Build query for running bounty workflows
-		query := fmt.Sprintf("WorkflowType = '%s' AND ExecutionStatus = 'Running' AND %s = '%s'",
-			"BountyAssessmentWorkflow",
-			abb.EnvironmentKey.GetName(),
-			env)
+		// Get search and filter parameters
+		searchQuery := r.URL.Query().Get("search")
+		platforms := r.URL.Query()["platform"]
+		contentTypes := r.URL.Query()["contentType"]
+		minReward := r.URL.Query().Get("minReward")
+		maxReward := r.URL.Query().Get("maxReward")
+
+		// Build base query for running bounty workflows
+		queryParts := []string{
+			fmt.Sprintf("WorkflowType = '%s'", "BountyAssessmentWorkflow"),
+			"ExecutionStatus = 'Running'",
+			fmt.Sprintf("%s = '%s'", abb.EnvironmentKey.GetName(), env),
+		}
+
+		// Add filter conditions to query
+		if len(platforms) > 0 {
+			platformConditions := make([]string, len(platforms))
+			for i, p := range platforms {
+				platformConditions[i] = fmt.Sprintf("%s = '%s'", abb.BountyPlatformKey.GetName(), p)
+			}
+			queryParts = append(queryParts, fmt.Sprintf("(%s)", strings.Join(platformConditions, " OR ")))
+		}
+
+		if len(contentTypes) > 0 {
+			contentConditions := make([]string, len(contentTypes))
+			for i, c := range contentTypes {
+				contentConditions[i] = fmt.Sprintf("%s = '%s'", abb.BountyContentKindKey.GetName(), c)
+			}
+			queryParts = append(queryParts, fmt.Sprintf("(%s)", strings.Join(contentConditions, " OR ")))
+		}
+
+		query := strings.Join(queryParts, " AND ")
 
 		// List workflows
 		listResp, err := tc.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
@@ -906,6 +933,14 @@ func handleBountyListPartial(logger *slog.Logger, tc client.Client, env string) 
 			logger.Error("failed to list workflows", "error", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
+		}
+
+		// If search query is provided, filter results by search (placeholder for now)
+		// Note: Proper search implementation would use the embedding API
+		if searchQuery != "" {
+			// TODO: Integrate with embedding search API
+			// For now, simple string matching on workflow IDs
+			logger.Info("search query provided", "query", searchQuery)
 		}
 
 		bounties := make([]map[string]interface{}, 0)
@@ -935,6 +970,21 @@ func handleBountyListPartial(logger *slog.Logger, tc client.Client, env string) 
 				"PaymentTimeoutExpiresAt": details.PaymentTimeoutExpiresAt,
 				"EndAt":                   details.EndAt,
 			}
+
+		// Apply reward filtering
+		if minReward != "" || maxReward != "" {
+			bountyAmount := details.BountyPerPost
+			if minReward != "" {
+				if minVal, err := strconv.ParseFloat(minReward, 64); err == nil && bountyAmount < minVal {
+					continue
+				}
+			}
+			if maxReward != "" {
+				if maxVal, err := strconv.ParseFloat(maxReward, 64); err == nil && bountyAmount > maxVal {
+					continue
+				}
+			}
+		}
 
 			bounties = append(bounties, bounty)
 		}

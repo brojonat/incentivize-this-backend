@@ -280,6 +280,70 @@ scale(1.02); box-shadow: 0 6px 20px rgba(0, 230, 118, 0.6); } {{end}} {{define
         if (refreshEl) htmx.trigger(refreshEl, 'refresh');
         const modalTitle = document.querySelector('.modal-title');
         if (modalTitle) modalTitle.textContent = 'Fund Bounty';
+    },
+    performSearch() {
+        const container = document.getElementById('bounty-list-container');
+        if (!container) return;
+
+        // Build query params
+        const params = new URLSearchParams();
+        if (this.searchQuery) params.append('search', this.searchQuery);
+
+        // Update HTMX URL and trigger refresh
+        const url = '/partials/bounty-list' + (params.toString() ? '?' + params.toString() : '');
+        container.setAttribute('hx-get', url);
+        htmx.trigger(container, 'refresh');
+
+        // Close modal
+        this.searchModalOpen = false;
+    },
+    clearSearch() {
+        this.searchQuery = '';
+        const container = document.getElementById('bounty-list-container');
+        if (!container) return;
+
+        // Reset to default URL
+        container.setAttribute('hx-get', '/partials/bounty-list');
+        htmx.trigger(container, 'refresh');
+    },
+    applyFilters() {
+        const container = document.getElementById('bounty-list-container');
+        if (!container) return;
+
+        // Build query params
+        const params = new URLSearchParams();
+
+        // Add platform filters
+        this.filters.platforms.forEach(p => params.append('platform', p));
+
+        // Add content type filters
+        this.filters.contentTypes.forEach(c => params.append('contentType', c));
+
+        // Add reward filters
+        if (this.filters.minReward) params.append('minReward', this.filters.minReward);
+        if (this.filters.maxReward) params.append('maxReward', this.filters.maxReward);
+
+        // Update HTMX URL and trigger refresh
+        const url = '/partials/bounty-list' + (params.toString() ? '?' + params.toString() : '');
+        container.setAttribute('hx-get', url);
+        htmx.trigger(container, 'refresh');
+
+        // Close modal
+        this.filterModalOpen = false;
+    },
+    clearFilters() {
+        this.filters = {
+            platforms: [],
+            contentTypes: [],
+            minReward: '',
+            maxReward: ''
+        };
+        const container = document.getElementById('bounty-list-container');
+        if (!container) return;
+
+        // Reset to default URL
+        container.setAttribute('hx-get', '/partials/bounty-list');
+        htmx.trigger(container, 'refresh');
     }
 }"
   class="min-h-screen"
@@ -440,7 +504,7 @@ scale(1.02); box-shadow: 0 6px 20px rgba(0, 230, 118, 0.6); } {{end}} {{define
       <div class="filter-actions">
         <button
           class="filter-button filter-button-primary"
-          @click="searchModalOpen = false"
+          @click="performSearch()"
           style="width: 100%"
         >
           Search

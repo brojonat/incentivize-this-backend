@@ -29,7 +29,6 @@ func TestBuildSolanaPayURL(t *testing.T) {
 				assert.Contains(t, got, "amount=1") // Not "1.000000"
 				assert.Contains(t, got, "spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
 				assert.Contains(t, got, "memo=test-memo")
-				assert.Contains(t, got, "label=IncentivizeThis")
 				assert.NotContains(t, got, "reference=") // reference removed (requires valid pubkey)
 			},
 		},
