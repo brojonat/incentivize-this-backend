@@ -306,6 +306,7 @@ func handleCreateBountyForm(
 		rewardPerPostStr := r.FormValue("reward_per_post")
 		numberOfBountiesStr := r.FormValue("number_of_bounties")
 		durationStr := r.FormValue("duration")
+	timeoutTimestamp := r.FormValue("timeout_timestamp")
 
 		// Basic validation
 		if requirements == "" || rewardPerPostStr == "" || numberOfBountiesStr == "" {
@@ -365,6 +366,7 @@ func handleCreateBountyForm(
 			BountyPerPost:   rewardPerPost,
 			TotalBounty:     totalBounty,
 			TimeoutDuration: timeoutDuration,
+			TimeoutTimestamp: timeoutTimestamp,
 		}
 
 		// Now use the same validation and processing logic as handleCreateBounty
@@ -711,7 +713,24 @@ func handleCreateBountyForm(
 
 		// Read and validate overall bounty timeout
 		bountyTimeoutDuration := 7 * 24 * time.Hour
-		if req.TimeoutDuration != "" {
+
+		// Prefer timestamp over duration (timestamp is the new standard)
+		if req.TimeoutTimestamp != "" {
+			endTime, err := time.Parse(time.RFC3339, req.TimeoutTimestamp)
+			if err != nil {
+				writeHTMLErrorDialog(w, fmt.Errorf("invalid timeout_timestamp format '%s': must be ISO8601/RFC3339 (e.g., '2025-04-15T14:30:00Z'): %w", req.TimeoutTimestamp, err))
+				return
+			}
+
+			bountyTimeoutDuration = time.Until(endTime)
+			logger.Info("Parsed bounty timeout from timestamp",
+				"timestamp", req.TimeoutTimestamp,
+				"end_time", endTime,
+				"duration_hours", bountyTimeoutDuration.Hours(),
+				"duration_days", bountyTimeoutDuration.Hours()/24,
+			)
+		} else if req.TimeoutDuration != "" {
+			// Fallback to legacy duration parsing for backwards compatibility
 			parsedDurationString := req.TimeoutDuration
 			// Handle day-based durations (e.g., "90d", "90d3h45m")
 			// Go's time.ParseDuration doesn't support "d" suffix, so we convert days to hours
@@ -743,7 +762,7 @@ func handleCreateBountyForm(
 				return
 			}
 			bountyTimeoutDuration = duration
-			logger.Info("Parsed bounty timeout duration",
+			logger.Info("Parsed bounty timeout duration (legacy)",
 				"original_input", req.TimeoutDuration,
 				"parsed_string", parsedDurationString,
 				"final_duration_hours", duration.Hours(),
@@ -753,7 +772,7 @@ func handleCreateBountyForm(
 
 		// Validate minimum duration
 		if bountyTimeoutDuration < 24*time.Hour {
-			writeHTMLErrorDialog(w, fmt.Errorf("timeout_duration must be at least 24 hours (e.g., \"24h\")"))
+			writeHTMLErrorDialog(w, fmt.Errorf("bounty timeout must be at least 24 hours"))
 			return
 		}
 

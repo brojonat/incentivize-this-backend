@@ -54,7 +54,8 @@ type CreateBountyRequest struct {
 	BountyPerPost     float64  `json:"bounty_per_post"`
 	TotalBounty       float64  `json:"total_bounty"`
 	FeePercentage     *float64 `json:"fee_percentage,omitempty"`
-	TimeoutDuration   string   `json:"timeout_duration"`
+	TimeoutDuration   string   `json:"timeout_duration"`   // Deprecated: use TimeoutTimestamp instead
+	TimeoutTimestamp  string   `json:"timeout_timestamp"`  // ISO8601 timestamp for bounty expiration
 	Tier              string   `json:"tier,omitempty"`
 	MaxPayoutsPerUser *int     `json:"max_payouts_per_user,omitempty"`
 }
@@ -445,10 +446,26 @@ func handleCreateBounty(
 			writeBadRequestError(w, fmt.Errorf("invalid platform_kind: must be one of %s, %s, %s, %s, %s, %s, %s, %s, %s, or %s", abb.PlatformReddit, abb.PlatformYouTube, abb.PlatformTwitch, abb.PlatformHackerNews, abb.PlatformBluesky, abb.PlatformInstagram, abb.PlatformIncentivizeThis, abb.PlatformTripAdvisor, abb.PlatformSteam, abb.PlatformGitHub))
 			return
 		}
-
-		// Read and validate overall bounty timeout
+// Read and validate overall bounty timeout
 		bountyTimeoutDuration := 7 * 24 * time.Hour
-		if req.TimeoutDuration != "" {
+
+		// Prefer timestamp over duration (timestamp is the new standard)
+		if req.TimeoutTimestamp != "" {
+			endTime, err := time.Parse(time.RFC3339, req.TimeoutTimestamp)
+			if err != nil {
+				writeBadRequestError(w, fmt.Errorf("invalid timeout_timestamp format '%s': must be ISO8601/RFC3339 (e.g., '2025-04-15T14:30:00Z'): %w", req.TimeoutTimestamp, err))
+				return
+			}
+
+			bountyTimeoutDuration = time.Until(endTime)
+			logger.Info("Parsed bounty timeout from timestamp",
+				"timestamp", req.TimeoutTimestamp,
+				"end_time", endTime,
+				"duration_hours", bountyTimeoutDuration.Hours(),
+				"duration_days", bountyTimeoutDuration.Hours()/24,
+			)
+		} else if req.TimeoutDuration != "" {
+			// Fallback to legacy duration parsing for backwards compatibility
 			parsedDurationString := req.TimeoutDuration
 			// Handle day-based durations (e.g., "90d", "90d3h45m")
 			// Go's time.ParseDuration doesn't support "d" suffix, so we convert days to hours
@@ -480,7 +497,7 @@ func handleCreateBounty(
 				return
 			}
 			bountyTimeoutDuration = duration
-			logger.Info("Parsed bounty timeout duration",
+			logger.Info("Parsed bounty timeout duration (legacy)",
 				"original_input", req.TimeoutDuration,
 				"parsed_string", parsedDurationString,
 				"final_duration_hours", duration.Hours(),
@@ -490,7 +507,7 @@ func handleCreateBounty(
 
 		// Validate minimum duration
 		if bountyTimeoutDuration < 24*time.Hour {
-			writeBadRequestError(w, fmt.Errorf("timeout_duration must be at least 24 hours (e.g., \"24h\")"))
+			writeBadRequestError(w, fmt.Errorf("bounty timeout must be at least 24 hours"))
 			return
 		}
 
