@@ -10,11 +10,13 @@
       alert('Please select a valid end date (at least 24 hours from now)');
       return false;
     }
-    if (useCalendar && !calculatedDurationValue) {
+    if (useCalendar && !bountyEndDate) {
       $event.preventDefault();
       alert('Please select an end date');
       return false;
     }
+    console.log('Submitting bounty with timestamp:', timeoutTimestamp);
+    console.log('Duration:', newBounty.duration, 'UseCalendar:', useCalendar);
     submittingBounty = true;
   "
   @htmx:after-request="submittingBounty = false; if($event.detail.successful) handleBountyFormSuccess()"

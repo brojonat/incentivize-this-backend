@@ -307,6 +307,7 @@ func handleCreateBountyForm(
 		numberOfBountiesStr := r.FormValue("number_of_bounties")
 		durationStr := r.FormValue("duration")
 	timeoutTimestamp := r.FormValue("timeout_timestamp")
+	logger.Info("Form values received", "timeout_timestamp", timeoutTimestamp, "duration", durationStr)
 
 		// Basic validation
 		if requirements == "" || rewardPerPostStr == "" || numberOfBountiesStr == "" {
