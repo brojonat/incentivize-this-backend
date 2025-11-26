@@ -10,7 +10,7 @@
                 {{if ne .Status "AwaitingFunding"}}
                 <div class="badge badge-time">
                     <span class="material-icons-outlined">hourglass_empty</span>
-                    <span>119 days left</span>
+                    <span>{{daysUntil .EndAt}} days left</span>
                 </div>
                 {{end}}
             </div>

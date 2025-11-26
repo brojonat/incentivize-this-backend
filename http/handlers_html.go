@@ -922,8 +922,13 @@ func handleBountyListPartial(logger *slog.Logger, tc client.Client, env string) 
 			bounties = append(bounties, bounty)
 		}
 
-		// Parse partial template
-		tmpl, err := template.ParseFS(getTemplateFS(), "templates/partials/bounty_list.html")
+		// Parse partial template with custom functions
+		funcMap := template.FuncMap{
+			"daysUntil": func(t time.Time) int {
+				return int(time.Until(t).Hours() / 24)
+			},
+		}
+		tmpl, err := template.New("bounty-list").Funcs(funcMap).ParseFS(getTemplateFS(), "templates/partials/bounty_list.html")
 		if err != nil {
 			logger.Error("failed to parse partial template", "error", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
