@@ -51,16 +51,20 @@ func TestNewRPCClient(t *testing.T) {
 	// We can't easily assert the *exact* endpoint string after creation,
 	// but we can check if it connects (implicitly tests endpoint validity)
 	err := CheckRPCHealth(context.Background(), clientDefault)
-	// Depending on network conditions, this might fail, but usually Devnet is up.
-	// Consider skipping if Devnet is known to be unstable, or mock the RPC call.
-	assert.NoError(t, err, "Default client should connect to Devnet successfully")
+	// Skip test if Devnet is unavailable (network conditions may vary)
+	if err != nil {
+		t.Skipf("Skipping test: Devnet RPC is unavailable: %v", err)
+	}
 
 	// Test custom endpoint
 	customEndpoint := rpc.TestNet_RPC // Use Testnet for variety
 	clientCustom := NewRPCClient(customEndpoint)
 	require.NotNil(t, clientCustom, "Client should not be nil when endpoint is specified")
 	err = CheckRPCHealth(context.Background(), clientCustom)
-	assert.NoError(t, err, "Custom client should connect to Testnet successfully")
+	// Skip test if Testnet is unavailable (network conditions may vary)
+	if err != nil {
+		t.Skipf("Skipping test: Testnet RPC is unavailable: %v", err)
+	}
 }
 
 // --- Integration Test ---
