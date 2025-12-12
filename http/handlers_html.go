@@ -16,9 +16,11 @@ import (
 	"time"
 
 	"github.com/brojonat/affiliate-bounty-board/abb"
+	"github.com/brojonat/affiliate-bounty-board/db/dbgen"
 	"github.com/brojonat/affiliate-bounty-board/solana"
 	solanago "github.com/gagliardetto/solana-go"
 	"github.com/google/uuid"
+	"github.com/pgvector/pgvector-go"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
@@ -908,7 +910,7 @@ func handleCreateBountyForm(
 }
 
 // handleBountyListPartial returns just the bounty list HTML fragment for HTMX polling
-func handleBountyListPartial(logger *slog.Logger, tc client.Client, env string) http.HandlerFunc {
+func handleBountyListPartial(logger *slog.Logger, querier dbgen.Querier, tc client.Client, llmEmbedProvider abb.LLMEmbeddingProvider, env string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
@@ -919,52 +921,153 @@ func handleBountyListPartial(logger *slog.Logger, tc client.Client, env string) 
 		minReward := r.URL.Query().Get("minReward")
 		maxReward := r.URL.Query().Get("maxReward")
 
-		// Build base query for running bounty workflows
-		queryParts := []string{
-			fmt.Sprintf("WorkflowType = '%s'", "BountyAssessmentWorkflow"),
-			"ExecutionStatus = 'Running'",
-			fmt.Sprintf("%s = '%s'", abb.EnvironmentKey.GetName(), env),
-		}
+		var bounties []map[string]interface{}
 
-		// Add filter conditions to query
-		if len(platforms) > 0 {
-			platformConditions := make([]string, len(platforms))
-			for i, p := range platforms {
-				platformConditions[i] = fmt.Sprintf("%s = '%s'", abb.BountyPlatformKey.GetName(), p)
-			}
-			queryParts = append(queryParts, fmt.Sprintf("(%s)", strings.Join(platformConditions, " OR ")))
-		}
-
-		if len(contentTypes) > 0 {
-			contentConditions := make([]string, len(contentTypes))
-			for i, c := range contentTypes {
-				contentConditions[i] = fmt.Sprintf("%s = '%s'", abb.BountyContentKindKey.GetName(), c)
-			}
-			queryParts = append(queryParts, fmt.Sprintf("(%s)", strings.Join(contentConditions, " OR ")))
-		}
-
-		query := strings.Join(queryParts, " AND ")
-
-		// List workflows
-		listResp, err := tc.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
-			Query: query,
-		})
-		if err != nil {
-			logger.Error("failed to list workflows", "error", err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
-
-		// If search query is provided, filter results by search (placeholder for now)
-		// Note: Proper search implementation would use the embedding API
+		// If search query is provided, use embedding search
 		if searchQuery != "" {
-			// TODO: Integrate with embedding search API
-			// For now, simple string matching on workflow IDs
-			logger.Info("search query provided", "query", searchQuery)
-		}
+			logger.Info("performing embedding search", "query", searchQuery)
 
-		bounties := make([]map[string]interface{}, 0)
-		for _, execution := range listResp.Executions {
+			if llmEmbedProvider == nil {
+				logger.Error("search functionality disabled: LLM embedding provider not configured")
+				http.Error(w, "Search functionality not available", http.StatusServiceUnavailable)
+				return
+			}
+
+			// Generate embedding for the search query
+			embeddingSlice, err := llmEmbedProvider.GenerateEmbedding(ctx, searchQuery, "")
+			if err != nil {
+				logger.Error("failed to generate query embedding", "error", err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			embeddingVec := pgvector.NewVector(embeddingSlice)
+
+			// Search embeddings database
+			searchParams := dbgen.SearchEmbeddingsParams{
+				Embedding:   embeddingVec,
+				RowCount:    50, // Return more results for filtering
+				Environment: env,
+			}
+
+			results, err := querier.SearchEmbeddings(ctx, searchParams)
+			if err != nil {
+				logger.Error("failed to search embeddings", "error", err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+
+			logger.Info("embedding search complete", "results_count", len(results))
+
+			// Fetch details for each bounty ID from search results
+			bounties = make([]map[string]interface{}, 0, len(results))
+			for _, result := range results {
+				detailsResp, err := tc.QueryWorkflow(ctx, result.BountyID, "", abb.GetBountyDetailsQueryType)
+				if err != nil {
+					logger.Warn("failed to query workflow details for search result", "workflow_id", result.BountyID, "error", err)
+					continue
+				}
+
+				var details abb.BountyDetails
+				if err := detailsResp.Get(&details); err != nil {
+					logger.Warn("failed to decode workflow details for search result", "workflow_id", result.BountyID, "error", err)
+					continue
+				}
+
+				// Apply filters to search results
+				if len(platforms) > 0 {
+					matched := false
+					for _, p := range platforms {
+						if string(details.PlatformKind) == p {
+							matched = true
+							break
+						}
+					}
+					if !matched {
+						continue
+					}
+				}
+
+				if len(contentTypes) > 0 {
+					matched := false
+					for _, c := range contentTypes {
+						if string(details.ContentKind) == c {
+							matched = true
+							break
+						}
+					}
+					if !matched {
+						continue
+					}
+				}
+
+				if minReward != "" || maxReward != "" {
+					bountyAmount := details.BountyPerPost
+					if minReward != "" {
+						if minVal, err := strconv.ParseFloat(minReward, 64); err == nil && bountyAmount < minVal {
+							continue
+						}
+					}
+					if maxReward != "" {
+						if maxVal, err := strconv.ParseFloat(maxReward, 64); err == nil && bountyAmount > maxVal {
+							continue
+						}
+					}
+				}
+
+				bounty := map[string]interface{}{
+					"BountyID":                details.BountyID,
+					"Title":                   details.Title,
+					"Status":                  string(details.Status),
+					"BountyPerPost":           details.BountyPerPost,
+					"PlatformKind":            string(details.PlatformKind),
+					"ContentKind":             string(details.ContentKind),
+					"Remaining":               calculateRemaining(details),
+					"TotalCharged":            details.TotalCharged,
+					"PaymentTimeoutExpiresAt": details.PaymentTimeoutExpiresAt,
+					"EndAt":                   details.EndAt,
+				}
+				bounties = append(bounties, bounty)
+			}
+		} else {
+			// No search query - use regular list workflow approach with filters
+			// Build base query for running bounty workflows
+			queryParts := []string{
+				fmt.Sprintf("WorkflowType = '%s'", "BountyAssessmentWorkflow"),
+				"ExecutionStatus = 'Running'",
+				fmt.Sprintf("%s = '%s'", abb.EnvironmentKey.GetName(), env),
+			}
+
+			// Add filter conditions to query
+			if len(platforms) > 0 {
+				platformConditions := make([]string, len(platforms))
+				for i, p := range platforms {
+					platformConditions[i] = fmt.Sprintf("%s = '%s'", abb.BountyPlatformKey.GetName(), p)
+				}
+				queryParts = append(queryParts, fmt.Sprintf("(%s)", strings.Join(platformConditions, " OR ")))
+			}
+
+			if len(contentTypes) > 0 {
+				contentConditions := make([]string, len(contentTypes))
+				for i, c := range contentTypes {
+					contentConditions[i] = fmt.Sprintf("%s = '%s'", abb.BountyContentKindKey.GetName(), c)
+				}
+				queryParts = append(queryParts, fmt.Sprintf("(%s)", strings.Join(contentConditions, " OR ")))
+			}
+
+			query := strings.Join(queryParts, " AND ")
+
+			// List workflows
+			listResp, err := tc.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
+				Query: query,
+			})
+			if err != nil {
+				logger.Error("failed to list workflows", "error", err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+
+			bounties = make([]map[string]interface{}, 0)
+			for _, execution := range listResp.Executions {
 			// Query each workflow for its details to get title and other info
 			detailsResp, err := tc.QueryWorkflow(ctx, execution.Execution.WorkflowId, "", abb.GetBountyDetailsQueryType)
 			if err != nil {
@@ -1007,6 +1110,7 @@ func handleBountyListPartial(logger *slog.Logger, tc client.Client, env string) 
 		}
 
 			bounties = append(bounties, bounty)
+			}
 		}
 
 		// Parse partial template with custom functions

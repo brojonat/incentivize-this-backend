@@ -15,10 +15,25 @@
       alert('Please select an end date');
       return false;
     }
-    calculateTimeoutTimestamp();
-    console.log('Submitting bounty with timestamp:', timeoutTimestamp);
-    console.log('Duration:', newBounty.duration, 'UseCalendar:', useCalendar);
     submittingBounty = true;
+  "
+  @htmx:config-request="
+    let timestamp = '';
+    if (useCalendar) {
+      if (bountyEndDate) {
+        timestamp = new Date(bountyEndDate).toISOString();
+      }
+    } else {
+      const durationDays = parseInt(newBounty.duration);
+      if (!isNaN(durationDays)) {
+        const endDate = new Date();
+        endDate.setDate(endDate.getDate() + durationDays);
+        timestamp = endDate.toISOString();
+      }
+    }
+    console.log('Submitting bounty with timestamp:', timestamp);
+    console.log('Duration:', newBounty.duration, 'UseCalendar:', useCalendar);
+    $event.detail.parameters.timeout_timestamp = timestamp;
   "
   @htmx:after-request="submittingBounty = false; if($event.detail.successful) handleBountyFormSuccess()"
 >
@@ -195,13 +210,6 @@
       <p x-show="durationError" style="color: rgb(244, 67, 54); font-size: 0.8rem; margin-top: 0.5rem;" x-text="durationError"></p>
       <p x-show="!durationError && calculatedDuration" style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.5rem;" x-text="'Duration: ' + calculatedDuration"></p>
     </div>
-
-    <!-- Hidden input that sends the ISO8601 timestamp -->
-    <input
-      type="hidden"
-      name="timeout_timestamp"
-      :value="timeoutTimestamp"
-    >
   </div>
 
   <!-- Cost Breakdown -->

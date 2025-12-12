@@ -482,7 +482,7 @@ func RunServer(ctx context.Context, logger *slog.Logger, tc client.Client, port 
 
 	// Partial template endpoints for HTMX
 	mux.HandleFunc("GET /partials/bounty-list", stools.AdaptHandler(
-		handleBountyListPartial(logger, tc, cfg.Environment),
+		handleBountyListPartial(logger, querier, tc, llmEmbedProvider, cfg.Environment),
 		htmlMode(logger, defaultRateLimiter),
 		withLogging(logger),
 	))
