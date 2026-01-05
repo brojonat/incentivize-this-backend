@@ -839,6 +839,7 @@ func bootstrapBountiesAction(ctx *cli.Context) error {
 	filePath := ctx.String("file")
 	apiEndpoint := ctx.String("endpoint")
 	authToken := ctx.String("token")
+	skipPaymentVerification := ctx.Bool("skip-payment-verification")
 
 	// Funding related flags/env vars (to pass to a helper or use directly)
 	funderSecretKey := ctx.String("funder-secret-key")
@@ -937,10 +938,11 @@ func bootstrapBountiesAction(ctx *cli.Context) error {
 			bountyLogger.Info("Processing bounty definition", "requirements", bd.Requirements)
 
 			createReqPayload := map[string]interface{}{
-				"requirements":     []string{bd.Requirements},
-				"bounty_per_post":  bd.PerPostAmount,
-				"total_bounty":     bd.TotalAmount,
-				"timeout_duration": bd.Duration,
+				"requirements":               []string{bd.Requirements},
+				"bounty_per_post":            bd.PerPostAmount,
+				"total_bounty":               bd.TotalAmount,
+				"timeout_duration":           bd.Duration,
+				"skip_payment_verification":  skipPaymentVerification,
 			}
 
 			if bd.FeePercentage != nil {
@@ -1358,6 +1360,12 @@ func adminCommands() []*cli.Command {
 							Name:    "name",
 							Aliases: []string{"n"},
 							Usage:   "Specify one or more bounty names from the YAML file to bootstrap (repeatable: --name 'Bounty1' --name 'Bounty2'). If not provided, all bounties are bootstrapped.",
+						},
+						&cli.BoolFlag{
+							Name:    "skip-payment-verification",
+							Aliases: []string{"skip-payment"},
+							Usage:   "Skip payment verification and auto-activate bounties (for testing)",
+							Value:   false,
 						},
 					},
 					Action: bootstrapBountiesAction,

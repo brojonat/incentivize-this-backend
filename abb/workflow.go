@@ -112,19 +112,20 @@ type BountyDetails struct {
 
 // BountyAssessmentWorkflowInput represents the input parameters for the workflow
 type BountyAssessmentWorkflowInput struct {
-	Title             string             `json:"title"`
-	Requirements      []string           `json:"requirements"`
-	BountyPerPost     *solana.USDCAmount `json:"bounty_per_post"`
-	TotalBounty       *solana.USDCAmount `json:"total_bounty"`
-	TotalCharged      *solana.USDCAmount `json:"total_charged"`
-	Platform          PlatformKind       `json:"platform"`
-	ContentKind       ContentKind        `json:"content_kind"`
-	Tier              BountyTier         `json:"tier"`
-	PaymentTimeout    time.Duration      `json:"payment_timeout"`
-	Timeout           time.Duration      `json:"timeout"`
-	TreasuryWallet    string             `json:"treasury_wallet"`
-	EscrowWallet      string             `json:"escrow_wallet"`
-	MaxPayoutsPerUser int                `json:"max_payouts_per_user"`
+	Title                    string             `json:"title"`
+	Requirements             []string           `json:"requirements"`
+	BountyPerPost            *solana.USDCAmount `json:"bounty_per_post"`
+	TotalBounty              *solana.USDCAmount `json:"total_bounty"`
+	TotalCharged             *solana.USDCAmount `json:"total_charged"`
+	Platform                 PlatformKind       `json:"platform"`
+	ContentKind              ContentKind        `json:"content_kind"`
+	Tier                     BountyTier         `json:"tier"`
+	PaymentTimeout           time.Duration      `json:"payment_timeout"`
+	Timeout                  time.Duration      `json:"timeout"`
+	TreasuryWallet           string             `json:"treasury_wallet"`
+	EscrowWallet             string             `json:"escrow_wallet"`
+	MaxPayoutsPerUser        int                `json:"max_payouts_per_user"`
+	SkipPaymentVerification  bool               `json:"skip_payment_verification"`
 }
 
 // AssessmentProgress tracks the current state of an in-progress assessment
@@ -242,33 +243,43 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 			return status, nil
 		})
 
-		// Wait for funding
+		// Wait for funding (or skip if flag is set for testing)
 		var verifyResult VerifyPaymentResult
 		expectedRecipient := solanago.MustPublicKeyFromBase58(input.EscrowWallet)
 
-		// Use a longer timeout for payment verification, as it depends on user action.
-		verifyPaymentAo := workflow.ActivityOptions{
-			StartToCloseTimeout: input.PaymentTimeout + time.Minute, // Give a buffer
-			RetryPolicy: &temporal.RetryPolicy{
-				MaximumAttempts: 1,
-			},
-		}
-		verifyPaymentCtx := workflow.WithActivityOptions(ctx, verifyPaymentAo)
+		if input.SkipPaymentVerification {
+			// Skip payment verification for testing purposes
+			logger.Info("Skipping payment verification (test mode enabled)")
+			verifyResult = VerifyPaymentResult{
+				Verified:     true,
+				Amount:       input.TotalCharged,
+				FunderWallet: "TestFunder",
+			}
+		} else {
+			// Use a longer timeout for payment verification, as it depends on user action.
+			verifyPaymentAo := workflow.ActivityOptions{
+				StartToCloseTimeout: input.PaymentTimeout + time.Minute, // Give a buffer
+				RetryPolicy: &temporal.RetryPolicy{
+					MaximumAttempts: 1,
+				},
+			}
+			verifyPaymentCtx := workflow.WithActivityOptions(ctx, verifyPaymentAo)
 
-		// Verify the bounty funding.
-		err := workflow.ExecuteActivity(verifyPaymentCtx, a.VerifyPayment,
-			expectedRecipient,
-			input.TotalCharged,
-			bountyState.BountyID,
-			input.PaymentTimeout,
-		).Get(ctx, &verifyResult)
-		if err != nil {
-			logger.Error("Funding check activity failed.", "error", err)
-			return err // Returning error to let temporal handle retry/failure
-		}
-		if !verifyResult.Verified {
-			logger.Error("Funding verification failed or timed out.", "error", verifyResult.Error)
-			return nil // End workflow gracefully if not funded
+			// Verify the bounty funding.
+			err := workflow.ExecuteActivity(verifyPaymentCtx, a.VerifyPayment,
+				expectedRecipient,
+				input.TotalCharged,
+				bountyState.BountyID,
+				input.PaymentTimeout,
+			).Get(ctx, &verifyResult)
+			if err != nil {
+				logger.Error("Funding check activity failed.", "error", err)
+				return err // Returning error to let temporal handle retry/failure
+			}
+			if !verifyResult.Verified {
+				logger.Error("Funding verification failed or timed out.", "error", verifyResult.Error)
+				return nil // End workflow gracefully if not funded
+			}
 		}
 		bountyState.FunderWallet = verifyResult.FunderWallet
 		bountyState.Status = BountyStatusListening
@@ -286,8 +297,7 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 			BountyID:      bountyState.BountyID,
 			WorkflowInput: input,
 		}
-		err = workflow.ExecuteActivity(ctx, a.GenerateAndStoreBountyEmbeddingActivity, embeddingInput).Get(ctx, nil)
-		if err != nil {
+		if err := workflow.ExecuteActivity(ctx, a.GenerateAndStoreBountyEmbeddingActivity, embeddingInput).Get(ctx, nil); err != nil {
 			logger.Error("Failed to generate and store bounty embedding.", "error", err)
 			// This is a non-fatal error for the bounty's core logic, so we just log it.
 		}
@@ -423,33 +433,43 @@ func BountyAssessmentWorkflow(ctx workflow.Context, input BountyAssessmentWorkfl
 			return details, nil
 		})
 
-		// Wait for funding
+		// Wait for funding (or skip if flag is set for testing)
 		var verifyResult VerifyPaymentResult
 		expectedRecipient := solanago.MustPublicKeyFromBase58(input.EscrowWallet)
 
-		// Use a longer timeout for payment verification, as it depends on user action.
-		verifyPaymentAo := workflow.ActivityOptions{
-			StartToCloseTimeout: input.PaymentTimeout + time.Minute, // Give a buffer
-			RetryPolicy: &temporal.RetryPolicy{
-				MaximumAttempts: 1,
-			},
-		}
-		verifyPaymentCtx := workflow.WithActivityOptions(ctx, verifyPaymentAo)
+		if input.SkipPaymentVerification {
+			// Skip payment verification for testing purposes
+			logger.Info("Skipping payment verification (test mode enabled)")
+			verifyResult = VerifyPaymentResult{
+				Verified:     true,
+				Amount:       input.TotalCharged,
+				FunderWallet: "TestFunder",
+			}
+		} else {
+			// Use a longer timeout for payment verification, as it depends on user action.
+			verifyPaymentAo := workflow.ActivityOptions{
+				StartToCloseTimeout: input.PaymentTimeout + time.Minute, // Give a buffer
+				RetryPolicy: &temporal.RetryPolicy{
+					MaximumAttempts: 1,
+				},
+			}
+			verifyPaymentCtx := workflow.WithActivityOptions(ctx, verifyPaymentAo)
 
-		// Verify the bounty funding.
-		err := workflow.ExecuteActivity(verifyPaymentCtx, a.VerifyPayment,
-			expectedRecipient,
-			input.TotalCharged,
-			bountyState.BountyID,
-			input.PaymentTimeout,
-		).Get(ctx, &verifyResult)
-		if err != nil {
-			logger.Error("Funding check activity failed.", "error", err)
-			return err // Returning error to let temporal handle retry/failure
-		}
-		if !verifyResult.Verified {
-			logger.Error("Funding verification failed or timed out.", "error", verifyResult.Error)
-			return nil // End workflow gracefully if not funded
+			// Verify the bounty funding.
+			err := workflow.ExecuteActivity(verifyPaymentCtx, a.VerifyPayment,
+				expectedRecipient,
+				input.TotalCharged,
+				bountyState.BountyID,
+				input.PaymentTimeout,
+			).Get(ctx, &verifyResult)
+			if err != nil {
+				logger.Error("Funding check activity failed.", "error", err)
+				return err // Returning error to let temporal handle retry/failure
+			}
+			if !verifyResult.Verified {
+				logger.Error("Funding verification failed or timed out.", "error", verifyResult.Error)
+				return nil // End workflow gracefully if not funded
+			}
 		}
 		bountyState.FunderWallet = verifyResult.FunderWallet
 		bountyState.Status = BountyStatusListening

@@ -49,15 +49,16 @@ type ReturnBountyToOwnerRequest struct {
 
 // CreateBountyRequest represents the request body for creating a new bounty
 type CreateBountyRequest struct {
-	Title             string   `json:"title"`
-	Requirements      []string `json:"requirements"`
-	BountyPerPost     float64  `json:"bounty_per_post"`
-	TotalBounty       float64  `json:"total_bounty"`
-	FeePercentage     *float64 `json:"fee_percentage,omitempty"`
-	TimeoutDuration   string   `json:"timeout_duration"`   // Deprecated: use TimeoutTimestamp instead
-	TimeoutTimestamp  string   `json:"timeout_timestamp"`  // ISO8601 timestamp for bounty expiration
-	Tier              string   `json:"tier,omitempty"`
-	MaxPayoutsPerUser *int     `json:"max_payouts_per_user,omitempty"`
+	Title                   string   `json:"title"`
+	Requirements            []string `json:"requirements"`
+	BountyPerPost           float64  `json:"bounty_per_post"`
+	TotalBounty             float64  `json:"total_bounty"`
+	FeePercentage           *float64 `json:"fee_percentage,omitempty"`
+	TimeoutDuration         string   `json:"timeout_duration"`   // Deprecated: use TimeoutTimestamp instead
+	TimeoutTimestamp        string   `json:"timeout_timestamp"`  // ISO8601 timestamp for bounty expiration
+	Tier                    string   `json:"tier,omitempty"`
+	MaxPayoutsPerUser       *int     `json:"max_payouts_per_user,omitempty"`
+	SkipPaymentVerification bool     `json:"skip_payment_verification,omitempty"`
 }
 
 // PaidBountyItem represents a single paid bounty in the list response
@@ -575,19 +576,20 @@ func handleCreateBounty(
 
 		// Create workflow input
 		input := abb.BountyAssessmentWorkflowInput{
-			Title:             bountyTitle,
-			Requirements:      req.Requirements,
-			BountyPerPost:     bountyPerPost,
-			TotalBounty:       totalBounty,
-			TotalCharged:      totalCharged,
-			Platform:          normalizedPlatform,
-			ContentKind:       normalizedContentKind,
-			Tier:              bountyTier,
-			Timeout:           bountyTimeoutDuration,
-			PaymentTimeout:    10 * time.Minute,
-			TreasuryWallet:    os.Getenv(EnvSolanaTreasuryWallet),
-			EscrowWallet:      os.Getenv(EnvSolanaEscrowWallet),
-			MaxPayoutsPerUser: maxPayoutsPerUser,
+			Title:                   bountyTitle,
+			Requirements:            req.Requirements,
+			BountyPerPost:           bountyPerPost,
+			TotalBounty:             totalBounty,
+			TotalCharged:            totalCharged,
+			Platform:                normalizedPlatform,
+			ContentKind:             normalizedContentKind,
+			Tier:                    bountyTier,
+			Timeout:                 bountyTimeoutDuration,
+			PaymentTimeout:          10 * time.Minute,
+			TreasuryWallet:          os.Getenv(EnvSolanaTreasuryWallet),
+			EscrowWallet:            os.Getenv(EnvSolanaEscrowWallet),
+			MaxPayoutsPerUser:       maxPayoutsPerUser,
+			SkipPaymentVerification: req.SkipPaymentVerification,
 		}
 
 		// Execute workflow

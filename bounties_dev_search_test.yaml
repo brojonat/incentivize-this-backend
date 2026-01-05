@@ -1,0 +1,32 @@
+bounties:
+  - name: "YouTube Fitness Workout Video"
+    requirements: |
+      Create a YouTube video demonstrating a full-body workout routine for beginners.
+      The video must be at least 10 minutes long and include proper form demonstrations
+      for exercises like squats, push-ups, planks, and lunges. Must show modifications
+      for different fitness levels.
+    total_amount: 0.10
+    per_post_amount: 0.05
+    duration: 60d
+    fee_percentage: 0
+
+  - name: "Reddit Programming Tutorial Post"
+    requirements: |
+      Write a Reddit post in r/learnprogramming teaching beginners how to build
+      their first REST API using Python and Flask. Post must include code examples
+      and clear step-by-step instructions. Must receive at least 25 upvotes.
+    total_amount: 0.10
+    per_post_amount: 0.05
+    duration: 60d
+    fee_percentage: 0
+
+  - name: "YouTube Italian Cooking Tutorial"
+    requirements: |
+      Create a YouTube video showing how to make authentic Italian pasta from scratch.
+      Video must demonstrate making the dough by hand, rolling it out, and cutting it
+      into fettuccine or pappardelle. Must include tips for getting the right texture.
+      Video should be at least 8 minutes long.
+    total_amount: 0.10
+    per_post_amount: 0.05
+    duration: 60d
+    fee_percentage: 0
