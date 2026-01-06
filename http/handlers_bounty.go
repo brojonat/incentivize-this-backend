@@ -134,8 +134,16 @@ func handleCreateBounty(
 			return
 		}
 
-		// --- Content Moderation for non-sudo users ---
+		// --- Restrict skip_payment_verification to sudo users only ---
 		claims, isAuthed := r.Context().Value(ctxKeyJWT).(*authJWTClaims)
+		if req.SkipPaymentVerification {
+			if !isAuthed || claims == nil || claims.Status < UserStatusSudo {
+				writeBadRequestError(w, fmt.Errorf("skip_payment_verification is only available to sudo users"))
+				return
+			}
+		}
+
+		// --- Content Moderation for non-sudo users ---
 		if isAuthed && claims != nil && claims.Status < UserStatusSudo {
 			type contentModerationResponse struct {
 				IsAcceptable bool   `json:"is_acceptable"`
