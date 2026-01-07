@@ -775,14 +775,14 @@ html, body {
     <div
         x-show="fundBountyModalOpen"
         class="modal-overlay"
-        @click.self="fundBountyModalOpen = false"
-        @keydown.escape.window="fundBountyModalOpen = false"
+        @click.self="fundBountyModalOpen = false; document.getElementById('funding-qr-container-detail').innerHTML = '<div style=\'text-align: center; padding: 2rem\'><div class=\'w-12 h-12 border-4 border-primary-700 border-t-transparent rounded-full animate-spin\' style=\'margin: 0 auto\'></div><p style=\'margin-top: 1rem; color: var(--text-secondary)\'>Loading payment QR code...</p></div>'"
+        @keydown.escape.window="fundBountyModalOpen = false; document.getElementById('funding-qr-container-detail').innerHTML = '<div style=\'text-align: center; padding: 2rem\'><div class=\'w-12 h-12 border-4 border-primary-700 border-t-transparent rounded-full animate-spin\' style=\'margin: 0 auto\'></div><p style=\'margin-top: 1rem; color: var(--text-secondary)\'>Loading payment QR code...</p></div>'"
         style="background-color: rgba(0, 0, 0, 0.7) !important"
     >
         <div class="modal-content" style="max-width: 600px">
             <div class="modal-header">
                 <h2 class="modal-title">Fund Bounty</h2>
-                <button class="modal-close" @click="fundBountyModalOpen = false">
+                <button class="modal-close" @click="fundBountyModalOpen = false; document.getElementById('funding-qr-container-detail').innerHTML = '<div style=\'text-align: center; padding: 2rem\'><div class=\'w-12 h-12 border-4 border-primary-700 border-t-transparent rounded-full animate-spin\' style=\'margin: 0 auto\'></div><p style=\'margin-top: 1rem; color: var(--text-secondary)\'>Loading payment QR code...</p></div>'">
                     <span class="material-icons-outlined">close</span>
                 </button>
             </div>

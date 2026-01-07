@@ -189,61 +189,19 @@ describe-worker: ## Describe Kubernetes resources for the worker
 
 # Variables for tmux session
 TMUX_SESSION := abb-dev
-PORT_FORWARD_CMD := "kubectl port-forward service/temporal-web 8081:8080"
-TEMPORAL_FORWARD_CMD := "kubectl port-forward services/temporal-frontend 7233:7233"
-SERVER_CMD := $(MAKE) run-http-server-local-air # Command to run the server with Air hot-reload
-WORKER_CMD := $(MAKE) run-worker-local-air   # Command to run the worker with Air hot-reload
 
 # Stop existing session (if any) and start a new one
 dev-session: stop-dev-session start-dev-session ## Stop (if running) and start a new tmux dev session
 
-# Start the tmux development session
-start-dev-session: build-cli ## Start a new tmux development session with port-forward, server, worker, and CLI panes
+# Start the tmux development session using tmuxifier
+start-dev-session: build-cli ## Start a new tmux development session using tmuxifier
 	@echo "Starting tmux development session: $(TMUX_SESSION)"
-	# Create the main session with an initial window named 'dev-main'
-	@tmux new-session -d -s $(TMUX_SESSION) -n 'dev-main'
-
-	# Add new, detached windows for the port forwarding commands to run in the background
-	@tmux new-window -d -t $(TMUX_SESSION) -n 'TemporalWebForward' "$(PORT_FORWARD_CMD)"
-	@tmux new-window -d -t $(TMUX_SESSION) -n 'TemporalFrontendForward' "$(TEMPORAL_FORWARD_CMD)"
-
-	@sleep 1 # Brief pause for session/windows to initialize
-
-	# --- Configure panes in the 'dev-main' window (index 0) ---
-	# Pane 0.0 is the initial pane.
-	# Split 0.0 vertically. 0.0 becomes top. New pane 0.1 (bottom) runs WORKER_CMD.
-	@tmux split-window -v -t $(TMUX_SESSION):0.0 "($(WORKER_CMD)) 2>&1 | tee logs/worker.log"
-	# Split 0.0 (top) horizontally. 0.0 becomes top-left. New pane 0.2 (top-right) is created empty (will be CLI).
-	@tmux split-window -h -t $(TMUX_SESSION):0.0
-	# Split 0.1 (bottom, running WORKER_CMD) horizontally. 0.1 becomes bottom-left. New pane 0.3 (bottom-right) is created empty.
-	@tmux split-window -h -t $(TMUX_SESSION):0.1
-
-	# Pane indices before 'select-layout tiled':
-	# 0.0: Top-Left (empty, runs CLI)
-	# 0.1: Bottom-Right (runs WORKER_CMD)
-	# 0.2: Top-Right (runs SERVER_CMD)
-	# 0.3: Bottom-Left (empty, runs CLI)
-
-	@tmux select-layout -t $(TMUX_SESSION):0 tiled # Apply tiled layout
-
-	# Send initial commands/messages to the panes (post-tiling)
-	# Pane 0.1 (Top-Right): SERVER_CMD
-	@tmux send-keys -t $(TMUX_SESSION):0.1 "($(SERVER_CMD)) 2>&1 | tee logs/server.log" C-m
-	@tmux send-keys -t $(TMUX_SESSION):0.1 'echo "Server Pane ^ (top-right)"' C-m
-
-	# Pane 0.0 (Top-Left)
-	@tmux send-keys -t $(TMUX_SESSION):0.0 'set -o allexport; source .env.worker.debug; set +o allexport; export PATH=$$(pwd)/bin:$$PATH; echo "CLI Pane - .env sourced & ./bin added to PATH (top-left)."' C-m
-
-
-	# Pane 0.2 (User's Visual Bottom-Left): CLI Setup
-	@tmux send-keys -t $(TMUX_SESSION):0.2 'set -o allexport; source .env.server.debug; set +o allexport; export PATH=$$(pwd)/bin:$$PATH; echo "CLI Pane - .env sourced & ./bin added to PATH (bottom-left)."' C-m
-
-	# Pane 0.3 (User's Visual Bottom-Right): Free Pane
-	@tmux send-keys -t $(TMUX_SESSION):0.3 'echo "Worker Pane ^ (bottom-right)"' C-m
-
-	# Attach to the session, focusing the CLI pane (0.2 - user's visual Bottom-Left)
-	@tmux select-pane -t $(TMUX_SESSION):0.2
-	@tmux attach-session -t $(TMUX_SESSION)
+	@if ! command -v tmuxifier &> /dev/null; then \
+		echo "Error: tmuxifier is not installed or not in PATH"; \
+		echo "Install it from: https://github.com/jimeh/tmuxifier"; \
+		exit 1; \
+	fi
+	@tmuxifier load-session $(TMUX_SESSION)
 
 # Stop the tmux development session
 stop-dev-session: ## Stop the tmux development session
