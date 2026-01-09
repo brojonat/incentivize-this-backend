@@ -45,8 +45,7 @@
     hx-get="/partials/bounty-funding-qr/{{.Bounty.id}}"
     hx-target="#funding-qr-container-detail"
     hx-swap="innerHTML"
-    hx-trigger="click"
-    @click="fundBountyModalOpen = true"
+    onclick="openFundingModalDetail()"
 >
     <span class="material-icons-outlined">qr_code_scanner</span>
     Fund Bounty

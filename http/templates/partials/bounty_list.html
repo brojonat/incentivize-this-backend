@@ -50,7 +50,7 @@
                 hx-get="/partials/bounty-funding-qr/{{.BountyID}}"
                 hx-target="#funding-qr-container"
                 hx-swap="innerHTML"
-                @click="fundBountyModalOpen = true"
+                onclick="openFundingModal()"
                 style="
                     padding: 0.5rem 1rem;
                     background: linear-gradient(135deg, #00c853 0%, #ff6f00 100%);

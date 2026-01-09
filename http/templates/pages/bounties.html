@@ -382,7 +382,7 @@ scale(1.02); box-shadow: 0 6px 20px rgba(0, 230, 118, 0.6); } {{end}} {{define
       <button
         class="icon-button primary"
         title="Create Bounty"
-        @click="createBountyModalOpen = true; searchModalOpen = false; filterModalOpen = false; clearNewBounty(); $nextTick(() => { htmx.ajax('GET', '/partials/create-bounty-form', {target: '#create-bounty-form-container', swap: 'innerHTML'}); })"
+        onclick="openCreateBountyModalAndLoadForm()"
       >
         <span class="material-icons-outlined">add</span>
       </button>
@@ -721,16 +721,15 @@ scale(1.02); box-shadow: 0 6px 20px rgba(0, 230, 118, 0.6); } {{end}} {{define
 
   <!-- Fund Bounty Modal -->
   <div
-    x-show="fundBountyModalOpen"
-    class="modal-overlay"
-    @click.self="fundBountyModalOpen = false"
-    @keydown.escape.window="fundBountyModalOpen = false"
+    id="fund-bounty-modal"
+    class="modal-overlay hidden"
+    onclick="if(event.target === this) closeFundingModal()"
     style="background-color: rgba(0, 0, 0, 0.7) !important"
   >
     <div class="modal-content" style="max-width: 600px">
       <div class="modal-header">
         <h2 class="modal-title">Fund Bounty</h2>
-        <button class="modal-close" @click="fundBountyModalOpen = false">
+        <button class="modal-close" onclick="closeFundingModal()">
           <span class="material-icons-outlined">close</span>
         </button>
       </div>
@@ -749,6 +748,131 @@ scale(1.02); box-shadow: 0 6px 20px rgba(0, 230, 118, 0.6); } {{end}} {{define
     </div>
   </div>
 </div>
-{{end}} {{define "scripts"}} const style = document.createElement("style");
+{{end}} {{define "scripts"}}
+const style = document.createElement("style");
 style.innerHTML = "[x-cloak] { display: none !important; }";
-document.head.appendChild(style); {{end}}
+document.head.appendChild(style);
+
+// Listen for HTMX afterSwap event on QR containers
+// This ensures the timer initializes properly when the QR code is loaded
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+  const targetId = evt.detail.target.id;
+
+  // Only initialize timer if the swapped content contains a countdown timer element
+  if (targetId === 'funding-qr-container' || targetId === 'create-bounty-form-container') {
+    // Check if a countdown timer was actually swapped in (not just a form)
+    const hasTimer = evt.detail.target.querySelector('#countdown-timer') !== null;
+
+    if (!hasTimer) {
+      console.log('[HTMX] Content swapped into', targetId, '(no timer, skipping init)');
+      return;
+    }
+
+    console.log('[HTMX] QR code with timer swapped into', targetId);
+    if (typeof initPaymentTimer === 'function') {
+      console.log('[HTMX] Calling initPaymentTimer');
+      initPaymentTimer();
+    } else {
+      console.error('[HTMX] initPaymentTimer function not found');
+    }
+  }
+});
+
+// Helper function to clear payment timer immediately
+function clearPaymentTimer() {
+  console.log('[Cleanup] Clearing payment timer');
+
+  // Increment generation to make all existing timers obsolete
+  window.paymentTimerGeneration = (window.paymentTimerGeneration || 0) + 1;
+  console.log('[Cleanup] Incremented generation to:', window.paymentTimerGeneration);
+
+  // Also clear the interval directly as a backup
+  if (window.paymentTimerInterval) {
+    console.log('[Cleanup] Clearing interval:', window.paymentTimerInterval);
+    clearInterval(window.paymentTimerInterval);
+    window.paymentTimerInterval = null;
+  }
+}
+
+// Open funding modal
+function openFundingModal() {
+  console.log('[Modal] Opening funding modal');
+  const modal = document.getElementById('fund-bounty-modal');
+  if (modal) {
+    modal.classList.remove('hidden');
+  }
+}
+
+// Close funding modal and clean up timer
+function closeFundingModal() {
+  console.log('[Modal] Closing funding modal');
+  clearPaymentTimer();
+
+  // Clear the QR container
+  const container = document.getElementById('funding-qr-container');
+  if (container) {
+    container.innerHTML = '<div style="text-align: center; padding: 2rem"><div class="w-12 h-12 border-4 border-primary-700 border-t-transparent rounded-full animate-spin" style="margin: 0 auto"></div><p style="margin-top: 1rem; color: var(--text-secondary)">Loading payment QR code...</p></div>';
+  }
+
+  // Hide the modal
+  const modal = document.getElementById('fund-bounty-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+}
+
+// Open create bounty modal
+function openCreateBountyModal() {
+  console.log('[Modal] Opening create bounty modal');
+  const modal = document.getElementById('create-bounty-modal');
+  if (modal) {
+    modal.classList.remove('hidden');
+  }
+}
+
+// Open modal and load fresh form from server
+function openCreateBountyModalAndLoadForm() {
+  console.log('[Modal] Opening create bounty modal');
+  openCreateBountyModal();
+
+  // Load fresh form from server - form uses plain HTML inputs, no Alpine state
+  htmx.ajax('GET', '/partials/create-bounty-form', {
+    target: '#create-bounty-form-container',
+    swap: 'innerHTML'
+  });
+}
+
+// Close create bounty modal and clean up timer
+function closeCreateBountyModal() {
+  console.log('[Modal] Closing create bounty modal');
+  clearPaymentTimer();
+
+  // Clear the form/QR container
+  const container = document.getElementById('create-bounty-form-container');
+  if (container) {
+    container.innerHTML = '';
+  }
+
+  // Hide the modal
+  const modal = document.getElementById('create-bounty-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+}
+
+// Handle Escape key to close modals
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    // Check which modals are open and close them
+    const createModal = document.getElementById('create-bounty-modal');
+    const fundModal = document.getElementById('fund-bounty-modal');
+
+    if (createModal && !createModal.classList.contains('hidden')) {
+      closeCreateBountyModal();
+    }
+    if (fundModal && !fundModal.classList.contains('hidden')) {
+      closeFundingModal();
+    }
+  }
+});
+{{end}}

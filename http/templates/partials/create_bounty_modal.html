@@ -1,16 +1,15 @@
 {{define "create-bounty-modal"}}
 <!-- Create Bounty Modal -->
 <div
-  x-show="createBountyModalOpen"
-  class="modal-overlay"
-  @click.self="createBountyModalOpen = false"
-  @keydown.escape.window="createBountyModalOpen = false"
+  id="create-bounty-modal"
+  class="modal-overlay hidden"
+  onclick="if(event.target === this) closeCreateBountyModal()"
   style="background-color: rgba(0, 0, 0, 0.7) !important"
 >
   <div class="modal-content" style="max-width: 600px">
     <div class="modal-header">
       <h2 class="modal-title">Create Bounty</h2>
-      <button class="modal-close" @click="createBountyModalOpen = false">
+      <button class="modal-close" onclick="closeCreateBountyModal()">
         <span class="material-icons-outlined">close</span>
       </button>
     </div>

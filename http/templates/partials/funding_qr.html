@@ -134,6 +134,11 @@
     </button>
   </div>
 
+  <!-- Store expiration data in a data attribute for JS to read after swap -->
+  <div id="countdown-timer-data"
+       data-expires-at="{{.PaymentInvoice.ExpiresAt.UnixMilli}}"
+       style="display: none;"></div>
+
   <script>
   // Open wallet function - tries to open the Solana Pay URL
   function openWallet(url) {
@@ -142,20 +147,21 @@
     window.location.href = url;
   }
 
-  // Countdown timer - prevent multiple timers from running
-  (function() {
-  console.log('[Timer] Script started');
+  // Initialize countdown timer function that will be called by HTMX event
+  function initPaymentTimer() {
+    console.log('[Timer] initPaymentTimer called');
 
-  // Clear any globally running payment timer
-  if (window.paymentTimerInterval) {
-    console.log('[Timer] Clearing previous global timer:', window.paymentTimerInterval);
-    clearInterval(window.paymentTimerInterval);
-    window.paymentTimerInterval = null;
-  }
+    // Increment generation counter - this makes all old timers obsolete
+    window.paymentTimerGeneration = (window.paymentTimerGeneration || 0) + 1;
+    const myGeneration = window.paymentTimerGeneration;
+    console.log('[Timer] Starting timer generation:', myGeneration);
 
-  // Use requestAnimationFrame to ensure DOM is fully ready
-  requestAnimationFrame(function() {
-    console.log('[Timer] requestAnimationFrame callback started');
+    // Clear the specific interval if it exists
+    if (window.paymentTimerInterval) {
+      console.log('[Timer] Clearing previous interval:', window.paymentTimerInterval);
+      clearInterval(window.paymentTimerInterval);
+      window.paymentTimerInterval = null;
+    }
 
     const timerEl = document.getElementById('countdown-timer');
     if (!timerEl) {
@@ -164,15 +170,14 @@
     }
     console.log('[Timer] Timer element found:', timerEl);
 
-    // Clear any existing timer on this element
-    const existingTimerId = timerEl.dataset.timerId;
-    if (existingTimerId) {
-      console.log('[Timer] Clearing existing timer on element:', existingTimerId);
-      clearInterval(parseInt(existingTimerId));
+    // Get expiration timestamp from data attribute
+    const dataEl = document.getElementById('countdown-timer-data');
+    if (!dataEl) {
+      console.error('[Timer] Timer data element not found');
+      return;
     }
 
-    // Use Unix timestamp (milliseconds) for more reliable parsing
-    const expiresAtMs = {{.PaymentInvoice.ExpiresAt.UnixMilli}};
+    const expiresAtMs = parseInt(dataEl.dataset.expiresAt);
     console.log('[Timer] Expiration timestamp (ms):', expiresAtMs);
 
     const expiresAt = new Date(expiresAtMs);
@@ -191,18 +196,23 @@
     const diff = expiresAt - now;
     console.log('[Timer] Time diff (ms):', diff, '(minutes:', Math.floor(diff / 60000), ')');
 
+    let intervalId;
+
     function updateCountdown() {
+      // Check if this timer is obsolete (newer timer started)
+      if (myGeneration !== window.paymentTimerGeneration) {
+        console.log('[Timer] Generation', myGeneration, 'obsolete (current:', window.paymentTimerGeneration + '), stopping');
+        clearInterval(intervalId);
+        return;
+      }
+
       const currentTimerEl = document.getElementById('countdown-timer');
       if (!currentTimerEl) {
         // Element was removed from DOM, stop the timer
-        console.log('[Timer] Element removed from DOM, stopping timer');
-        if (window.paymentTimerInterval) {
-          clearInterval(window.paymentTimerInterval);
+        console.log('[Timer] Element removed from DOM, stopping timer generation', myGeneration);
+        clearInterval(intervalId);
+        if (window.paymentTimerInterval === intervalId) {
           window.paymentTimerInterval = null;
-        }
-        if (timerEl.dataset.timerId) {
-          clearInterval(parseInt(timerEl.dataset.timerId));
-          delete timerEl.dataset.timerId;
         }
         return;
       }
@@ -211,16 +221,12 @@
       const diff = expiresAt - now;
 
       if (diff <= 0) {
-        console.log('[Timer] Payment expired');
+        console.log('[Timer] Payment expired (generation', myGeneration + ')');
         currentTimerEl.textContent = 'Expired';
         currentTimerEl.style.color = 'rgb(244, 67, 54)';
-        if (window.paymentTimerInterval) {
-          clearInterval(window.paymentTimerInterval);
+        clearInterval(intervalId);
+        if (window.paymentTimerInterval === intervalId) {
           window.paymentTimerInterval = null;
-        }
-        if (timerEl.dataset.timerId) {
-          clearInterval(parseInt(timerEl.dataset.timerId));
-          delete timerEl.dataset.timerId;
         }
         return;
       }
@@ -229,20 +235,21 @@
       const seconds = Math.floor((diff % 60000) / 1000);
       const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
       currentTimerEl.textContent = timeStr;
-      console.log('[Timer] Updated countdown to:', timeStr);
+      console.log('[Timer] Updated countdown to:', timeStr, '(gen', myGeneration + ')');
     }
 
     // Initial update
     console.log('[Timer] Calling initial updateCountdown');
     updateCountdown();
 
-    // Start interval and store ID globally and on the element
-    const intervalId = setInterval(updateCountdown, 1000);
+    // Start interval and store ID globally
+    intervalId = setInterval(updateCountdown, 1000);
     window.paymentTimerInterval = intervalId;
-    timerEl.dataset.timerId = intervalId.toString();
-    console.log('[Timer] Interval started with ID:', intervalId);
-  });
-  })();
+    console.log('[Timer] Interval started with ID:', intervalId, '(generation', myGeneration + ')');
+  }
+
+  // Note: initPaymentTimer() is called by the HTMX afterSwap event listener
+  // in the parent page, not here. Calling it twice causes duplicate timers.
   </script>
 </div>
 {{end}}

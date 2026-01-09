@@ -1,118 +1,28 @@
 {{define "create-bounty-form"}}
 <!-- Form -->
 <form
+  id="create-bounty-form"
   hx-post="/forms/create-bounty"
   hx-target="#create-bounty-form-container"
   hx-swap="innerHTML"
-  @htmx:before-request="
-    if (useCalendar && durationError) {
-      $event.preventDefault();
-      alert('Please select a valid end date (at least 24 hours from now)');
-      return false;
-    }
-    if (useCalendar && !bountyEndDate) {
-      $event.preventDefault();
-      alert('Please select an end date');
-      return false;
-    }
-    submittingBounty = true;
-  "
-  @htmx:config-request="
-    let timestamp = '';
-    if (useCalendar) {
-      if (bountyEndDate) {
-        timestamp = new Date(bountyEndDate).toISOString();
-      }
-    } else {
-      const durationDays = parseInt(newBounty.duration);
-      if (!isNaN(durationDays)) {
-        const endDate = new Date();
-        endDate.setDate(endDate.getDate() + durationDays);
-        timestamp = endDate.toISOString();
-      }
-    }
-    console.log('Submitting bounty with timestamp:', timestamp);
-    console.log('Duration:', newBounty.duration, 'UseCalendar:', useCalendar);
-    $event.detail.parameters.timeout_timestamp = timestamp;
-  "
-  @htmx:after-request="submittingBounty = false; if($event.detail.successful) handleBountyFormSuccess()"
 >
   <!-- Requirements -->
   <div class="filter-section">
-    <div
-      style="
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 0.75rem;
-      "
-    >
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
       <label class="filter-label" style="margin: 0">Requirements</label>
       <button
         type="button"
-        @click="hardenRequirements()"
+        id="harden-button"
         class="ai-harden-button"
-        :disabled="hardeningInProgress"
-        :style="hardeningInProgress ? 'opacity: 0.7 !important; cursor: wait !important;' : ''"
-        @mouseenter="if (!hardeningInProgress) { $el.style.transform = 'translateY(-2px) scale(1.02)'; $el.style.boxShadow = '0 6px 20px rgba(0, 230, 118, 0.6)'; }"
-        @mouseleave="$el.style.transform = 'translateY(0) scale(1)'; $el.style.boxShadow = '0 4px 12px rgba(0, 200, 83, 0.4)'"
       >
-        <span
-          x-show="!hardeningInProgress"
-          style="
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            white-space: nowrap;
-          "
-          >✨ Harden with AI</span
-        >
-        <span
-          x-show="hardeningInProgress"
-          style="
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            white-space: nowrap;
-          "
-        >
-          <svg
-            style="
-              animation: spin 1s linear infinite;
-              width: 14px;
-              height: 14px;
-              flex-shrink: 0;
-              display: inline-block;
-              vertical-align: middle;
-            "
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <circle
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              stroke-width="4"
-              stroke-opacity="0.25"
-            />
-            <path
-              d="M12 2a10 10 0 0 1 10 10"
-              stroke="currentColor"
-              stroke-width="4"
-              stroke-linecap="round"
-            />
-          </svg>
-          <span>Processing...</span>
-        </span>
+        <span id="harden-button-text">✨ Harden with AI</span>
       </button>
     </div>
     <textarea
       class="filter-input"
+      id="requirements"
       name="requirements"
       placeholder="Describe what content you want created..."
-      x-model="newBounty.requirements"
       rows="4"
       required
       style="width: 100%; resize: vertical; font-family: inherit"
@@ -126,6 +36,7 @@
         <label class="filter-label">Reward (USD)</label>
         <input
           type="number"
+          id="reward_per_post"
           name="reward_per_post"
           inputmode="decimal"
           class="filter-input"
@@ -133,7 +44,6 @@
           step="0.01"
           min="0"
           required
-          x-model="newBounty.rewardPerPost"
           style="width: 100%"
         />
       </div>
@@ -141,6 +51,7 @@
         <label class="filter-label">Quantity</label>
         <input
           type="number"
+          id="number_of_bounties"
           name="number_of_bounties"
           inputmode="numeric"
           class="filter-input"
@@ -148,7 +59,6 @@
           step="1"
           min="1"
           required
-          x-model="newBounty.numberOfBounties"
           style="width: 100%"
         />
       </div>
@@ -161,7 +71,7 @@
       <label class="filter-label" style="margin: 0;">Bounty Expiration</label>
       <button
         type="button"
-        @click="useCalendar = !useCalendar"
+        id="toggle-calendar"
         style="
           background: rgba(160, 202, 252, 0.15);
           border: 1px solid rgba(160, 202, 252, 0.4);
@@ -172,19 +82,16 @@
           cursor: pointer;
           transition: all 0.2s;
         "
-        @mouseenter="$el.style.background = 'rgba(160, 202, 252, 0.25)'"
-        @mouseleave="$el.style.background = 'rgba(160, 202, 252, 0.15)'"
       >
-        <span x-show="!useCalendar">📅 Use Calendar</span>
-        <span x-show="useCalendar">⏱️ Use Duration</span>
+        📅 Use Calendar
       </button>
     </div>
 
     <!-- Duration dropdown (shown by default) -->
-    <div x-show="!useCalendar">
+    <div id="duration-input">
       <select
+        id="duration"
         class="filter-input"
-        x-model="newBounty.duration"
         style="width: 100%"
       >
         <option value="1">1 day</option>
@@ -197,78 +104,44 @@
       </select>
     </div>
 
-    <!-- Calendar picker (shown when toggled) -->
-    <div x-show="useCalendar">
+    <!-- Calendar picker (hidden by default) -->
+    <div id="calendar-input" style="display: none">
       <input
         type="datetime-local"
+        id="bounty-end-date"
         class="filter-input"
-        x-model="bountyEndDate"
-        :min="minEndDate"
-        @change="calculateDuration()"
         style="width: 100%"
       >
-      <p x-show="durationError" style="color: rgb(244, 67, 54); font-size: 0.8rem; margin-top: 0.5rem;" x-text="durationError"></p>
-      <p x-show="!durationError && calculatedDuration" style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.5rem;" x-text="'Duration: ' + calculatedDuration"></p>
+      <p id="duration-error" style="color: rgb(244, 67, 54); font-size: 0.8rem; margin-top: 0.5rem; display: none;"></p>
+      <p id="calculated-duration" style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.5rem;"></p>
     </div>
+
+    <!-- Hidden input for timestamp -->
+    <input type="hidden" id="timeout_timestamp" name="timeout_timestamp">
   </div>
 
   <!-- Cost Breakdown -->
-  <div
-    style="
+  <div style="
       background-color: rgba(160, 202, 252, 0.1);
       border: 1px solid rgba(160, 202, 252, 0.3);
       border-radius: 8px;
       padding: 1rem;
       margin-bottom: 1.5rem;
-    "
-  >
-    <p
-      style="
-        font-size: 0.875rem;
-        color: var(--text-primary);
-        margin: 0 0 0.75rem 0;
-        font-weight: 600;
-      "
-    >
+    ">
+    <p style="font-size: 0.875rem; color: var(--text-primary); margin: 0 0 0.75rem 0; font-weight: 600;">
       Cost Breakdown
     </p>
-    <div
-      style="
-        display: flex;
-        justify-content: space-between;
-        font-size: 0.875rem;
-        color: var(--text-secondary);
-        margin-bottom: 0.5rem;
-      "
-    >
+    <div style="display: flex; justify-content: space-between; font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
       <span>Subtotal:</span>
-      <span x-text="'$' + totalCost.subtotal.toFixed(2)"></span>
+      <span id="cost-subtotal">$0.00</span>
     </div>
-    <div
-      style="
-        display: flex;
-        justify-content: space-between;
-        font-size: 0.875rem;
-        color: var(--text-secondary);
-        margin-bottom: 0.5rem;
-      "
-    >
+    <div style="display: flex; justify-content: space-between; font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
       <span>Platform Fee:</span>
-      <span x-text="'$' + totalCost.fee.toFixed(2)"></span>
+      <span id="cost-fee">$0.00</span>
     </div>
-    <div
-      style="
-        display: flex;
-        justify-content: space-between;
-        font-size: 1rem;
-        color: var(--text-primary);
-        font-weight: 600;
-        padding-top: 0.5rem;
-        border-top: 1px solid rgba(160, 202, 252, 0.3);
-      "
-    >
+    <div style="display: flex; justify-content: space-between; font-size: 1rem; color: var(--text-primary); font-weight: 600; padding-top: 0.5rem; border-top: 1px solid rgba(160, 202, 252, 0.3);">
       <span>Total:</span>
-      <span x-text="'$' + totalCost.total.toFixed(2)"></span>
+      <span id="cost-total">$0.00</span>
     </div>
   </div>
 
@@ -280,67 +153,246 @@
     <button
       type="button"
       class="filter-button filter-button-secondary"
-      @click="createBountyModalOpen = false"
+      onclick="closeCreateBountyModal()"
     >
       Cancel
     </button>
     <button
       type="submit"
+      id="submit-button"
       class="filter-button filter-button-primary"
-      :disabled="submittingBounty"
-      :style="submittingBounty ? 'opacity: 0.7 !important;' : ''"
     >
-      <span
-        x-show="!submittingBounty"
-        style="
-          display: inline-flex;
-          align-items: center;
-          gap: 0.4rem;
-          white-space: nowrap;
-        "
-        >Create Bounty</span
-      >
-      <span
-        x-show="submittingBounty"
-        style="
-          display: inline-flex;
-          align-items: center;
-          gap: 0.5rem;
-          white-space: nowrap;
-        "
-      >
-        <svg
-          style="
-            animation: spin 1s linear infinite;
-            width: 14px;
-            height: 14px;
-            flex-shrink: 0;
-            display: inline-block;
-            vertical-align: middle;
-          "
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <circle
-            cx="12"
-            cy="12"
-            r="10"
-            stroke="currentColor"
-            stroke-width="4"
-            stroke-opacity="0.25"
-          />
-          <path
-            d="M12 2a10 10 0 0 1 10 10"
-            stroke="currentColor"
-            stroke-width="4"
-            stroke-linecap="round"
-          />
-        </svg>
-        <span>Creating...</span>
-      </span>
+      Create Bounty
     </button>
   </div>
 </form>
-{{end}}
 
+<script>
+(function() {
+  // Get form elements
+  const form = document.getElementById('create-bounty-form');
+  const rewardInput = document.getElementById('reward_per_post');
+  const quantityInput = document.getElementById('number_of_bounties');
+  const durationSelect = document.getElementById('duration');
+  const bountyEndDateInput = document.getElementById('bounty-end-date');
+  const timestampInput = document.getElementById('timeout_timestamp');
+  const toggleButton = document.getElementById('toggle-calendar');
+  const durationDiv = document.getElementById('duration-input');
+  const calendarDiv = document.getElementById('calendar-input');
+  const durationError = document.getElementById('duration-error');
+  const calculatedDuration = document.getElementById('calculated-duration');
+  const hardenButton = document.getElementById('harden-button');
+  const requirementsTextarea = document.getElementById('requirements');
+
+  // Platform fee (fetch from config)
+  let platformFeePercent = 100;
+  fetch('/api/v1/config')
+    .then(res => res.json())
+    .then(config => {
+      platformFeePercent = config.platform_fee_percent || 100;
+      updateCostBreakdown();
+    })
+    .catch(err => {
+      console.error('Failed to fetch config:', err);
+      updateCostBreakdown();
+    });
+
+  // Initialize calendar with default 30 days from now
+  const defaultDate = new Date();
+  defaultDate.setDate(defaultDate.getDate() + 30);
+  bountyEndDateInput.value = defaultDate.toISOString().slice(0, 16);
+  bountyEndDateInput.min = getMinEndDate();
+
+  function getMinEndDate() {
+    const minDate = new Date();
+    minDate.setHours(minDate.getHours() + 24);
+    return minDate.toISOString().slice(0, 16);
+  }
+
+  // Update cost breakdown
+  function updateCostBreakdown() {
+    const reward = parseFloat(rewardInput.value) || 0;
+    const count = parseInt(quantityInput.value) || 0;
+    const subtotal = reward * count;
+    const fee = subtotal * (platformFeePercent / 100);
+    const total = subtotal + fee;
+
+    document.getElementById('cost-subtotal').textContent = '$' + subtotal.toFixed(2);
+    document.getElementById('cost-fee').textContent = '$' + fee.toFixed(2);
+    document.getElementById('cost-total').textContent = '$' + total.toFixed(2);
+  }
+
+  // Listen for input changes
+  rewardInput.addEventListener('input', updateCostBreakdown);
+  quantityInput.addEventListener('input', updateCostBreakdown);
+
+  // Toggle between calendar and duration
+  let useCalendar = false;
+  toggleButton.addEventListener('click', function() {
+    useCalendar = !useCalendar;
+    if (useCalendar) {
+      durationDiv.style.display = 'none';
+      calendarDiv.style.display = 'block';
+      toggleButton.textContent = '⏱️ Use Duration';
+      calculateDuration();
+    } else {
+      durationDiv.style.display = 'block';
+      calendarDiv.style.display = 'none';
+      toggleButton.textContent = '📅 Use Calendar';
+      durationError.style.display = 'none';
+      calculatedDuration.textContent = '';
+    }
+  });
+
+  // Calculate duration from end date
+  function calculateDuration() {
+    if (!bountyEndDateInput.value) {
+      durationError.style.display = 'none';
+      calculatedDuration.textContent = '';
+      return;
+    }
+
+    const now = new Date();
+    const endDate = new Date(bountyEndDateInput.value);
+    const diffMs = endDate - now;
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMinutes / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    // Validate: must be at least 24 hours in the future
+    if (diffHours < 24) {
+      durationError.textContent = 'End date must be at least 24 hours from now';
+      durationError.style.display = 'block';
+      calculatedDuration.textContent = '';
+      return;
+    }
+
+    // Clear error
+    durationError.style.display = 'none';
+
+    // Calculate duration with minutes precision
+    const remainingHours = diffHours % 24;
+    const remainingMinutes = diffMinutes % 60;
+
+    let durationText = '';
+    if (diffDays >= 1) {
+      durationText = `${diffDays} day${diffDays !== 1 ? 's' : ''}`;
+      if (remainingHours > 0 || remainingMinutes > 0) {
+        const parts = [];
+        if (remainingHours > 0) {
+          parts.push(`${remainingHours} hour${remainingHours !== 1 ? 's' : ''}`);
+        }
+        if (remainingMinutes > 0) {
+          parts.push(`${remainingMinutes} minute${remainingMinutes !== 1 ? 's' : ''}`);
+        }
+        durationText += `, ${parts.join(', ')}`;
+      }
+    } else {
+      const parts = [];
+      if (diffHours > 0) {
+        parts.push(`${diffHours} hour${diffHours !== 1 ? 's' : ''}`);
+      }
+      if (remainingMinutes > 0) {
+        parts.push(`${remainingMinutes} minute${remainingMinutes !== 1 ? 's' : ''}`);
+      }
+      durationText = parts.join(', ');
+    }
+
+    calculatedDuration.textContent = 'Duration: ' + durationText;
+  }
+
+  bountyEndDateInput.addEventListener('change', calculateDuration);
+
+  // AI Harden Requirements
+  let hardeningInProgress = false;
+  hardenButton.addEventListener('click', async function() {
+    if (!requirementsTextarea.value || hardeningInProgress) return;
+
+    hardeningInProgress = true;
+    hardenButton.disabled = true;
+    hardenButton.style.opacity = '0.7';
+    hardenButton.style.cursor = 'wait';
+
+    const originalText = hardenButton.querySelector('#harden-button-text');
+    originalText.innerHTML = '<svg style="animation: spin 1s linear infinite; width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-right: 0.5rem;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" stroke-opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></svg>Processing...';
+
+    try {
+      const response = await fetch('/api/v1/bounties/harden', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requirements: requirementsTextarea.value })
+      });
+
+      if (!response.ok) throw new Error('Failed to harden requirements');
+
+      const data = await response.json();
+      requirementsTextarea.value = data.hardened_requirements || data.requirements;
+    } catch (err) {
+      console.error('Failed to harden requirements:', err);
+      alert('Failed to enhance requirements. Please try again.');
+    } finally {
+      hardeningInProgress = false;
+      hardenButton.disabled = false;
+      hardenButton.style.opacity = '';
+      hardenButton.style.cursor = '';
+      originalText.textContent = '✨ Harden with AI';
+    }
+  });
+
+  // Handle form submission
+  form.addEventListener('submit', function(e) {
+    // Calculate timestamp before submission
+    let timestamp = '';
+
+    if (useCalendar) {
+      if (!bountyEndDateInput.value) {
+        e.preventDefault();
+        alert('Please select an end date');
+        return;
+      }
+
+      // Check for duration error
+      if (durationError.style.display !== 'none') {
+        e.preventDefault();
+        alert('Please select a valid end date (at least 24 hours from now)');
+        return;
+      }
+
+      timestamp = new Date(bountyEndDateInput.value).toISOString();
+    } else {
+      const durationDays = parseInt(durationSelect.value);
+      if (!isNaN(durationDays)) {
+        const endDate = new Date();
+        endDate.setDate(endDate.getDate() + durationDays);
+        timestamp = endDate.toISOString();
+      }
+    }
+
+    console.log('Submitting bounty with timestamp:', timestamp);
+    timestampInput.value = timestamp;
+
+    // Disable submit button
+    const submitButton = document.getElementById('submit-button');
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<svg style="animation: spin 1s linear infinite; width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-right: 0.5rem;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" stroke-opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></svg>Creating...';
+  });
+
+  // Handle successful bounty creation
+  document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id === 'create-bounty-form-container') {
+      // Check if QR code was swapped in (successful creation)
+      const hasTimer = evt.detail.target.querySelector('#countdown-timer') !== null;
+      if (hasTimer) {
+        // Refresh the bounty list
+        const refreshEl = document.getElementById('bounty-list-container');
+        if (refreshEl) htmx.trigger(refreshEl, 'refresh');
+
+        // Update modal title
+        const modalTitle = document.querySelector('.modal-title');
+        if (modalTitle) modalTitle.textContent = 'Fund Bounty';
+      }
+    }
+  });
+})();
+</script>
+{{end}}
