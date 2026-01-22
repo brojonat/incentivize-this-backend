@@ -1014,9 +1014,11 @@ func bootstrapBountiesAction(ctx *cli.Context) error {
 				return
 			}
 
-			usdcFundingAmount, err := solanautil.NewUSDCAmount(bd.TotalAmount)
+			// Use the total_charged amount returned by the server (includes platform fees)
+			// rather than the total_amount from the YAML (which is just the bounty amount)
+			usdcFundingAmount, err := solanautil.NewUSDCAmount(creationResp.TotalCharged)
 			if err != nil {
-				bountyLogger.Error("Invalid total_amount for funding", "amount", bd.TotalAmount, "error", err)
+				bountyLogger.Error("Invalid total_charged for funding", "amount", creationResp.TotalCharged, "error", err)
 				return
 			}
 			amountLamports := usdcFundingAmount.ToSmallestUnit().Uint64()
@@ -1055,7 +1057,7 @@ func bootstrapBountiesAction(ctx *cli.Context) error {
 			bountyLogger.Info("Escrow funding transaction sent!", "signature", sig.String())
 		}(i, bountyDef)
 		// sleep between bounties to space out the Solana interactions
-		time.Sleep(1 * time.Second)
+		time.Sleep(5 * time.Second)
 	}
 
 	wg.Wait()

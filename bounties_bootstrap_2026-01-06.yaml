@@ -1,0 +1,203 @@
+bounties:
+
+  # IncentivizeThis Platform Promotion Bounties
+  - name: incentivize-this-reddit-comment
+    requirements: |
+      Create a Reddit comment that mentions IncentivizeThis.
+      The comment must either mention how it's a novel way to drive engagement and get people talking about your business, or the comment must describe a positive experience with the platform.
+      The comment must have at least 10 upvotes.
+      The comment must not be edited.
+      The comment must be created on or after {{.Date}}.
+      The comment must be in one of the following subreddits:
+      - r/marketing
+      - r/entrepreneur
+      - r/startups
+      - r/EntrepreneurRideAlong
+      - r/sideproject
+      - r/sidehustle
+      - r/startup_ideas
+
+      There must not be any child comments suggesting this is spam or paid content.
+    total_amount: 5.0
+    per_post_amount: 0.50
+    duration: 180d
+
+  - name: incentivize-this-bluesky-post
+    requirements: |
+      Write a post about IncentivizeThis. The post must show the platform in a positive light and emphasize its ease of use and the fact that it's a community-driven platform. The post must have at least 10 replies, 10 likes, and 10 reposts. The post must tag #incentivizethis and @incentivizethis.bsky.social.
+      Content must be created on or after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
+    total_amount: 10.0
+    per_post_amount: 1.0
+    duration: 180d
+
+  - name: incentivize-this-hackernews-post
+    requirements: |
+      Write a HackerNews post about IncentivizeThis. The post must show the platform in a positive light and emphasize its ease of use and the fact that it's a community-driven platform. The post must have at least 50 upvotes and 50 comments.
+      Content must be created on or after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
+    total_amount: 10.0
+    per_post_amount: 1.0
+    duration: 180d
+
+  - name: incentivize-this-hackernews-comment
+    requirements: |
+      Write a HackerNews comment about IncentivizeThis. The comment must be at
+      least 50 characters long and contribute meaningfully to the discussion.
+      The comment must have at least 5 child comments from other users. Content
+      must be created on or after {{.Date}}.
+    total_amount: 5.0
+    per_post_amount: 0.50
+    duration: 180d
+
+  # Medium-value bounties (all adjusted to $5 total)
+  - name: photoshop-request
+    requirements: |
+      Write a comment in r/photoshoprequest.
+      The comment must be created on or after {{.Date}}.
+      The original poster must reply to the comment with "!solved".
+      The comment must be on a post that has at least 25 upvotes.
+      The payout wallet must be present in the comment.
+    total_amount: 5.0
+    per_post_amount: 0.50
+    duration: 180d
+
+  - name: reddit-vpn-comment
+    requirements: |
+      Create a Reddit comment about the VPN services. It should have at least 10 upvotes. It should emphasize the benefits of using a VPN: that it can help you stay safe online by encrypting your traffic. It should also mention that it's a good way to access content that is blocked in your country.
+      The comment must be in one of the following subreddits:
+      - r/netflix
+      - r/hulu
+      - r/disneyplus
+      - r/hbo
+      - r/amazonprime
+      - r/appletv
+      - r/peacock
+      - r/hbo
+      - r/homelab
+      - r/DIY
+
+      There must not be any child comments suggesting that this is a paid post or sponsored content.
+    total_amount: 5.0
+    per_post_amount: 0.50
+    duration: 180d
+
+  - name: reddit-heat-pump-comment
+    requirements: |
+      Write a Reddit comment about heat pumps. The comment should be educational
+      about heat pumps and emphasize how they're a very efficient way to heat
+      and cool your home. The comment must have at least 10 upvotes and be
+      posted in one of these subreddits:
+      - r/firsttimehomebuyer
+      - r/homeimprovement
+      - r/thisoldhouse
+      - r/DIY
+      - r/woodworking
+      - r/beginnerwoodworking
+      - r/homeowners
+      - r/wallstreetbets
+      Content must be created on or after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
+    total_amount: 5.0
+    per_post_amount: 0.50
+    duration: 180d
+
+  - name: B
+    requirements: |
+      Write an Instagram post about SuzieCakes. The post must show the business in a positive light and emphasize their amazing baked goods and the fact that they're a local business. The post must have at least 10 comments and mention @susiecakesbakery and either #Austin or #OrangeCounty (or both).
+      Content must be created on or after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
+    total_amount: 5.0
+    per_post_amount: 0.50
+    duration: 180d
+
+  - name: D
+    requirements: |
+      Write a post about DuckDB. The post must show the database in a positive light and emphasize its speed and ease of use. It must also mention DuckLake. The post must have at least 10 upvotes. The post must be in one of the following subreddits:
+      - r/dataengineering
+      - r/databases
+      - r/sql
+      - r/programmerhumor
+      Content must be created on or after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
+    total_amount: 5.0
+    per_post_amount: 0.50
+    duration: 180d
+
+  - name: H
+    requirements: |
+      Create a YouTube video about RocketMoney. The video must be at least 3 minutes long and have at least 5k views. It should emphasize the benefits of using RocketMoney: that it can help you save money on your bills by cancelling your unused subscriptions.
+      Content must be created on or after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
+    total_amount: 10.0
+    per_post_amount: 1.0
+    duration: 180d
+
+  - name: I
+    requirements: |
+      Create a Reddit comment about RocketMoney. It should have at least 10 upvotes. It should emphasize the benefits of using RocketMoney: that it can help you save money on your bills by cancelling your unused subscriptions.
+      Content must be created on or after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
+    total_amount: 5.0
+    per_post_amount: 0.50
+    duration: 30d
+
+  - name: J
+    requirements: |
+      Create a YouTube video about BetterHelp. The video must be at least 3 minutes long and have at least 5k views. It should emphasize the benefits of using BetterHelp: that it can help connect you with a therapist.
+      Content must be created on or after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
+      The video must not be published by the BetterHelp channel.
+    total_amount: 10.0
+    per_post_amount: 1.0
+    duration: 30d
+
+  - name: K
+    requirements: |
+      Create a Reddit comment about BetterHelp. It should have at least 10 upvotes. It should emphasize the benefits of using BetterHelp: that it can help connect you with a therapist.
+      Content must be created on or after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
+    total_amount: 5.0
+    per_post_amount: 0.50
+
+  - name: L
+    requirements: |
+      Create a YouTube video about NordVPN. The video must be at least 3 minutes long and have at least 5k views. It should emphasize the benefits of using NordVPN: that it can help you stay safe online by encrypting your traffic. It should also mention that it's a good way to access content that is blocked in your country.
+      Content must be created on or after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
+    total_amount: 5.0
+    per_post_amount: 0.50
+    duration: 180d
+
+  - name: N
+    requirements: |
+      Create an Instagram post about Sign Design in Fountain Valley, CA. The post must show the business in a positive light and emphasize their cool designs, incredible customer service and the fact that they're a local business. The post must have at least 10 likes, 5 commends, and mention @signdesignoc.
+      Content must be created on or after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
+    total_amount: 5.0
+    per_post_amount: 0.50
+    duration: 179d
+
+  - name: O
+    requirements: |
+      Create a Reddit comment about Serendipity The Venue in Fountain Valley, CA. The comment must show the business in a positive light and emphasize that they are an all-inclusive event space and banquet hall perfect for wedding ceremonies & receptions, corporate events, and private celebrations. The comment should highlight their excellent service and that they are a local business. The comment must have at least 10 upvotes and be posted in one of these subreddits:
+      - r/OrangeCounty
+      - r/Irvine
+      - r/FountainValley
+      - r/weddingplanning
+      - r/weddings
+      - r/weddingsunder10k
+      Content must be created on or after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
+    total_amount: 5.0
+    per_post_amount: 0.50
+    duration: 179d
+
+  - name: Q
+    requirements: |
+      Create a YouTube video in which Mark Wiens visits Vila Foz Hotel restaurant in Portugal. The video must be at least 15 minutes long and have at least 50k views. It should show the restaurant in a positive light and emphasize their amazing food and service.
+      Content must be created on or after {{.Date}}.
+      If the content has been edited, the bounty is not fulfilled.
+    total_amount: 10.0
+    per_post_amount: 1.0
+    duration: 180d

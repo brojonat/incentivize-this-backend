@@ -1,26 +1,33 @@
 # affiliate-bounty-board
 
-This project is a bounty board for online content creation, powered by Temporal workflows and Solana for payments. Advertisers can create bounties, and content creators can fulfill them to earn rewards.
+This project is a bounty board for online content creation, powered by Temporal
+workflows and Solana for payments. Advertisers can create bounties, and content
+creators can fulfill them to earn rewards.
 
 ## TODO:
 
-- I'm almost certain based on wallet transaction histories that we've misconfigured the escrow wallet to send the fee transfer to itself instead of the treasury wallet.
 - Add StackOverflow as a platform. This will work just like GitHub issues.
+- Add Kaggle as a platform. This will also work like GitHub issues. Companies
+  can post a data sample and mark a winner.
 
 ## How It Works
 
-1.  A **Funder** (e.g., a business owner) creates a bounty with a reward amount and specific requirements.
+1.  A **Funder** (e.g., a business owner) creates a bounty with a reward amount
+    and specific requirements.
 2.  A **Content Creator** sees the bounty on the board.
-3.  The creator produces content that fulfills the bounty's requirements and submits a link along with their Solana wallet address.
+3.  The creator produces content that fulfills the bounty's requirements and
+    submits a link along with their Solana wallet address.
 4.  An automated system analyzes the content against the requirements.
 5.  If the content is valid, the creator is paid in USDC from an escrow account.
 
 ## Current Limitations
 
-1. Tripadvisor is a newly supported platform. Their API only allows for fetching the 5 most recent reviews for a location.
+1. Tripadvisor is a newly supported platform. Their API only allows for fetching
+   the 5 most recent reviews for a location.
 2. Bounties cannot be edited, but you can easily cancel and create a new bounty.
 3. Payout amounts are fixed (i.e., no dynamic payout amounts).
-4. Image analysis is limited to thumbnails; we'll be adding more powerful image analysis features in the very near future.
+4. Image analysis is limited to thumbnails; we'll be adding more powerful image
+   analysis features in the very near future.
 
 ## Getting Started
 
@@ -33,9 +40,11 @@ This project is a bounty board for online content creation, powered by Temporal 
 
 ### Environment Setup
 
-The application uses environment files for configuration. Before running any services, you must set up your configuration.
+The application uses environment files for configuration. Before running any
+services, you must set up your configuration.
 
-1.  **Copy the example files:** There are separate configurations for local debugging and production.
+1.  **Copy the example files:** There are separate configurations for local
+    debugging and production.
 
     ```bash
     # For local development
@@ -47,7 +56,8 @@ The application uses environment files for configuration. Before running any ser
     cp worker/.env.example .env.worker.prod
     ```
 
-2.  **Update the `.env.*` files:** Fill in the necessary values for your setup, including:
+2.  **Update the `.env.*` files:** Fill in the necessary values for your setup,
+    including:
     - Database credentials (`ABB_DATABASE_URL`)
     - Temporal connection details (`TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`)
     - Solana credentials and addresses
@@ -59,12 +69,15 @@ All common development and operational tasks are managed through the `Makefile`.
 
 ### Local Development
 
-The recommended way to run the project locally is with the integrated `tmux` development session. It starts the server, worker, and port-forwarding to your Temporal instance.
+The recommended way to run the project locally is with the integrated `tmux`
+development session. It starts the server, worker, and port-forwarding to your
+Temporal instance.
 
 **Prerequisites:**
 
 - Ensure `tmux` is installed (`brew install tmux` on macOS).
-- Ensure `kubectl` is configured to access the cluster where Temporal is running.
+- Ensure `kubectl` is configured to access the cluster where Temporal is
+  running.
 
 **To start the development session:**
 
@@ -77,7 +90,8 @@ This command will:
 1. Build the project's command-line interface (`abb`).
 2. Start a new `tmux` session named `abb-dev`.
 3. Create panes for the server, the worker, and a general-purpose CLI.
-4. Start port-forwarding from your local machine to the Temporal frontend and web UI in Kubernetes.
+4. Start port-forwarding from your local machine to the Temporal frontend and
+   web UI in Kubernetes.
 5. Source the `.env.server.debug` file in the CLI panes for immediate use.
 
 To stop the session and all related processes:
@@ -119,7 +133,8 @@ make build-push-cli
 **Prerequisites:**
 
 - A Kubernetes cluster with an `nginx-ingress` controller and `cert-manager`.
-- Your `.env.server.prod` and `.env.worker.prod` files must be populated with production values.
+- Your `.env.server.prod` and `.env.worker.prod` files must be populated with
+  production values.
 
 **Commands:**
 
@@ -136,7 +151,8 @@ make build-push-cli
   make deploy-worker
   ```
 
-- **Update Kubernetes secrets** from your `.env.*.prod` files without a full redeployment:
+- **Update Kubernetes secrets** from your `.env.*.prod` files without a full
+  redeployment:
 
   ```bash
   make update-secrets-server
@@ -187,7 +203,6 @@ make build-push-cli
 The application consists of two main components:
 
 1. **Server**: HTTP API server that handles:
-
    - User authentication/token management
    - Bounty CRUDL endpoints
 
@@ -214,10 +229,11 @@ set -o allexport && source .env.server && set +o allexport
 
 ## Authentication
 
-The project uses a two-step authentication process typical to what you'd see in a OAuth2 flow:
+The project uses a two-step authentication process typical to what you'd see in
+a OAuth2 flow:
 
-1. **Form with Credentials**: Used only for the `POST /token` endpoint to obtain a Bearer token
-
+1. **Form with Credentials**: Used only for the `POST /token` endpoint to obtain
+   a Bearer token
    - Client submits form data with the following fields
      - `username`: Your email
      - `password`: Server secret key
@@ -251,7 +267,9 @@ Options:
 - `--endpoint`: Override server endpoint
 - `--secret-key`: Override server secret key
 
-**Note**: A running server is required to generate new tokens (this will be fixed soon). Make sure to start the server in another terminal using `abb run http-server` before attempting to get a new token.
+**Note**: A running server is required to generate new tokens (this will be
+fixed soon). Make sure to start the server in another terminal using
+`abb run http-server` before attempting to get a new token.
 
 ## Temporal Workflows
 
@@ -344,13 +362,11 @@ graph TD
 ### Activities
 
 1. **RedditActivities**
-
    - Fetch post content
    - Verify post existence and ownership
    - Check post metrics
 
 2. **LLMActivities**
-
    - Analyze post content
    - Verify requirements compliance
    - Generate verification reports
@@ -368,8 +384,11 @@ graph TD
 - Checks for keyword presence and usage
 - Generates detailed verification reports
 
-- The base prompt used for content verification can be configured using the `LLM_CHECK_REQ_PROMPT_BASE` environment variable. This variable should contain the base64 encoded version of the desired base prompt text.
-- You can generate a base64 encoded prompt using a command like this (saving the output to a file or directly setting the environment variable):
+- The base prompt used for content verification can be configured using the
+  `LLM_CHECK_REQ_PROMPT_BASE` environment variable. This variable should contain
+  the base64 encoded version of the desired base prompt text.
+- You can generate a base64 encoded prompt using a command like this (saving the
+  output to a file or directly setting the environment variable):
 
   ```bash
   # Example command to base64 encode a custom prompt
@@ -410,7 +429,9 @@ graph TD
 
 ## Solana Wallet Management
 
-**IMPORTANT:** The `solana` and `spl-token` commands connect to the network specified in your Solana CLI configuration. For these instructions, ensure your configuration points to Devnet, like the example shown below:
+**IMPORTANT:** The `solana` and `spl-token` commands connect to the network
+specified in your Solana CLI configuration. For these instructions, ensure your
+configuration points to Devnet, like the example shown below:
 
 ```bash
  »  solana config get
@@ -421,24 +442,35 @@ Keypair Path: /Users/brojonat/.config/solana/id.json
 Commitment: confirmed
 ```
 
-On Solana, your main wallet address (like the one derived from your keypair) doesn't directly hold SPL Tokens such as USDC. Instead, you need a separate Associated Token Account (ATA) specifically for USDC that is owned by your main wallet; this ATA's address is automatically derived from your main wallet address and the USDC mint address. We pay the (inexpensive) rent fee for creating this account if it doesn't exist.
+On Solana, your main wallet address (like the one derived from your keypair)
+doesn't directly hold SPL Tokens such as USDC. Instead, you need a separate
+Associated Token Account (ATA) specifically for USDC that is owned by your main
+wallet; this ATA's address is automatically derived from your main wallet
+address and the USDC mint address. We pay the (inexpensive) rent fee for
+creating this account if it doesn't exist.
 
-These steps outline how to generate a new Solana keypair, fund it on devnet, and retrieve its private key using the `abb` CLI. It also delves into some USDC ATA commands.
+These steps outline how to generate a new Solana keypair, fund it on devnet, and
+retrieve its private key using the `abb` CLI. It also delves into some USDC ATA
+commands.
 
 ### 1. Generate a New Keypair
 
-Use the Solana CLI tool to create a new keypair file. Choose a memorable path, for example, `~/.config/solana/my_new_wallet.json`.
+Use the Solana CLI tool to create a new keypair file. Choose a memorable path,
+for example, `~/.config/solana/my_new_wallet.json`.
 
 ```bash
 # Install Solana tools if you haven't already: https://docs.solana.com/cli/install
 solana-keygen new --outfile ~/.config/solana/my_new_wallet.json
 ```
 
-This command will output the public key (wallet address) and save the keypair to the specified file. Keep this file secure.
+This command will output the public key (wallet address) and save the keypair to
+the specified file. Keep this file secure.
 
 ### 2. Fund the Wallet (Airdrop)
 
-You can request SOL tokens for your new wallet on networks like devnet or testnet using the `solana airdrop` command. Replace `<YOUR_NEW_WALLET_ADDRESS>` with the public key generated in the previous step.
+You can request SOL tokens for your new wallet on networks like devnet or
+testnet using the `solana airdrop` command. Replace `<YOUR_NEW_WALLET_ADDRESS>`
+with the public key generated in the previous step.
 
 ```bash
 # Make sure your Solana CLI is configured for the desired network (e.g., devnet)
@@ -448,11 +480,14 @@ You can request SOL tokens for your new wallet on networks like devnet or testne
 solana airdrop 2 <YOUR_NEW_WALLET_ADDRESS>
 ```
 
-Wait for the transaction to confirm. You can check the balance with `solana balance <YOUR_NEW_WALLET_ADDRESS>`.
+Wait for the transaction to confirm. You can check the balance with
+`solana balance <YOUR_NEW_WALLET_ADDRESS>`.
 
 ### 3. Print the Private Key
 
-Use the `abb` CLI utility to print the private key in base58 format from your keypair file. This is useful if you need to import the wallet into another application or service.
+Use the `abb` CLI utility to print the private key in base58 format from your
+keypair file. This is useful if you need to import the wallet into another
+application or service.
 
 ```bash
 # First, ensure the CLI is built
@@ -462,23 +497,31 @@ make build-cli
 ./bin/abb util print-private-key --keypair-path ~/.config/solana/my_new_wallet.json
 ```
 
-If your keypair is located at the default path (`~/.config/solana/id.json`), you can omit the `--keypair-path` flag:
+If your keypair is located at the default path (`~/.config/solana/id.json`), you
+can omit the `--keypair-path` flag:
 
 ```bash
 ./bin/abb util print-private-key
 ```
 
-**Important:** Handle your private keys with extreme care. Never commit them to version control or share them publicly.
+**Important:** Handle your private keys with extreme care. Never commit them to
+version control or share them publicly.
 
 ### 4. Finding Token Accounts and Checking Balances (spl-token)
 
-Unlike SOL which is held directly by your main wallet address, SPL Tokens (like USDC) are held in separate Associated Token Accounts (ATAs) linked to your main wallet. You often need to find the address of an ATA or check its token balance.
+Unlike SOL which is held directly by your main wallet address, SPL Tokens (like
+USDC) are held in separate Associated Token Accounts (ATAs) linked to your main
+wallet. You often need to find the address of an ATA or check its token balance.
 
-The `spl-token` command-line utility is essential for this. (You might need to install the Solana Tool Suite if you don't have it: `sh -c "$(curl -sSfL https://release.solana.com/v1.18.4/install)"` - check Solana docs for latest).
+The `spl-token` command-line utility is essential for this. (You might need to
+install the Solana Tool Suite if you don't have it:
+`sh -c "$(curl -sSfL https://release.solana.com/v1.18.4/install)"` - check
+Solana docs for latest).
 
 **Finding an Associated Token Account (ATA) Address:**
 
-To find the specific ATA address for a given owner wallet and a specific token mint:
+To find the specific ATA address for a given owner wallet and a specific token
+mint:
 
 ```bash
 # Replace <TOKEN_MINT_ADDRESS> with the mint (e.g., Devnet USDC)
@@ -503,7 +546,8 @@ This command prints the derived ATA address.
 
 **Checking the Token Balance of an Account:**
 
-Once you know the address of a specific token account (like an ATA), you can check its balance:
+Once you know the address of a specific token account (like an ATA), you can
+check its balance:
 
 ```bash
 # Replace <TOKEN_ACCOUNT_ADDRESS> with the ATA address you found
@@ -515,7 +559,9 @@ spl-token balance --address <TOKEN_ACCOUNT_ADDRESS>
 spl-token balance --address 5U7XDWrusNB6zTGZ8dazJsu67MDzWMco3WGKFYkiLjt1
 ```
 
-This command shows the balance of the specific SPL Token held by that account address. Remember that the ATA itself usually holds 0 SOL; its SOL balance is irrelevant.
+This command shows the balance of the specific SPL Token held by that account
+address. Remember that the ATA itself usually holds 0 SOL; its SOL balance is
+irrelevant.
 
 **Put it all Together: Host a Bounty:**
 
