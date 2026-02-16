@@ -42,7 +42,7 @@ build-cli: ## Build the abb CLI binary
 build-push-cli: ## Build and push CLI Docker image with git hash tag (used by deploy targets)
 	$(call setup_env, .env.server.prod)
 	$(eval GIT_HASH := $(shell git rev-parse --short HEAD))
-	$(eval DYNAMIC_TAG := brojonat/abb-cli:$(GIT_HASH))
+	$(eval DYNAMIC_TAG := $(DOCKER_REPO):$(GIT_HASH))
 	@echo "Building and pushing image: $(DYNAMIC_TAG)"
 	docker build -f Dockerfile -t $(DYNAMIC_TAG) .
 	docker push $(DYNAMIC_TAG)
@@ -80,13 +80,12 @@ deploy-server: ## Deploy server to Kubernetes (prod)
 	$(call setup_env, .env.server.prod)
 	@$(MAKE) build-push-cli
 	$(eval GIT_HASH := $(shell git rev-parse --short HEAD))
-	$(eval DYNAMIC_TAG := brojonat/abb-cli:$(GIT_HASH))
+	$(eval DYNAMIC_TAG := $(DOCKER_REPO):$(GIT_HASH))
 	@echo "Applying server deployment with image: $(DYNAMIC_TAG)"
 	kustomize build --load-restrictor=LoadRestrictionsNone server/k8s/prod | \
-	sed -e "s;{{DOCKER_REPO}};brojonat/abb-cli;g" \
+	sed -e "s;{{DOCKER_REPO}};$(DOCKER_REPO);g" \
 		-e "s;{{GIT_COMMIT_SHA}};$(GIT_HASH);g" | \
 		kubectl apply -f -
-	# No need to patch anymore, the image tag change forces the rollout
 	@echo "Server deployment applied."
 
 # Deploy worker component
@@ -94,13 +93,12 @@ deploy-worker: ## Deploy worker to Kubernetes (prod)
 	$(call setup_env, .env.worker.prod)
 	@$(MAKE) build-push-cli
 	$(eval GIT_HASH := $(shell git rev-parse --short HEAD))
-	$(eval DYNAMIC_TAG := brojonat/abb-cli:$(GIT_HASH))
+	$(eval DYNAMIC_TAG := $(DOCKER_REPO):$(GIT_HASH))
 	@echo "Applying worker deployment with image: $(DYNAMIC_TAG)"
 	kustomize build --load-restrictor=LoadRestrictionsNone worker/k8s/prod | \
-	sed -e "s;{{DOCKER_REPO}};brojonat/abb-cli;g" \
+	sed -e "s;{{DOCKER_REPO}};$(DOCKER_REPO);g" \
 		-e "s;{{GIT_COMMIT_SHA}};$(GIT_HASH);g" | \
 		kubectl apply -f -
-	# No need to patch anymore, the image tag change forces the rollout
 	@echo "Worker deployment applied."
 
 # Deploy all components
